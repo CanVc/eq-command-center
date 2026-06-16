@@ -24,9 +24,10 @@ VALUES (1, 'Initial EQ Market Scanner schema');
 -- -----------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS items (
-    item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Canonical EverQuest item ID. This is stable across EQ item databases
+    -- and must be supplied by importers/enrichers, not generated locally.
+    item_id INTEGER PRIMARY KEY,
 
-    external_item_id TEXT,
     name TEXT NOT NULL UNIQUE,
     normalized_name TEXT NOT NULL UNIQUE,
 
