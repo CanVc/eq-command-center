@@ -1,6 +1,6 @@
 # Story — Layout, navigation et refresh manuel
 
-- **Statut** : À faire
+- **Statut** : Terminé
 - **Date de création** : 2026-06-16
 - **Spec liée** : [docs/UI-spec/UI-spec.md](../UI-spec/UI-spec.md)
 
@@ -18,16 +18,16 @@ Créer un layout avec sidebar/topbar, un sélecteur serveur global et un bouton 
 
 ## Tâches
 
-- [ ] Créer `AppLayout`.
-- [ ] Ajouter navigation : Dashboard, Deals, Market, Items, Settings.
-- [ ] Ajouter sélection serveur, défaut `frostreaver`.
-- [ ] Ajouter bouton `Refresh`.
-- [ ] Ajouter états loading/error communs.
-- [ ] Conserver le serveur choisi en local storage.
-- [ ] Prévoir routing frontend.
+- [x] Créer `AppLayout`.
+- [x] Ajouter navigation : Dashboard, Deals, Market, Items, Settings.
+- [x] Ajouter sélection serveur, défaut `frostreaver`.
+- [x] Ajouter bouton `Refresh`.
+- [x] Ajouter états loading/error communs.
+- [x] Conserver le serveur choisi en local storage.
+- [x] Prévoir routing frontend.
 
 ## Critères d'acceptation
 
-- [ ] Les pages principales sont accessibles via navigation.
-- [ ] Le refresh relance les requêtes sans recharger le navigateur.
-- [ ] Le serveur actif est appliqué aux requêtes API.
+- [x] Les pages principales sont accessibles via navigation.
+- [x] Le refresh relance les requêtes sans recharger le navigateur.
+- [x] Le serveur actif est appliqué aux requêtes API.

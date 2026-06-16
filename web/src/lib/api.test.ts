@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { fetchHealth } from "./api"
+import {
+  buildApiPath,
+  fetchDashboardSummary,
+  fetchDealsPreview,
+  fetchHealth,
+  fetchItemSearchPreview,
+  fetchListingsPreview,
+  fetchSettingsHealth,
+} from "./api"
 
 describe("fetchHealth", () => {
   it("calls the health endpoint through the Vite proxy path", async () => {
@@ -31,5 +39,94 @@ describe("fetchHealth", () => {
         message: "GET /api/health failed with 503",
       })
     )
+  })
+})
+
+describe("page API helpers", () => {
+  it("builds query strings without empty values", () => {
+    expect(
+      buildApiPath("/api/deals", {
+        server: "frostreaver",
+        limit: 5,
+        q: undefined,
+      })
+    ).toBe("/api/deals?server=frostreaver&limit=5")
+  })
+
+  it("applies the active server to page requests", async () => {
+    const fetcher = vi.fn(async () => {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    })
+
+    await fetchDealsPreview("mischief", fetcher)
+    await fetchListingsPreview("mischief", fetcher)
+    await fetchItemSearchPreview("mischief", fetcher)
+
+    expect(fetcher).toHaveBeenNthCalledWith(1, "/api/deals?server=mischief&limit=5&resolved_only=true", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/listings/recent?server=mischief&limit=5", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(3, "/api/items/search?server=mischief&q=stave&limit=5", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
+  })
+
+  it("fetches dashboard and settings with the active server", async () => {
+    const dashboardPayload = {
+      server: "frostreaver",
+      recent_window_hours: 24,
+      min_discount: 30,
+      listings_recent_count: 0,
+      deals_recent_count: 0,
+      krono_latest: {
+        server: "frostreaver",
+        price_pp: null,
+        source: null,
+        confidence: null,
+        last_refresh_at: null,
+      },
+      top_seen_items: [],
+      top_discounts: [],
+    }
+    const healthPayload = { status: "ok", db_path: "C:/tmp/eqmarket.sqlite" }
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(dashboardPayload), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(healthPayload), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+
+    await expect(fetchDashboardSummary("frostreaver", fetcher)).resolves.toEqual(dashboardPayload)
+    await expect(fetchSettingsHealth("frostreaver", fetcher)).resolves.toEqual(healthPayload)
+
+    expect(fetcher).toHaveBeenNthCalledWith(1, "/api/dashboard/summary?server=frostreaver&top_limit=5", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/health?server=frostreaver", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
   })
 })
