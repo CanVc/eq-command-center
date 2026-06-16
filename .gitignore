@@ -19,6 +19,7 @@ env/
 /data/*.sqlite-*
 /data/*.db
 /logs/
+/.tmp/
 
 # Local config/secrets
 config.yaml

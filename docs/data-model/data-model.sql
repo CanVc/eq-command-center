@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS items (
     hp INTEGER,
     mana INTEGER,
     endurance INTEGER,
+    hp_regen INTEGER,
+    mana_regen INTEGER,
+    endurance_regen INTEGER,
 
     str INTEGER,
     sta INTEGER,
@@ -60,9 +63,6 @@ CREATE TABLE IF NOT EXISTS items (
     ratio REAL,
 
     haste INTEGER,
-    click_effect TEXT,
-    proc_effect TEXT,
-    focus_effect TEXT,
 
     required_level INTEGER,
     recommended_level INTEGER,
@@ -109,6 +109,82 @@ CREATE INDEX IF NOT EXISTS idx_item_sources_zone
 
 CREATE INDEX IF NOT EXISTS idx_item_sources_npc_name
     ON item_sources(npc_name);
+
+-- Spell/effect definitions referenced by item click/proc/worn/focus effects.
+-- Lucy/Allakhazam RAW exposes item spell links as spellid0..spellidN with
+-- effecttype0..effecttypeN. The spell itself has id, attrib/base/max/calc slots.
+CREATE TABLE IF NOT EXISTS spells (
+    spell_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    normalized_name TEXT NOT NULL,
+
+    spell_type TEXT,
+    target_type TEXT,
+    skill TEXT,
+    resist_type TEXT,
+
+    mana_cost INTEGER,
+    endurance_cost INTEGER,
+    cast_time_ms INTEGER,
+    recast_time_ms INTEGER,
+    recovery_time_ms INTEGER,
+    duration_ticks INTEGER,
+    duration_formula INTEGER,
+    range_value REAL,
+    aoe_range_value REAL,
+
+    source_server TEXT NOT NULL DEFAULT 'Live',
+    source_primary TEXT,
+    raw_payload TEXT,
+    parser_version TEXT,
+
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT,
+    last_imported_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_spells_normalized_name
+    ON spells(normalized_name);
+
+CREATE TABLE IF NOT EXISTS spell_effect_slots (
+    spell_id INTEGER NOT NULL,
+    slot_index INTEGER NOT NULL,
+
+    effect_attribute_id INTEGER,
+    base_value INTEGER,
+    max_value INTEGER,
+    calc_id INTEGER,
+    description TEXT,
+
+    PRIMARY KEY (spell_id, slot_index),
+    FOREIGN KEY (spell_id) REFERENCES spells(spell_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS item_effects (
+    item_id INTEGER NOT NULL,
+    effect_slot INTEGER NOT NULL,
+
+    spell_id INTEGER NOT NULL,
+    trigger_type TEXT,
+    effect_type_raw INTEGER,
+
+    cast_time_ms INTEGER,
+    required_level INTEGER,
+    effective_level INTEGER,
+    proc_rate INTEGER,
+    charges INTEGER,
+    description TEXT,
+
+    PRIMARY KEY (item_id, effect_slot),
+    FOREIGN KEY (item_id) REFERENCES items(item_id) ON DELETE CASCADE,
+    FOREIGN KEY (spell_id) REFERENCES spells(spell_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_item_effects_spell_id
+    ON item_effects(spell_id);
+
+CREATE INDEX IF NOT EXISTS idx_item_effects_trigger_type
+    ON item_effects(trigger_type);
 
 -- Items seen in logs but not resolved yet.
 CREATE TABLE IF NOT EXISTS pending_items (
@@ -274,6 +350,9 @@ CREATE TABLE IF NOT EXISTS character_equipment (
     hp INTEGER,
     mana INTEGER,
     endurance INTEGER,
+    hp_regen INTEGER,
+    mana_regen INTEGER,
+    endurance_regen INTEGER,
     notes TEXT,
 
     PRIMARY KEY (character_name, slot, slot_index),
