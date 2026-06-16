@@ -495,4 +495,18 @@ CREATE TABLE IF NOT EXISTS import_runs (
 CREATE INDEX IF NOT EXISTS idx_import_runs_source_name
     ON import_runs(source_name);
 
+-- Cursor state for incremental local log imports. The offset is Python's text
+-- stream cookie, not necessarily a raw byte count, but it is safe to pass back
+-- to seek() for the same file/encoding.
+CREATE TABLE IF NOT EXISTS log_import_state (
+    log_path TEXT NOT NULL,
+    server TEXT NOT NULL,
+    file_size INTEGER,
+    file_mtime REAL,
+    last_position INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (log_path, server)
+);
+
 COMMIT;

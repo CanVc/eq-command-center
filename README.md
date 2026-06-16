@@ -29,3 +29,51 @@ Initialize the local database:
 ```bash
 eqmarket init-db --db data/eqmarket.sqlite
 ```
+
+Preview EverQuest auction parsing without writing to SQLite:
+
+```bash
+eqmarket import-log --log "C:\\Users\\Public\\Daybreak Game Company\\Installed Games\\EverQuest\\Logs\\eqlog_Dreadbank_frostreaver.txt" --dry-run
+```
+
+Import parsed WTS auction listings into SQLite:
+
+```bash
+eqmarket import-log --log "C:\\Users\\Public\\Daybreak Game Company\\Installed Games\\EverQuest\\Logs\\eqlog_Dreadbank_frostreaver.txt" --db data/eqmarket.sqlite --server frostreaver
+```
+
+Resolve pending item names into Lucy item/spell data:
+
+```bash
+eqmarket enrich-pending --db data/eqmarket.sqlite --limit 25
+```
+
+Resolved rows stay in `pending_items` for audit with `status = 'resolved'`, but they disappear from the active pending queue.
+
+Import TLP Auctions market reference prices and Krono conversion for local resolved listings/watchlist items:
+
+```bash
+eqmarket import-tlp-prices --db data/eqmarket.sqlite --server frostreaver --limit 100 --history-days 3
+```
+
+Useful variants:
+
+```bash
+# Fast seed from cached TLP catalog medians only
+eqmarket import-tlp-prices --db data/eqmarket.sqlite --server frostreaver --no-history
+
+# Seed every TLP catalog item/median into items + market_prices
+eqmarket import-tlp-prices --db data/eqmarket.sqlite --server frostreaver --all-catalog --no-history
+```
+
+Score recent resolved listings against imported market prices and print console alerts:
+
+```bash
+eqmarket score-listings --db data/eqmarket.sqlite --server frostreaver --limit 200 --min-discount 30
+```
+
+Run the full alert pipeline in one command. TLP history prices default to the last 3 days, which is safer for a fresh server with rapidly falling prices:
+
+```bash
+eqmarket run-alerts --db data/eqmarket.sqlite --server frostreaver --log "C:\\Users\\Public\\Daybreak Game Company\\Installed Games\\EverQuest\\Logs\\eqlog_Dreadbank_frostreaver.txt" --history-days 3
+```
