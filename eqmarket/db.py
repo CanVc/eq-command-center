@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import sqlite3
 from pathlib import Path
 
@@ -14,6 +15,7 @@ def init_db(db_path: Path) -> None:
 
     schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
 
-    with sqlite3.connect(db_path) as connection:
+    with closing(sqlite3.connect(db_path)) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.executescript(schema_sql)
+        connection.commit()

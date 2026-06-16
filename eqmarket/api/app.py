@@ -8,6 +8,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 
 from eqmarket.api.db import resolve_db_path
+from eqmarket.api.routes.dashboard import router as dashboard_router
 
 
 LOGGER = logging.getLogger(__name__)
@@ -34,6 +35,8 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             "status": "ok",
             "db_path": str(app.state.db_path),
         }
+
+    app.include_router(dashboard_router)
 
     return app
 
