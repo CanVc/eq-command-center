@@ -44,13 +44,23 @@ CREATE TABLE IF NOT EXISTS items (
     mana_regen INTEGER,
     endurance_regen INTEGER,
 
-    str INTEGER,
-    sta INTEGER,
-    agi INTEGER,
-    dex INTEGER,
-    wis INTEGER,
-    int_stat INTEGER,
-    cha INTEGER,
+    -- Lucy RAW base attribute fields.
+    astr INTEGER,
+    asta INTEGER,
+    aagi INTEGER,
+    adex INTEGER,
+    awis INTEGER,
+    aint INTEGER,
+    acha INTEGER,
+
+    -- Lucy RAW heroic attribute fields.
+    heroic_str INTEGER,
+    heroic_sta INTEGER,
+    heroic_agi INTEGER,
+    heroic_dex INTEGER,
+    heroic_wis INTEGER,
+    heroic_int INTEGER,
+    heroic_cha INTEGER,
 
     sv_magic INTEGER,
     sv_fire INTEGER,
@@ -88,19 +98,26 @@ CREATE INDEX IF NOT EXISTS idx_items_slot
 CREATE INDEX IF NOT EXISTS idx_items_source_primary
     ON items(source_primary);
 
--- Sources/drops for known items.
+-- Loot/source information for known items.
+-- data_source is where the information came from: raidloot, eqresource, lucy,
+-- allakhazam, manual, etc.
+-- content_type is the in-game content category: raid, group, quest, crafted,
+-- vendor, world_drop, unknown, etc.
 CREATE TABLE IF NOT EXISTS item_sources (
     item_id INTEGER NOT NULL,
-    source_name TEXT NOT NULL,
+    data_source TEXT NOT NULL,
     source_url TEXT,
     external_item_id TEXT,
+
+    content_type TEXT,
     zone TEXT,
+    source_area TEXT,
     npc_name TEXT,
-    raid_group TEXT,
+
     last_checked_at TEXT,
     confidence TEXT,
 
-    PRIMARY KEY (item_id, source_name, source_url),
+    PRIMARY KEY (item_id, data_source, source_url),
     FOREIGN KEY (item_id) REFERENCES items(item_id) ON DELETE CASCADE
 );
 
@@ -110,9 +127,13 @@ CREATE INDEX IF NOT EXISTS idx_item_sources_zone
 CREATE INDEX IF NOT EXISTS idx_item_sources_npc_name
     ON item_sources(npc_name);
 
+CREATE INDEX IF NOT EXISTS idx_item_sources_content_type
+    ON item_sources(content_type);
+
 -- Spell/effect definitions referenced by item click/proc/worn/focus effects.
 -- Lucy/Allakhazam RAW exposes item spell links as spellid0..spellidN with
 -- effecttype0..effecttypeN. The spell itself has id, attrib/base/max/calc slots.
+-- Item effect variants and player-cast spells keep their distinct spell IDs.
 CREATE TABLE IF NOT EXISTS spells (
     spell_id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -164,6 +185,9 @@ CREATE TABLE IF NOT EXISTS item_effects (
     item_id INTEGER NOT NULL,
     effect_slot INTEGER NOT NULL,
 
+    -- spell_id is the exact Lucy/EQ spell referenced by spellidN.
+    -- trigger_type is inferred from effecttypeN/detail text when known:
+    -- click, proc, worn, focus, any_slot_can_equip, unknown.
     spell_id INTEGER NOT NULL,
     trigger_type TEXT,
     effect_type_raw INTEGER,
@@ -217,8 +241,10 @@ CREATE TABLE IF NOT EXISTS market_listings (
     item_id INTEGER,
 
     price_raw TEXT,
+    price_amount REAL,
+    price_currency TEXT,
     price_pp INTEGER,
-    price_krono REAL,
+    krono_price_pp_used INTEGER,
 
     raw_line TEXT,
     source TEXT NOT NULL,
@@ -268,14 +294,17 @@ CREATE TABLE IF NOT EXISTS market_prices (
 CREATE INDEX IF NOT EXISTS idx_market_prices_server
     ON market_prices(server);
 
--- Manual overrides are intentionally first-class because rare high-value items
--- often have sparse or misleading market samples.
-CREATE TABLE IF NOT EXISTS manual_market_prices (
+-- Manual market price overrides are intentionally first-class because rare
+-- high-value items often have sparse or misleading market samples.
+-- price_currency is usually 'pp' or 'krono'. Krono values are converted to PP
+-- at scoring time using krono_prices.
+CREATE TABLE IF NOT EXISTS market_prices_override (
     item_id INTEGER NOT NULL,
     server TEXT NOT NULL,
 
-    value_pp INTEGER,
-    value_krono REAL,
+    price_amount REAL NOT NULL,
+    price_currency TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 100,
     confidence TEXT NOT NULL DEFAULT 'manual',
     notes TEXT,
 
@@ -305,8 +334,8 @@ CREATE TABLE IF NOT EXISTS watchlist_items (
     normalized_item_name TEXT NOT NULL,
 
     alert_below_pp INTEGER,
-    estimated_value_pp INTEGER,
-    estimated_value_krono REAL,
+    estimated_price_amount REAL,
+    estimated_price_currency TEXT,
     min_deal_score REAL,
 
     enabled INTEGER NOT NULL DEFAULT 1,
@@ -353,6 +382,23 @@ CREATE TABLE IF NOT EXISTS character_equipment (
     hp_regen INTEGER,
     mana_regen INTEGER,
     endurance_regen INTEGER,
+
+    astr INTEGER,
+    asta INTEGER,
+    aagi INTEGER,
+    adex INTEGER,
+    awis INTEGER,
+    aint INTEGER,
+    acha INTEGER,
+
+    heroic_str INTEGER,
+    heroic_sta INTEGER,
+    heroic_agi INTEGER,
+    heroic_dex INTEGER,
+    heroic_wis INTEGER,
+    heroic_int INTEGER,
+    heroic_cha INTEGER,
+
     notes TEXT,
 
     PRIMARY KEY (character_name, slot, slot_index),
