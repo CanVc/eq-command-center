@@ -126,8 +126,8 @@ def _fetch_top_seen_items(
     rows = connection.execute(
         """
         SELECT
-            ml.item_id,
-            COALESCE(i.name, ml.item_name) AS item_name,
+            MAX(ml.item_id) AS item_id,
+            COALESCE(MAX(i.name), MIN(ml.item_name)) AS item_name,
             COUNT(*) AS seen_count,
             MAX(ml.timestamp) AS last_seen_at
         FROM market_listings ml
@@ -136,9 +136,10 @@ def _fetch_top_seen_items(
         WHERE lower(ml.server) = ?
           AND datetime(ml.timestamp) >= datetime('now', ?)
         GROUP BY
-            ml.item_id,
-            COALESCE(ml.normalized_item_name, lower(ml.item_name)),
-            COALESCE(i.name, ml.item_name)
+            CASE
+                WHEN ml.item_id IS NOT NULL THEN 'item:' || ml.item_id
+                ELSE 'name:' || COALESCE(ml.normalized_item_name, lower(ml.item_name))
+            END
         ORDER BY seen_count DESC, last_seen_at DESC
         LIMIT ?
         """,

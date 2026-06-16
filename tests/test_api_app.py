@@ -26,3 +26,14 @@ class ApiAppTests(unittest.TestCase):
                     "db_path": str(db_path.resolve()),
                 },
             )
+
+    def test_local_vite_origin_is_allowed_by_cors(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            app = create_app(db_path)
+
+            with TestClient(app) as client:
+                response = client.get("/api/health", headers={"Origin": "http://localhost:5173"})
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.headers["access-control-allow-origin"], "http://localhost:5173")

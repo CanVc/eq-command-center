@@ -24,10 +24,28 @@ python -m venv .venv
 pip install -e .
 ```
 
-Run the test suite:
+Run the test suite. The script auto-reruns with `.venv/Scripts/python.exe` when the local venv exists:
 
 ```bash
-python -m unittest discover -s tests
+python scripts/run_tests.py
+```
+
+Useful variants:
+
+```bash
+# Verbose unittest output
+python scripts/run_tests.py --verbose
+
+# Run automated tests, then a smoke test against the local DB
+python scripts/run_tests.py --smoke --db data/eqmarket.sqlite
+```
+
+Testing policy and conventions are documented in `docs/testing-policy.md`.
+
+Run only the smoke test against a local SQLite database:
+
+```bash
+python scripts/smoke_api.py --db data/eqmarket.sqlite
 ```
 
 Initialize the local database:

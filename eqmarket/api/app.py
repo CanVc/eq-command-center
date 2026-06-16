@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import AsyncIterator
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from eqmarket.api.db import resolve_db_path
 from eqmarket.api.routes.dashboard import router as dashboard_router
@@ -15,6 +16,11 @@ from eqmarket.api.routes.listings import router as listings_router
 
 
 LOGGER = logging.getLogger(__name__)
+
+LOCAL_WEB_ORIGINS = (
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+)
 
 
 def create_app(db_path: str | Path | None = None) -> FastAPI:
@@ -31,6 +37,12 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.db_path = resolved_db_path
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(LOCAL_WEB_ORIGINS),
+        allow_methods=["GET"],
+        allow_headers=["*"],
+    )
 
     @app.get("/api/health")
     def health() -> dict[str, str]:

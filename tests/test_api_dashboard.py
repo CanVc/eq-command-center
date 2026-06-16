@@ -40,6 +40,34 @@ class ApiDashboardTests(unittest.TestCase):
             self.assertEqual(payload["top_discounts"][0]["market_price_source"], "avg_pp")
             self.assertEqual(payload["top_discounts"][0]["discount_pct"], 60.0)
 
+    def test_summary_merges_resolved_item_name_variants_in_top_seen_items(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            _seed_dashboard_fixture(db_path)
+            with closing(sqlite3.connect(db_path)) as connection:
+                connection.execute(
+                    """
+                    INSERT INTO market_listings (
+                        server, timestamp, seller, item_name, normalized_item_name, item_id,
+                        price_raw, price_pp, source, confidence
+                    ) VALUES ('frostreaver', datetime('now', '-30 minutes'), 'VariantSeller',
+                              'Stave of Shielding MQ', 'stave of shielding mq', 101,
+                              '9k', 9000, 'eq_log', 'parsed')
+                    """
+                )
+                connection.commit()
+            app = create_app(db_path)
+
+            with TestClient(app) as client:
+                response = client.get("/api/dashboard/summary", params={"server": "frostreaver"})
+
+            self.assertEqual(response.status_code, 200)
+            top_seen_staves = [item for item in response.json()["top_seen_items"] if item["item_id"] == 101]
+            self.assertEqual(len(top_seen_staves), 1)
+            self.assertEqual(top_seen_staves[0]["item_name"], "Stave of Shielding")
+            self.assertEqual(top_seen_staves[0]["seen_count"], 3)
+
     def test_krono_latest_returns_empty_payload_when_server_has_no_krono_price(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "eqmarket.sqlite"
