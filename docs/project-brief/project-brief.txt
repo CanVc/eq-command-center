@@ -1,0 +1,679 @@
+# EQ Market Scanner / Gear Finder
+
+## Objectif
+
+Créer un projet séparé pour surveiller le marché EverQuest en temps réel, détecter les grosses affaires, et aider à trouver des upgrades d’équipement pour les personnages boxés.
+
+Le serveur cible est un serveur TLP / random loot où les objets normalement `NO TRADE` sont considérés comme échangeables. Les flags `NO TRADE` peuvent être importés comme information brute, mais ne doivent pas servir de filtre bloquant.
+
+Le projet doit permettre de répondre à des cas comme :
+
+* détecter immédiatement une annonce `WTS Rowyl's Metal Armguards 4k` alors que l’objet vaut plusieurs Kronos ;
+* surveiller les objets de Temple of Veeshan ;
+* chercher les pièces tank avec plus d’AC / HP que l’équipement actuel ;
+* scorer les armes monk / SK selon ratio, stats, prix ;
+* suivre le marché en plat et en équivalent Krono.
+
+---
+
+## Principe général
+
+Le projet repose sur trois briques principales :
+
+1. **Watcher de logs EQ**
+
+   * lit le fichier `eqlog_*.txt` en temps réel ;
+   * extrait les annonces de vente ;
+   * récupère le nom complet de l’objet et le prix ;
+   * déclenche une analyse immédiate.
+
+2. **Base locale SQLite**
+
+   * stocke les objets connus ;
+   * stocke les stats d’équipement ;
+   * stocke les sources de loot ;
+   * stocke les annonces vues ;
+   * stocke le cache de prix marché.
+
+3. **Importeurs / enrichisseurs**
+
+   * RaidLoot pour le raid gear structuré ;
+   * EQResource pour enrichir les objets vus en vente ;
+   * Allakhazam seulement en fallback si EQResource ne suffit pas.
+
+---
+
+## Sources de données
+
+### Source temps réel : logs EverQuest
+
+Le log local du personnage en jeu est la source prioritaire pour détecter les annonces.
+
+Il est plus rapide que n’importe quelle API externe.
+
+Exemple :
+
+```text
+[Tue Jun 16 10:34:12 2026] Nebblastin auctions, 'WTS Rowyl's Metal Armguards 4k'
+```
+
+Le watcher doit extraire :
+
+```text
+seller = Nebblastin
+item_name = Rowyl's Metal Armguards
+price_raw = 4k
+price_pp = 4000
+source = eq_log
+```
+
+Hypothèse simplificatrice retenue : le nom de l’objet est complet.
+
+On ne gère pas les alias en première version.
+
+---
+
+### RaidLoot
+
+RaidLoot est utilisé pour les imports ciblés de raid gear, par exemple :
+
+```text
+https://www.raidloot.com/raid/oldtov
+```
+
+Utilisation prévue :
+
+```bash
+eqmarket import raidloot --url https://www.raidloot.com/raid/oldtov --zone "Temple of Veeshan"
+```
+
+Données intéressantes à importer :
+
+* nom de l’objet ;
+* item ID externe ;
+* type ;
+* slot ;
+* classes ;
+* AC ;
+* HP ;
+* Mana ;
+* Endurance ;
+* stats primaires ;
+* resists ;
+* damage ;
+* delay ;
+* ratio ;
+* click / proc / focus ;
+* required level ;
+* flags ;
+* boss / source ;
+* zone.
+
+Le flag `NO TRADE` est ignoré fonctionnellement pour ce serveur.
+
+---
+
+### EQResource
+
+EQResource est la source primaire pour enrichir les objets vus en vente mais absents de la base locale.
+
+Cas d’usage :
+
+```text
+WTS Silver Chitin Hand Wraps 8k
+```
+
+Workflow :
+
+```text
+1. item inconnu dans SQLite
+2. lookup par nom exact sur EQResource
+3. récupération des stats / slots / classes / icon_id
+4. stockage local
+5. analyse upgrade / deal
+```
+
+EQResource est préféré à Allakhazam pour l’enrichissement automatique car ses pages item semblent plus faciles à parser proprement.
+
+---
+
+### Allakhazam
+
+Allakhazam est utilisé uniquement en fallback :
+
+* si EQResource ne trouve pas l’objet ;
+* si certaines informations historiques / anciennes manquent ;
+* éventuellement pour confirmer une source de drop.
+
+Il ne doit pas être la source primaire de parsing automatique.
+
+---
+
+### TLP Auctions / API marché
+
+L’API ou les pages TLP Auctions servent au cache de prix marché, pas à la détection temps réel principale.
+
+Utilisation :
+
+* récupérer prix moyens / historiques ;
+* récupérer valeur actuelle du Krono ;
+* calculer une valeur marché robuste ;
+* détecter les objets vendus très sous leur prix habituel.
+
+Important : ne pas utiliser l’average brut comme seule valeur.
+
+Préférer :
+
+* médiane ;
+* percentile 25 ;
+* cache manuel pour les très gros objets ;
+* équivalent Krono.
+
+---
+
+## Architecture recommandée
+
+```text
+eq-market-scanner/
+  README.md
+  config.yaml
+  data/
+    eqmarket.sqlite
+  scripts/
+    import_raidloot.py
+    enrich_item.py
+    watch_eq_log.py
+    refresh_market_prices.py
+  eqmarket/
+    __init__.py
+    db.py
+    models.py
+    parser_log.py
+    parser_price.py
+    sources/
+      raidloot.py
+      eqresource.py
+      allakhazam.py
+      tlp_auctions.py
+    scoring/
+      deals.py
+      gear.py
+    alerts/
+      console.py
+      discord.py
+      sound.py
+```
+
+---
+
+## Schéma SQLite proposé
+
+### `items`
+
+```sql
+CREATE TABLE items (
+    item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_item_id TEXT,
+    name TEXT NOT NULL UNIQUE,
+    normalized_name TEXT NOT NULL UNIQUE,
+
+    item_type TEXT,
+    slot TEXT,
+    classes TEXT,
+    races TEXT,
+
+    ac INTEGER,
+    hp INTEGER,
+    mana INTEGER,
+    endurance INTEGER,
+
+    str INTEGER,
+    sta INTEGER,
+    agi INTEGER,
+    dex INTEGER,
+    wis INTEGER,
+    int_stat INTEGER,
+    cha INTEGER,
+
+    sv_magic INTEGER,
+    sv_fire INTEGER,
+    sv_cold INTEGER,
+    sv_poison INTEGER,
+    sv_disease INTEGER,
+
+    damage INTEGER,
+    delay INTEGER,
+    ratio REAL,
+
+    haste INTEGER,
+    click_effect TEXT,
+    proc_effect TEXT,
+    focus_effect TEXT,
+
+    required_level INTEGER,
+    recommended_level INTEGER,
+
+    icon_id INTEGER,
+    flags TEXT,
+
+    source_primary TEXT,
+    last_imported_at TEXT
+);
+```
+
+---
+
+### `item_sources`
+
+```sql
+CREATE TABLE item_sources (
+    item_id INTEGER NOT NULL,
+    source_name TEXT NOT NULL,
+    source_url TEXT,
+    external_item_id TEXT,
+    zone TEXT,
+    npc_name TEXT,
+    raid_group TEXT,
+    last_checked_at TEXT,
+    confidence TEXT,
+    PRIMARY KEY (item_id, source_name, source_url),
+    FOREIGN KEY(item_id) REFERENCES items(item_id)
+);
+```
+
+---
+
+### `market_listings`
+
+```sql
+CREATE TABLE market_listings (
+    listing_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    seller TEXT,
+    item_name TEXT NOT NULL,
+    item_id INTEGER,
+    price_raw TEXT,
+    price_pp INTEGER,
+    price_krono REAL,
+    raw_line TEXT,
+    source TEXT NOT NULL,
+    confidence TEXT,
+    seen_hash TEXT UNIQUE,
+    FOREIGN KEY(item_id) REFERENCES items(item_id)
+);
+```
+
+---
+
+### `market_prices`
+
+```sql
+CREATE TABLE market_prices (
+    item_id INTEGER NOT NULL,
+    server TEXT NOT NULL,
+    median_pp INTEGER,
+    p25_pp INTEGER,
+    p75_pp INTEGER,
+    avg_pp INTEGER,
+    sample_size INTEGER,
+    last_refresh_at TEXT,
+    source TEXT,
+    PRIMARY KEY (item_id, server),
+    FOREIGN KEY(item_id) REFERENCES items(item_id)
+);
+```
+
+---
+
+### `characters`
+
+```sql
+CREATE TABLE characters (
+    character_name TEXT PRIMARY KEY,
+    class TEXT NOT NULL,
+    level INTEGER
+);
+```
+
+---
+
+### `character_equipment`
+
+```sql
+CREATE TABLE character_equipment (
+    character_name TEXT NOT NULL,
+    slot TEXT NOT NULL,
+    item_id INTEGER,
+    ac INTEGER,
+    hp INTEGER,
+    mana INTEGER,
+    notes TEXT,
+    PRIMARY KEY (character_name, slot),
+    FOREIGN KEY(character_name) REFERENCES characters(character_name),
+    FOREIGN KEY(item_id) REFERENCES items(item_id)
+);
+```
+
+---
+
+## Parsing des prix
+
+Le parser doit gérer au minimum :
+
+```text
+4000
+4k
+4,000
+4,000pp
+4000pp
+5kr
+5 krono
+5 kronos
+```
+
+Conversion :
+
+```text
+4k = 4000pp
+5kr = 5 × krono_pp_current
+```
+
+Le prix du Krono peut être :
+
+* saisi dans `config.yaml` ;
+* rafraîchi via API TLP Auctions ;
+* mis à jour toutes les 5 à 10 minutes.
+
+---
+
+## Détection des deals
+
+Score simple :
+
+```text
+deal_score = market_value_pp / listed_price_pp
+```
+
+Exemples :
+
+```text
+1.5x  = bon prix
+2x    = affaire
+4x    = très grosse affaire
+10x+  = erreur de prix probable
+```
+
+Exemple Rowyl :
+
+```text
+expected = 5 Kronos
+krono_pp = 16000
+market_value = 80000pp
+listed_price = 4000pp
+deal_score = 20x
+```
+
+Résultat : alerte critique.
+
+---
+
+## Niveaux d’alerte
+
+```text
+INFO     : prix au moins 30% sous marché
+GOOD     : prix au moins 50% sous marché
+INSANE   : prix au moins 70% sous marché
+CRITICAL : prix extrêmement bas ou seuil manuel dépassé
+```
+
+---
+
+## Gear finder
+
+Le gear finder compare les objets en vente avec l’équipement actuel d’un personnage.
+
+Exemple de demande :
+
+```bash
+eqmarket upgrades --char Dreadnought --slot LEGS --max-price 20000
+```
+
+Critères possibles :
+
+* classe du personnage ;
+* slot ;
+* AC supérieure à l’actuel ;
+* HP supérieur à l’actuel ;
+* prix maximum ;
+* source de loot : ToV, Kael, VP, etc. ;
+* pondération tank / melee / caster / priest.
+
+---
+
+## Profils de scoring
+
+Exemple `config.yaml` :
+
+```yaml
+server: Frostreaver
+
+krono:
+  manual_price_pp: 16000
+  cache_ttl_minutes: 10
+
+thresholds:
+  analyze_if_listed_price_above_pp: 3000
+  alert_discount_ratio: 0.50
+  critical_discount_ratio: 0.75
+  min_market_value_pp: 5000
+
+sources:
+  ignore_no_trade: true
+
+profiles:
+  dreadnought_tank:
+    character: Dreadnought
+    class: SHD
+    slots:
+      - CHEST
+      - LEGS
+      - ARMS
+      - WRIST
+      - HANDS
+      - FEET
+      - HEAD
+    weights:
+      ac: 100
+      hp: 1
+      sta: 5
+      sv_magic: 2
+      sv_fire: 1
+      sv_cold: 1
+    max_price_pp: 30000
+
+  neah_monk:
+    character: Neah
+    class: MNK
+    weights:
+      ac: 30
+      hp: 1
+      haste: 300
+      weapon_ratio: 1000
+    max_price_pp: 25000
+```
+
+---
+
+## Watcher de log
+
+Boucle cible :
+
+```text
+1. suivre le fichier eqlog en temps réel
+2. détecter les lignes auction
+3. ignorer WTB / PC / price check
+4. extraire nom complet + prix
+5. insérer dans market_listings
+6. résoudre item_id depuis items.name
+7. si inconnu :
+   - enrichir via EQResource
+   - fallback Allakhazam
+8. scorer deal
+9. scorer upgrade
+10. alerter si utile
+```
+
+---
+
+## Alertes
+
+Première version :
+
+* console ;
+* son local ;
+* message Discord webhook.
+
+Exemple Discord :
+
+```text
+🚨 CRITICAL DEAL
+
+Rowyl's Metal Armguards
+Seller: Nebblastin
+Price: 4,000pp
+Market: ~80,000pp / ~5kr
+Score: 20x
+
+Suggested tell:
+/tell Nebblastin Hi, still selling Rowyl's Metal Armguards?
+```
+
+---
+
+## Versions proposées
+
+### v1 — Market scanner minimal
+
+Objectif : détecter les grosses affaires sur les objets déjà connus.
+
+Fonctions :
+
+* SQLite ;
+* import RaidLoot ToV ;
+* lecture log EQ ;
+* parsing WTS + prix ;
+* matching nom complet ;
+* alertes console/Discord ;
+* ignore `NO TRADE`.
+
+---
+
+### v2 — Enrichissement group gear
+
+Objectif : gérer les objets non présents dans RaidLoot.
+
+Fonctions :
+
+* lookup EQResource par nom exact ;
+* stockage stats local ;
+* fallback Allakhazam ;
+* cache long ;
+* pending review si item introuvable.
+
+---
+
+### v3 — Gear finder
+
+Objectif : trouver automatiquement les upgrades.
+
+Fonctions :
+
+* équipement actuel des personnages ;
+* profils tank / monk / caster / priest ;
+* scoring par slot ;
+* commandes `upgrades`;
+* alertes uniquement si l’objet est utile à un perso.
+
+---
+
+### v4 — Market intelligence
+
+Objectif : mieux suivre les prix.
+
+Fonctions :
+
+* cache TLP Auctions ;
+* médiane / percentiles ;
+* suivi Krono ;
+* historique local des prix vus ;
+* détection de tendance ;
+* journal des deals ratés.
+
+---
+
+## Commandes cibles
+
+```bash
+eqmarket import raidloot --url https://www.raidloot.com/raid/oldtov --zone "Temple of Veeshan"
+
+eqmarket watch-log --file "C:/EverQuest/Logs/eqlog_Dreadnought_frostreaver.txt"
+
+eqmarket enrich "Silver Chitin Hand Wraps"
+
+eqmarket upgrades --char Dreadnought --slot LEGS --max-price 20000
+
+eqmarket deals --source tov --min-score 2
+
+eqmarket refresh-prices --server Frostreaver
+```
+
+---
+
+## Choix techniques
+
+* Langage : Python
+* Base : SQLite
+* Parsing HTML : BeautifulSoup / lxml
+* HTTP : requests ou httpx
+* Config : YAML
+* CLI : argparse ou typer
+* Alertes : Discord webhook en priorité
+* Interface graphique : pas nécessaire en v1
+
+---
+
+## Points de vigilance
+
+* Ne pas crawler une base complète externe.
+* Importer seulement des périmètres utiles : ToV, Kael, VP, etc.
+* Enrichir les items à la demande.
+* Mettre du cache partout.
+* Ne pas dépendre d’un average brut.
+* Ne pas bloquer sur `NO TRADE`.
+* Ne pas attendre l’API pour alerter si le cache local suffit.
+* Le watcher doit être rapide : log local d’abord, API ensuite.
+
+---
+
+## Décision de design
+
+Le projet doit être conçu comme un outil local personnel :
+
+```text
+logs EQ locaux
++ DB locale
++ imports ciblés
++ enrichissement à la demande
++ alertes temps réel
+```
+
+Il ne doit pas être conçu comme un clone complet d’une base EverQuest tierce.
+
+Le premier périmètre pertinent est :
+
+```text
+Temple of Veeshan / oldtov
++ watcher log
++ deals critiques
+```

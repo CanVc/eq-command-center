@@ -1,0 +1,37 @@
+server: Frostreaver
+
+krono:
+  manual_price_pp: 16000
+  cache_ttl_minutes: 10
+
+thresholds:
+  analyze_if_listed_price_above_pp: 3000
+  alert_discount_ratio: 0.50
+  critical_discount_ratio: 0.75
+  min_market_value_pp: 5000
+
+sources:
+  ignore_no_trade: true
+
+discord:
+  enabled: false
+  webhook_url_env: EQMARKET_DISCORD_WEBHOOK
+
+watchlist:
+  - name: Rowyl's Metal Armguards
+    critical_below_pp: 20000
+    estimated_value_krono: 5
+
+profiles:
+  dreadnought_tank:
+    character: Dreadnought
+    class: SHD
+    slots: [CHEST, LEGS, ARMS, WRIST, HANDS, FEET, HEAD]
+    weights:
+      ac: 100
+      hp: 1
+      sta: 5
+      sv_magic: 2
+      sv_fire: 1
+      sv_cold: 1
+    max_price_pp: 30000
