@@ -22,10 +22,10 @@ export type DashboardSummary = {
     seen_count: number
     last_seen_at: string
   }>
-  top_discounts: DealPreview[]
+  top_discounts: DashboardDealPreview[]
 }
 
-export type DealPreview = {
+export type DashboardDealPreview = {
   listing_id: number
   timestamp: string
   seller: string | null
@@ -34,8 +34,20 @@ export type DealPreview = {
   price_raw: string | null
   listing_price_pp: number
   market_price_pp: number
+  market_price_source: string | null
   discount_pct: number
+  sample_size: number | null
+  confidence: string | null
+}
+
+export type DealPreview = DashboardDealPreview & {
+  item: {
+    item_id: number | null
+    name: string
+  }
+  potential_profit_pp: number
   score: number
+  deal_score: number
   resolved: boolean
 }
 

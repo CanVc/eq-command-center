@@ -24,8 +24,10 @@ import {
   type ItemSearchResult,
   type ListingPreview,
 } from "@/lib/api"
+import { formatPrice } from "@/lib/format"
 import { APP_PAGES, pageIdFromPath, pathForPage, type AppPageId } from "@/lib/navigation"
 import { readPreferredServer, savePreferredServer } from "@/lib/server-preference"
+import { DashboardPage } from "@/pages/dashboard-page"
 
 type PageData =
   | { page: "dashboard"; payload: DashboardSummary }
@@ -200,40 +202,6 @@ function PageContent({ data, server }: { data: PageData; server: string }) {
   }
 }
 
-function DashboardPage({ summary }: { summary: DashboardSummary }) {
-  return (
-    <PagePanel title="Server Overview" eyebrow={summary.server}>
-      <MetricGrid>
-        <Metric label="Recent listings" value={formatNumber(summary.listings_recent_count)} />
-        <Metric label="Deals detected" value={formatNumber(summary.deals_recent_count)} tone="emerald" />
-        <Metric label="Krono" value={formatPrice(summary.krono_latest.price_pp)} tone="amber" />
-      </MetricGrid>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <DataBlock title="Top Discounts">
-          {summary.top_discounts.length > 0 ? (
-            <DealsTable deals={summary.top_discounts} />
-          ) : (
-            <EmptyState label="No discounts returned" />
-          )}
-        </DataBlock>
-        <DataBlock title="Most Seen Items">
-          {summary.top_seen_items.length > 0 ? (
-            <SimpleList
-              rows={summary.top_seen_items.map((item) => ({
-                label: item.item_name,
-                value: `${item.seen_count} seen`,
-              }))}
-            />
-          ) : (
-            <EmptyState label="No item activity returned" />
-          )}
-        </DataBlock>
-      </div>
-    </PagePanel>
-  )
-}
-
 function DealsPage({ deals }: { deals: DealPreview[] }) {
   return (
     <PagePanel title="Deal Queue" eyebrow={`${deals.length} rows`}>
@@ -345,42 +313,6 @@ function PagePanel({
   )
 }
 
-function MetricGrid({ children }: { children: ReactNode }) {
-  return <div className="grid gap-3 sm:grid-cols-3">{children}</div>
-}
-
-function Metric({
-  label,
-  value,
-  tone = "neutral",
-}: {
-  label: string
-  value: string
-  tone?: "neutral" | "emerald" | "amber"
-}) {
-  const toneClass = {
-    neutral: "border-border bg-muted/20",
-    emerald: "border-emerald-500/25 bg-emerald-500/10",
-    amber: "border-amber-500/30 bg-amber-500/10",
-  }[tone]
-
-  return (
-    <div className={`rounded-md border p-3 ${toneClass}`}>
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="mt-2 text-2xl font-semibold">{value}</p>
-    </div>
-  )
-}
-
-function DataBlock({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="min-w-0 rounded-md border bg-background">
-      <h3 className="border-b px-3 py-2 text-sm font-medium">{title}</h3>
-      <div className="p-3">{children}</div>
-    </section>
-  )
-}
-
 function DealsTable({ deals }: { deals: DealPreview[] }) {
   return (
     <Table>
@@ -428,18 +360,6 @@ function SimpleList({ rows }: { rows: Array<{ label: string; value: string }> })
 
 function EmptyState({ label }: { label: string }) {
   return <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">{label}</p>
-}
-
-function formatPrice(value: number | null): string {
-  if (value === null) {
-    return "n/a"
-  }
-
-  return `${formatNumber(value)}pp`
-}
-
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat("en-US").format(value)
 }
 
 export default App

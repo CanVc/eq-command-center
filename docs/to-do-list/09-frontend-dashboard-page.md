@@ -1,6 +1,6 @@
 # Story — Page Dashboard
 
-- **Statut** : À faire
+- **Statut** : Terminé
 - **Date de création** : 2026-06-16
 - **Spec liée** : [docs/UI-spec/UI-spec.md](../UI-spec/UI-spec.md)
 
@@ -18,16 +18,16 @@ Consommer `/api/dashboard/summary`, afficher des cards shadcn, une table top dea
 
 ## Tâches
 
-- [ ] Créer `DashboardPage`.
-- [ ] Afficher cards : listings récents, deals détectés, prix Krono, dernier refresh.
-- [ ] Afficher top discounts récents.
-- [ ] Afficher top items les plus vus.
-- [ ] Brancher le bouton refresh manuel.
-- [ ] Ajouter skeletons pendant chargement.
-- [ ] Utiliser `ItemLink` pour les noms d'items.
+- [x] Créer `DashboardPage`.
+- [x] Afficher cards : listings récents, deals détectés, prix Krono, dernier refresh.
+- [x] Afficher top discounts récents.
+- [x] Afficher top items les plus vus.
+- [x] Brancher le bouton refresh manuel.
+- [x] Ajouter skeletons pendant chargement.
+- [x] Utiliser `ItemLink` pour les noms d'items.
 
 ## Critères d'acceptation
 
-- [ ] La page charge avec des données SQLite réelles.
-- [ ] Le dashboard reste utilisable si certaines métriques sont vides.
-- [ ] Les items affichés peuvent ouvrir le détail ou le popup.
+- [x] La page charge avec des données SQLite réelles.
+- [x] Le dashboard reste utilisable si certaines métriques sont vides.
+- [x] Les items affichés peuvent ouvrir le détail ou le popup.
