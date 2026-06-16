@@ -18,6 +18,11 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser = subparsers.add_parser("init-db", help="Initialize the SQLite database")
     init_parser.add_argument("--db", default="data/eqmarket.sqlite", help="SQLite database path")
 
+    api_parser = subparsers.add_parser("serve-api", help="Run the local FastAPI server")
+    api_parser.add_argument("--db", help="SQLite database path (default: data/eqmarket.sqlite or EQMARKET_DB_PATH)")
+    api_parser.add_argument("--host", default="127.0.0.1", help="Loopback host to bind")
+    api_parser.add_argument("--port", type=int, default=8000, help="TCP port to bind")
+
     log_parser = subparsers.add_parser("import-log", help="Parse an EverQuest log file into market listings")
     log_parser.add_argument("--log", required=True, help="Path to eqlog_*.txt")
     log_parser.add_argument("--db", default="data/eqmarket.sqlite", help="SQLite database path")
@@ -74,6 +79,15 @@ def main() -> None:
     if args.command == "init-db":
         init_db(Path(args.db))
         print(f"Initialized database: {args.db}")
+    elif args.command == "serve-api":
+        _validate_loopback_host(args.host, parser)
+        from eqmarket.api.app import create_app
+
+        import uvicorn
+
+        app = create_app(args.db)
+        print(f"Serving API on http://{args.host}:{args.port} with database: {app.state.db_path}")
+        uvicorn.run(app, host=args.host, port=args.port)
     elif args.command == "import-log":
         log_path = Path(args.log)
         if args.dry_run:
@@ -266,6 +280,11 @@ def _recent_listing_item_ids(
             params,
         ).fetchall()
     return [int(row[0]) for row in rows]
+
+
+def _validate_loopback_host(host: str, parser: argparse.ArgumentParser) -> None:
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        parser.error("serve-api only supports loopback hosts: 127.0.0.1, localhost, or ::1")
 
 
 if __name__ == "__main__":

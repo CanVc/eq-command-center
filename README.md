@@ -24,10 +24,28 @@ python -m venv .venv
 pip install -e .
 ```
 
+Run the test suite:
+
+```bash
+python -m unittest discover -s tests
+```
+
 Initialize the local database:
 
 ```bash
 eqmarket init-db --db data/eqmarket.sqlite
+```
+
+Run the local FastAPI server:
+
+```bash
+eqmarket serve-api --db data/eqmarket.sqlite
+```
+
+The server binds to `127.0.0.1:8000` by default. You can also set the database path for direct `uvicorn` runs with `EQMARKET_DB_PATH`:
+
+```bash
+uvicorn eqmarket.api.app:app --host 127.0.0.1 --port 8000
 ```
 
 Preview EverQuest auction parsing without writing to SQLite:

@@ -1,6 +1,6 @@
 # Story — Fondation backend local FastAPI
 
-- **Statut** : À faire
+- **Statut** : Terminé
 - **Date de création** : 2026-06-16
 - **Spec liée** : [docs/UI-spec/UI-spec.md](../UI-spec/UI-spec.md)
 
@@ -18,16 +18,16 @@ Créer un module `eqmarket/api/` avec une app FastAPI, un connecteur SQLite read
 
 ## Tâches
 
-- [ ] Ajouter `fastapi` et `uvicorn` aux dépendances.
-- [ ] Créer `eqmarket/api/app.py`.
-- [ ] Créer `eqmarket/api/db.py` pour ouvrir SQLite avec `row_factory`.
-- [ ] Forcer l'écoute locale par défaut sur `127.0.0.1`.
-- [ ] Ajouter `GET /api/health`.
-- [ ] Prévoir un paramètre DB path, défaut `data/eqmarket.sqlite`.
-- [ ] Documenter la commande de lancement.
+- [x] Ajouter `fastapi` et `uvicorn` aux dépendances.
+- [x] Créer `eqmarket/api/app.py`.
+- [x] Créer `eqmarket/api/db.py` pour ouvrir SQLite avec `row_factory`.
+- [x] Forcer l'écoute locale par défaut sur `127.0.0.1`.
+- [x] Ajouter `GET /api/health`.
+- [x] Prévoir un paramètre DB path, défaut `data/eqmarket.sqlite`.
+- [x] Documenter la commande de lancement.
 
 ## Critères d'acceptation
 
-- [ ] `GET /api/health` retourne `ok`.
-- [ ] L'API démarre localement.
-- [ ] Le chemin DB utilisé est visible ou loggé.
+- [x] `GET /api/health` retourne `ok`.
+- [x] L'API démarre localement.
+- [x] Le chemin DB utilisé est visible ou loggé.
