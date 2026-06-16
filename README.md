@@ -77,3 +77,15 @@ Run the full alert pipeline in one command. TLP history prices default to the la
 ```bash
 eqmarket run-alerts --db data/eqmarket.sqlite --server frostreaver --log "C:\\Users\\Public\\Daybreak Game Company\\Installed Games\\EverQuest\\Logs\\eqlog_Dreadbank_frostreaver.txt" --history-days 3
 ```
+
+Avoid refreshing TLP prices every run and rank with cached prices/manual overrides only:
+
+```bash
+eqmarket run-alerts --db data/eqmarket.sqlite --server frostreaver --log "C:\\Users\\Public\\Daybreak Game Company\\Installed Games\\EverQuest\\Logs\\eqlog_Dreadbank_frostreaver.txt" --skip-price-refresh
+```
+
+Or refresh only missing/stale recent prices:
+
+```bash
+eqmarket run-alerts --db data/eqmarket.sqlite --server frostreaver --log "C:\\Users\\Public\\Daybreak Game Company\\Installed Games\\EverQuest\\Logs\\eqlog_Dreadbank_frostreaver.txt" --price-max-age-hours 12
+```

@@ -56,6 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
     alerts_parser.add_argument("--enrich-limit", type=int, default=25, help="Maximum pending items to resolve before scoring")
     alerts_parser.add_argument("--skip-enrich", action="store_true", help="Skip Lucy pending item enrichment")
     alerts_parser.add_argument("--price-limit", type=int, default=500, help="Maximum recent item ids to refresh from TLP history")
+    alerts_parser.add_argument("--price-max-age-hours", type=float, help="Only refresh recent item prices that are missing or older than N hours")
+    alerts_parser.add_argument("--skip-price-refresh", action="store_true", help="Do not call TLP Auctions; score with cached prices/manual overrides only")
     alerts_parser.add_argument("--history-days", type=int, default=3, help="Only use TLP sales from the last N days")
     alerts_parser.add_argument("--no-history", action="store_true", help="Use cached TLP catalog medians instead of recent history")
     alerts_parser.add_argument("--score-limit", type=int, default=500, help="Recent resolved/priced listings to score")
@@ -171,23 +173,42 @@ def main() -> None:
                 f"listings_linked={enrich_stats.listings_linked}, not_found={enrich_stats.not_found}, failed={enrich_stats.failed}"
             )
 
-        recent_item_ids = _recent_listing_item_ids(db_path, args.server, args.price_limit)
-        price_stats = import_tlp_prices(
-            db_path,
-            args.server,
-            item_ids=recent_item_ids,
-            fetch_history=not args.no_history,
-            history_days=args.history_days,
-        )
-        price_window = "catalog" if args.no_history else f"last_{args.history_days}_days"
-        print(
-            "Imported TLP Auctions prices: "
-            f"window={price_window}, history_checked={price_stats.history_items_checked}, "
-            f"history_prices={price_stats.history_prices_upserted}, catalog_prices={price_stats.catalog_prices_upserted}, "
-            f"no_price_data={price_stats.no_price_data}, price_refresh_failed={price_stats.price_refresh_failed}, "
-            f"krono_price_pp={price_stats.krono_price_pp}, "
-            f"krono_listings_converted={price_stats.krono_listings_converted}"
-        )
+        if args.skip_price_refresh:
+            print("Skipped TLP Auctions price refresh; scoring with cached prices/manual overrides")
+        else:
+            if args.price_max_age_hours is not None and args.price_max_age_hours < 0:
+                parser.error("--price-max-age-hours must be >= 0")
+            recent_item_ids = _recent_listing_item_ids(
+                db_path,
+                args.server,
+                args.price_limit,
+                max_age_hours=args.price_max_age_hours,
+            )
+            if recent_item_ids:
+                price_stats = import_tlp_prices(
+                    db_path,
+                    args.server,
+                    item_ids=recent_item_ids,
+                    fetch_history=not args.no_history,
+                    history_days=args.history_days,
+                )
+                price_window = "catalog" if args.no_history else f"last_{args.history_days}_days"
+                print(
+                    "Imported TLP Auctions prices: "
+                    f"window={price_window}, target_items={len(recent_item_ids)}, "
+                    f"history_checked={price_stats.history_items_checked}, "
+                    f"history_prices={price_stats.history_prices_upserted}, catalog_prices={price_stats.catalog_prices_upserted}, "
+                    f"no_price_data={price_stats.no_price_data}, price_refresh_failed={price_stats.price_refresh_failed}, "
+                    f"krono_price_pp={price_stats.krono_price_pp}, "
+                    f"krono_listings_converted={price_stats.krono_listings_converted}"
+                )
+            else:
+                freshness = (
+                    "no recent priced/resolved listings"
+                    if args.price_max_age_hours is None
+                    else f"no missing/stale prices older than {args.price_max_age_hours:g}h"
+                )
+                print(f"Skipped TLP Auctions price refresh; {freshness}")
 
         score_stats, scores = score_market_listings(
             db_path,
@@ -206,20 +227,43 @@ def main() -> None:
             print(f"... {len(scores) - 50} more")
 
 
-def _recent_listing_item_ids(db_path: Path, server: str, limit: int) -> list[int]:
+def _recent_listing_item_ids(
+    db_path: Path,
+    server: str,
+    limit: int,
+    *,
+    max_age_hours: float | None = None,
+) -> list[int]:
+    db_server = server.strip().lower()
+    params: list[object] = [db_server]
+    freshness_filter = ""
+    if max_age_hours is not None:
+        freshness_filter = """
+              AND (
+                    mp.item_id IS NULL
+                    OR mp.last_refresh_at IS NULL
+                    OR datetime(mp.last_refresh_at) <= datetime('now', ?)
+                  )
+        """
+        params.append(f"-{max_age_hours:g} hours")
+    params.append(limit)
+
     with sqlite3.connect(db_path) as connection:
         rows = connection.execute(
-            """
-            SELECT item_id
-            FROM market_listings
-            WHERE lower(server) = ?
-              AND item_id IS NOT NULL
-              AND price_pp IS NOT NULL
-            GROUP BY item_id
-            ORDER BY max(timestamp) DESC, max(listing_id) DESC
+            f"""
+            SELECT ml.item_id
+            FROM market_listings ml
+            LEFT JOIN market_prices mp
+                ON mp.item_id = ml.item_id AND lower(mp.server) = lower(ml.server)
+            WHERE lower(ml.server) = ?
+              AND ml.item_id IS NOT NULL
+              AND ml.price_pp IS NOT NULL
+{freshness_filter}
+            GROUP BY ml.item_id
+            ORDER BY max(ml.timestamp) DESC, max(ml.listing_id) DESC
             LIMIT ?
             """,
-            (server.lower(), limit),
+            params,
         ).fetchall()
     return [int(row[0]) for row in rows]
 

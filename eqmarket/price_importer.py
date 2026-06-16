@@ -105,11 +105,12 @@ def import_tlp_prices(
             except (OSError, TlpAuctionsError) as exc:
                 stats.price_refresh_failed += 1
                 _record_price_refresh_failure(connection, db_server, item_id, exc)
+                _upsert_price_refresh_marker(connection, db_server, item_id, "failed", str(exc)[:1000])
                 continue
 
             price_stats = compute_price_stats(points, stats.krono_price_pp, max_age_days=history_days)
             if price_stats is None:
-                _delete_tlp_market_price(connection, db_server, item_id)
+                _upsert_price_refresh_marker(connection, db_server, item_id, "no_data", None)
                 stats.no_price_data += 1
                 continue
             _upsert_history_price(connection, db_server, item_id, price_stats)
@@ -260,15 +261,38 @@ def _record_price_refresh_failure(
     )
 
 
-def _delete_tlp_market_price(connection: sqlite3.Connection, db_server: str, item_id: int) -> None:
+def _upsert_price_refresh_marker(
+    connection: sqlite3.Connection,
+    db_server: str,
+    item_id: int,
+    status: str,
+    error: str | None,
+) -> None:
+    raw_payload = json.dumps(
+        {"source": "tlp_auctions_history", "status": status, "error": error},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
     connection.execute(
         """
-        DELETE FROM market_prices
-        WHERE item_id = ?
-          AND lower(server) = ?
-          AND source LIKE 'tlp_auctions%'
+        INSERT INTO market_prices (
+            item_id, server, median_pp, p25_pp, p75_pp, avg_pp, min_pp, max_pp,
+            sample_size, confidence, last_refresh_at, source, raw_payload
+        ) VALUES (?, ?, NULL, NULL, NULL, NULL, NULL, NULL, 0, ?, CURRENT_TIMESTAMP, ?, ?)
+        ON CONFLICT(item_id, server) DO UPDATE SET
+            median_pp = NULL,
+            p25_pp = NULL,
+            p75_pp = NULL,
+            avg_pp = NULL,
+            min_pp = NULL,
+            max_pp = NULL,
+            sample_size = 0,
+            confidence = excluded.confidence,
+            last_refresh_at = excluded.last_refresh_at,
+            source = excluded.source,
+            raw_payload = excluded.raw_payload
         """,
-        (item_id, db_server),
+        (item_id, db_server, status, f"tlp_auctions_history_{status}", raw_payload),
     )
 
 
