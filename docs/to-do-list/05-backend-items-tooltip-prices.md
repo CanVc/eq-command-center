@@ -1,6 +1,6 @@
 # Story — Endpoints items, prix et tooltip fallback
 
-- **Statut** : À faire
+- **Statut** : Terminé
 - **Date de création** : 2026-06-16
 - **Spec liée** : [docs/UI-spec/UI-spec.md](../UI-spec/UI-spec.md)
 
@@ -18,17 +18,17 @@ Lire `items`, `market_prices`, `market_listings`, et éventuellement `item_effec
 
 ## Tâches
 
-- [ ] Créer `eqmarket/api/routes/items.py`.
-- [ ] Implémenter `GET /api/items/search?q=stave`.
-- [ ] Implémenter `GET /api/items/{item_id}`.
-- [ ] Implémenter `GET /api/items/{item_id}/prices?server=frostreaver`.
-- [ ] Implémenter `GET /api/items/{item_id}/listings?server=frostreaver&limit=100`.
-- [ ] Implémenter `GET /api/items/{item_id}/tooltip?server=frostreaver`.
-- [ ] Ajouter fallback `GET /api/items/tooltip?name=...`.
-- [ ] Retourner `icon_url: null` en v1 si aucune URL stable n'est disponible.
+- [x] Créer `eqmarket/api/routes/items.py`.
+- [x] Implémenter `GET /api/items/search?q=stave`.
+- [x] Implémenter `GET /api/items/{item_id}`.
+- [x] Implémenter `GET /api/items/{item_id}/prices?server=frostreaver`.
+- [x] Implémenter `GET /api/items/{item_id}/listings?server=frostreaver&limit=100`.
+- [x] Implémenter `GET /api/items/{item_id}/tooltip?server=frostreaver`.
+- [x] Ajouter fallback `GET /api/items/tooltip?name=...`.
+- [x] Retourner `icon_url: null` en v1 si aucune URL stable n'est disponible.
 
 ## Critères d'acceptation
 
-- [ ] Une recherche item retourne nom et item_id.
-- [ ] Le tooltip local contient stats clés et derniers prix disponibles.
-- [ ] Un item absent retourne une 404 propre.
+- [x] Une recherche item retourne nom et item_id.
+- [x] Le tooltip local contient stats clés et derniers prix disponibles.
+- [x] Un item absent retourne une 404 propre.
