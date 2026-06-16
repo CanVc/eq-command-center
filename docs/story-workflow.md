@@ -2,6 +2,10 @@
 
 Ce document décrit comment un agent doit traiter les fichiers de story du dossier `docs/to-do-list`.
 
+Documentation liée :
+
+- `docs/testing-policy.md` pour la stratégie de tests, les commandes standard et les règles de régression.
+
 ## Statuts
 
 Les statuts autorisés sont :
@@ -26,10 +30,12 @@ Le statut d'une story est porté par la ligne :
 6. Après clarification, amender la story si la réponse modifie le périmètre, les tâches ou les critères d'acceptation.
 7. Passer le statut de la story à `En cours`.
 8. Développer la story en restant strictement dans son périmètre.
-9. Ajouter ou mettre à jour les tests adaptés au code modifié.
+9. Ajouter ou mettre à jour les tests adaptés au code modifié, conformément à `docs/testing-policy.md`.
 10. Vérifier le comportement avec les tests ou commandes adaptées.
-11. Cocher uniquement les tâches et critères réellement validés.
-12. Passer le statut à `Terminé` seulement quand la story est effectivement livrée.
+11. Lancer au minimum le gestionnaire de tests standard quand du code testable a changé : `python scripts/run_tests.py`.
+12. Lancer aussi le smoke test local quand une story touche à l'API, SQLite, aux endpoints ou à la configuration de lancement : `python scripts/run_tests.py --smoke --db data/eqmarket.sqlite`, sauf si la DB locale n'est pas disponible.
+13. Cocher uniquement les tâches et critères réellement validés.
+14. Passer le statut à `Terminé` seulement quand la story est effectivement livrée.
 
 ## Règles de clarification
 
@@ -53,7 +59,7 @@ Les refactors non nécessaires, les changements de comportement hors périmètre
 
 ## Règles de tests
 
-Tout code livré doit être accompagné de tests quand c'est possible.
+Tout code livré doit être accompagné de tests quand c'est possible. La politique détaillée est dans `docs/testing-policy.md`.
 
 Pour chaque fichier de code créé, l'agent doit créer ou mettre à jour un fichier de test correspondant, sauf si le fichier ne contient pas de logique testable. Dans ce cas, l'agent doit expliquer brièvement pourquoi aucun test unitaire n'a été ajouté.
 
@@ -75,6 +81,20 @@ Playwright ne remplace pas les tests unitaires : il les complète. Les tests uni
 
 Les tests ne doivent pas dépendre d'un service externe instable ni de données locales personnelles. Utiliser des fixtures, des bases temporaires ou des mocks quand c'est nécessaire.
 
+Tout bug corrigé pendant ou après une story doit ajouter un test de régression qui échouait avant la correction.
+
+Le gestionnaire standard pour lancer les tests automatisés est :
+
+```bash
+python scripts/run_tests.py
+```
+
+Pour les stories backend/API/SQLite, lancer aussi le smoke test si une DB locale est disponible :
+
+```bash
+python scripts/run_tests.py --smoke --db data/eqmarket.sqlite
+```
+
 Si un test attendu ne peut pas être ajouté dans la story, l'agent doit le signaler explicitement dans le résumé de fin avec la raison et le risque associé.
 
 ## Fin de story
@@ -84,6 +104,7 @@ Avant de passer une story à `Terminé`, l'agent doit :
 - vérifier que chaque tâche cochée correspond à un changement réellement fait ;
 - vérifier que chaque critère d'acceptation coché a été testé ou contrôlé ;
 - vérifier que les tests pertinents existent et passent ;
+- indiquer les commandes de test exécutées et leur résultat ;
 - laisser non cochés les éléments non livrés ;
 - résumer les vérifications effectuées ;
 - signaler clairement les risques ou limites restantes.
