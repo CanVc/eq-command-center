@@ -1,6 +1,6 @@
 # Story — Squelette frontend Vite, Tailwind et shadcn
 
-- **Statut** : À faire
+- **Statut** : Terminé
 - **Date de création** : 2026-06-16
 - **Spec liée** : [docs/UI-spec/UI-spec.md](../UI-spec/UI-spec.md)
 
@@ -18,16 +18,16 @@ Créer `web/`, initialiser Vite, configurer Tailwind, installer shadcn et les co
 
 ## Tâches
 
-- [ ] Initialiser `web/` avec Vite React TypeScript.
-- [ ] Installer Tailwind CSS.
-- [ ] Initialiser `shadcn/ui`.
-- [ ] Ajouter `Button`, `Card`, `Table`, `Badge`, `Select`, `Tabs`, `Skeleton`, `HoverCard`.
-- [ ] Ajouter un client API dans `web/src/lib/api.ts`.
-- [ ] Configurer un proxy dev vers l'API locale si nécessaire.
-- [ ] Ajouter scripts `dev`, `build`, `preview`.
+- [x] Initialiser `web/` avec Vite React TypeScript.
+- [x] Installer Tailwind CSS.
+- [x] Initialiser `shadcn/ui`.
+- [x] Ajouter `Button`, `Card`, `Table`, `Badge`, `Select`, `Tabs`, `Skeleton`, `HoverCard`.
+- [x] Ajouter un client API dans `web/src/lib/api.ts`.
+- [x] Configurer un proxy dev vers l'API locale si nécessaire.
+- [x] Ajouter scripts `dev`, `build`, `preview`.
 
 ## Critères d'acceptation
 
-- [ ] `npm run dev` démarre l'UI.
-- [ ] Une page vide stylée shadcn s'affiche.
-- [ ] Le frontend peut appeler `GET /api/health`.
+- [x] `npm run dev` démarre l'UI.
+- [x] Une page vide stylée shadcn s'affiche.
+- [x] Le frontend peut appeler `GET /api/health`.
