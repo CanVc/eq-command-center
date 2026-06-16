@@ -148,6 +148,88 @@ test("shows the shared error state when a page request fails", async ({ page }) 
   await expect(page.getByRole("button", { name: "Retry" })).toBeVisible()
 })
 
+test("renders, filters, and acts on the deals table", async ({ page }) => {
+  const dealRequests: URL[] = []
+
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          ;(window as Window & { __copiedText?: string }).__copiedText = text
+        },
+      },
+    })
+  })
+
+  await page.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url())
+
+    if (url.pathname === "/api/deals") {
+      dealRequests.push(url)
+    }
+
+    await fulfillApi(route)
+  })
+
+  await page.goto("/deals")
+
+  await expect(page.getByRole("heading", { name: "Deals", exact: true })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Deal Queue" })).toBeVisible()
+  await expect(page.getByRole("columnheader", { name: "Seen price" })).toBeVisible()
+  await expect(page.getByRole("columnheader", { name: "Market price" })).toBeVisible()
+  await expect(page.getByRole("columnheader", { name: "Actions" })).toBeVisible()
+
+  const rows = page.locator("tbody tr")
+  await expect(rows.first()).toContainText("Manastone")
+  await expect(page.getByRole("link", { name: "Stave of Shielding" })).toHaveAttribute(
+    "rel",
+    "eq:item:1"
+  )
+
+  await page.getByRole("link", { name: "Stave of Shielding" }).click()
+  await expect(page.getByText("Item ID 1")).toBeVisible()
+  await expect(page.locator('[data-slot="hover-card-content"]').getByText("Market")).toBeVisible()
+
+  await page.getByRole("button", { name: "Copy tell for Stave of Shielding" }).click()
+  await expect(page.getByRole("button", { name: "Copy tell for Stave of Shielding" })).toContainText(
+    "Copied"
+  )
+  await expect
+    .poll(() => page.evaluate(() => (window as Window & { __copiedText?: string }).__copiedText))
+    .toBe("/tell Nebblastin Hi, still selling Stave of Shielding for 4k?")
+
+  await page.getByLabel("Minimum discount").fill("80")
+  await page.getByLabel("Minimum price").fill("2000")
+  await page.getByLabel("Limit").fill("2")
+  await page.getByLabel("Resolved only").uncheck()
+  await page.getByRole("button", { name: "Apply" }).click()
+
+  await expect.poll(() => dealRequests.at(-1)?.searchParams.get("min_discount")).toBe("80")
+  await expect.poll(() => dealRequests.at(-1)?.searchParams.get("min_price_pp")).toBe("2000")
+  await expect.poll(() => dealRequests.at(-1)?.searchParams.get("limit")).toBe("2")
+  await expect.poll(() => dealRequests.at(-1)?.searchParams.get("resolved_only")).toBe("false")
+  await expect(rows.first()).toContainText("Manastone")
+  await expect(page.locator("tbody")).toContainText("Unidentified Idol")
+  await expect(page.locator("tbody")).not.toContainText("Stave of Shielding")
+
+  const requestCountBeforeRefresh = dealRequests.length
+  await page.getByRole("button", { name: "Refresh" }).click()
+
+  await expect.poll(() => dealRequests.length).toBeGreaterThan(requestCountBeforeRefresh)
+  await expect.poll(() => dealRequests.at(-1)?.searchParams.get("min_discount")).toBe("80")
+  await expect.poll(() => dealRequests.at(-1)?.searchParams.get("min_price_pp")).toBe("2000")
+
+  const requestCountBeforeEmptyFilter = dealRequests.length
+
+  await page.getByLabel("Minimum price").fill("999999")
+  await page.getByRole("button", { name: "Apply" }).click()
+
+  await expect.poll(() => dealRequests.length).toBeGreaterThan(requestCountBeforeEmptyFilter)
+  await expect.poll(() => dealRequests.at(-1)?.searchParams.get("min_price_pp")).toBe("999999")
+  await expect(page.getByText("No deals match the active filters.")).toBeVisible()
+})
+
 async function fulfillApi(route: Route) {
   const url = new URL(route.request().url())
   const server = url.searchParams.get("server") ?? "frostreaver"
@@ -174,26 +256,7 @@ async function fulfillApi(route: Route) {
   if (url.pathname === "/api/deals") {
     await route.fulfill({
       contentType: "application/json",
-      body: JSON.stringify([
-        {
-          listing_id: 10,
-          timestamp: "2026-06-16T10:00:00",
-          seller: "Nebblastin",
-          item_id: 1,
-          item_name: "Stave of Shielding",
-          price_raw: "4k",
-          listing_price_pp: 4000,
-          market_price_pp: 16000,
-          market_price_source: "median_pp",
-          discount_pct: 75,
-          potential_profit_pp: 12000,
-          score: 4,
-          deal_score: 4,
-          sample_size: 12,
-          confidence: "high",
-          resolved: true,
-        },
-      ]),
+      body: JSON.stringify(buildDeals(url)),
     })
     return
   }
@@ -306,4 +369,94 @@ function buildEmptyDashboardSummary(server: string) {
     top_seen_items: [],
     top_discounts: [],
   }
+}
+
+function buildDeals(url: URL) {
+  const minDiscount = Number(url.searchParams.get("min_discount") ?? "30")
+  const minPricePp = Number(url.searchParams.get("min_price_pp") ?? "0")
+  const limit = Number(url.searchParams.get("limit") ?? "100")
+  const resolvedOnly = url.searchParams.get("resolved_only") !== "false"
+
+  return [
+    {
+      listing_id: 12,
+      timestamp: "2026-06-16T10:10:00",
+      seller: "Bazzarbot",
+      item: { item_id: 3, name: "Manastone" },
+      item_id: 3,
+      item_name: "Manastone",
+      price_raw: "3k",
+      listing_price_pp: 3000,
+      market_price_pp: 20000,
+      market_price_source: "median_pp",
+      discount_pct: 85,
+      potential_profit_pp: 17000,
+      score: 95.5,
+      deal_score: 95.5,
+      sample_size: 8,
+      confidence: "high",
+      resolved: true,
+    },
+    {
+      listing_id: 13,
+      timestamp: "2026-06-16T10:15:00",
+      seller: "Mystery",
+      item: { item_id: null, name: "Unidentified Idol" },
+      item_id: null,
+      item_name: "Unidentified Idol",
+      price_raw: "2500pp",
+      listing_price_pp: 2500,
+      market_price_pp: 14000,
+      market_price_source: "avg_pp",
+      discount_pct: 82.14,
+      potential_profit_pp: 11500,
+      score: 82.14,
+      deal_score: 82.14,
+      sample_size: 3,
+      confidence: "medium",
+      resolved: false,
+    },
+    {
+      listing_id: 10,
+      timestamp: "2026-06-16T10:00:00",
+      seller: "Nebblastin",
+      item: { item_id: 1, name: "Stave of Shielding" },
+      item_id: 1,
+      item_name: "Stave of Shielding",
+      price_raw: "4k",
+      listing_price_pp: 4000,
+      market_price_pp: 16000,
+      market_price_source: "median_pp",
+      discount_pct: 75,
+      potential_profit_pp: 12000,
+      score: 88.5,
+      deal_score: 88.5,
+      sample_size: 12,
+      confidence: "high",
+      resolved: true,
+    },
+    {
+      listing_id: 11,
+      timestamp: "2026-06-16T10:07:00",
+      seller: "Aderyn",
+      item: { item_id: 2, name: "Silver Chitin Hand Wraps" },
+      item_id: 2,
+      item_name: "Silver Chitin Hand Wraps",
+      price_raw: "6k",
+      listing_price_pp: 6000,
+      market_price_pp: 10000,
+      market_price_source: "p25_pp",
+      discount_pct: 40,
+      potential_profit_pp: 4000,
+      score: 40,
+      deal_score: 40,
+      sample_size: 5,
+      confidence: "medium",
+      resolved: true,
+    },
+  ]
+    .filter((deal) => deal.discount_pct >= minDiscount)
+    .filter((deal) => deal.listing_price_pp >= minPricePp)
+    .filter((deal) => !resolvedOnly || deal.resolved)
+    .slice(0, limit)
 }

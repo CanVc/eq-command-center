@@ -13,12 +13,14 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import {
+  DEFAULT_DEAL_FILTERS,
   fetchDashboardSummary,
-  fetchDealsPreview,
+  fetchDeals,
   fetchItemSearchPreview,
   fetchListingsPreview,
   fetchSettingsHealth,
   type DashboardSummary,
+  type DealFilters,
   type DealPreview,
   type HealthResponse,
   type ItemSearchResult,
@@ -28,6 +30,7 @@ import { formatPrice } from "@/lib/format"
 import { APP_PAGES, pageIdFromPath, pathForPage, type AppPageId } from "@/lib/navigation"
 import { readPreferredServer, savePreferredServer } from "@/lib/server-preference"
 import { DashboardPage } from "@/pages/dashboard-page"
+import { DealsPage } from "@/pages/deals-page"
 
 type PageData =
   | { page: "dashboard"; payload: DashboardSummary }
@@ -44,6 +47,7 @@ type PageState =
 function App() {
   const [activePage, setActivePage] = useState<AppPageId>(() => getInitialPage())
   const [server, setServer] = useState(() => readPreferredServer())
+  const [dealFilters, setDealFilters] = useState<DealFilters>(DEFAULT_DEAL_FILTERS)
   const [refreshKey, setRefreshKey] = useState(0)
   const [pageState, setPageState] = useState<PageState>({ status: "loading" })
 
@@ -67,7 +71,7 @@ function App() {
 
     async function loadPage() {
       try {
-        const data = await fetchPageData(activePage, server)
+        const data = await fetchPageData(activePage, server, dealFilters)
         if (isActive) {
           setPageState({ status: "ready", data, loadedAt: new Date() })
         }
@@ -86,7 +90,7 @@ function App() {
     return () => {
       isActive = false
     }
-  }, [activePage, refreshKey, server])
+  }, [activePage, dealFilters, refreshKey, server])
 
   const navigateTo = useCallback((pageId: AppPageId) => {
     const nextPath = pathForPage(pageId)
@@ -119,6 +123,11 @@ function App() {
     setRefreshKey((current) => current + 1)
   }, [])
 
+  const changeDealFilters = useCallback((nextFilters: DealFilters) => {
+    setPageState({ status: "loading" })
+    setDealFilters(nextFilters)
+  }, [])
+
   return (
     <AppLayout
       activePage={activePage}
@@ -141,19 +150,28 @@ function App() {
         ) : pageState.status === "error" ? (
           <ErrorState title={pageDefinition.title} message={pageState.message} onRetry={refresh} />
         ) : (
-          <PageContent data={pageState.data} server={server} />
+          <PageContent
+            data={pageState.data}
+            server={server}
+            dealFilters={dealFilters}
+            onDealFiltersChange={changeDealFilters}
+          />
         )}
       </section>
     </AppLayout>
   )
 }
 
-async function fetchPageData(page: AppPageId, server: string): Promise<PageData> {
+async function fetchPageData(
+  page: AppPageId,
+  server: string,
+  dealFilters: DealFilters
+): Promise<PageData> {
   switch (page) {
     case "dashboard":
       return { page, payload: await fetchDashboardSummary(server) }
     case "deals":
-      return { page, payload: await fetchDealsPreview(server) }
+      return { page, payload: await fetchDeals(server, dealFilters) }
     case "market":
       return { page, payload: await fetchListingsPreview(server) }
     case "items":
@@ -187,12 +205,28 @@ function StatusLine({ pageState }: { pageState: PageState }) {
   )
 }
 
-function PageContent({ data, server }: { data: PageData; server: string }) {
+function PageContent({
+  data,
+  server,
+  dealFilters,
+  onDealFiltersChange,
+}: {
+  data: PageData
+  server: string
+  dealFilters: DealFilters
+  onDealFiltersChange: (filters: DealFilters) => void
+}) {
   switch (data.page) {
     case "dashboard":
       return <DashboardPage summary={data.payload} />
     case "deals":
-      return <DealsPage deals={data.payload} />
+      return (
+        <DealsPage
+          deals={data.payload}
+          filters={dealFilters}
+          onFiltersChange={onDealFiltersChange}
+        />
+      )
     case "market":
       return <MarketPage listings={data.payload} />
     case "items":
@@ -200,14 +234,6 @@ function PageContent({ data, server }: { data: PageData; server: string }) {
     case "settings":
       return <SettingsPage health={data.payload} server={server} />
   }
-}
-
-function DealsPage({ deals }: { deals: DealPreview[] }) {
-  return (
-    <PagePanel title="Deal Queue" eyebrow={`${deals.length} rows`}>
-      {deals.length > 0 ? <DealsTable deals={deals} /> : <EmptyState label="No deals returned" />}
-    </PagePanel>
-  )
 }
 
 function MarketPage({ listings }: { listings: ListingPreview[] }) {
@@ -310,35 +336,6 @@ function PagePanel({
       </div>
       <div className="flex flex-col gap-4">{children}</div>
     </section>
-  )
-}
-
-function DealsTable({ deals }: { deals: DealPreview[] }) {
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Item</TableHead>
-          <TableHead>Listed</TableHead>
-          <TableHead>Market</TableHead>
-          <TableHead>Discount</TableHead>
-          <TableHead>Seller</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {deals.map((deal) => (
-          <TableRow key={deal.listing_id}>
-            <TableCell className="font-medium">{deal.item_name}</TableCell>
-            <TableCell>{formatPrice(deal.listing_price_pp)}</TableCell>
-            <TableCell>{formatPrice(deal.market_price_pp)}</TableCell>
-            <TableCell>
-              <Badge variant="secondary">{deal.discount_pct.toFixed(1)}%</Badge>
-            </TableCell>
-            <TableCell>{deal.seller ?? "Unknown"}</TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
   )
 }
 

@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest"
 
 import {
   buildApiPath,
+  fetchDeals,
   fetchDashboardSummary,
-  fetchDealsPreview,
   fetchHealth,
   fetchItemSearchPreview,
   fetchListingsPreview,
@@ -61,15 +61,28 @@ describe("page API helpers", () => {
       })
     })
 
-    await fetchDealsPreview("mischief", fetcher)
+    await fetchDeals(
+      "mischief",
+      {
+        minDiscount: 45,
+        minPricePp: 5000,
+        limit: 25,
+        resolvedOnly: false,
+      },
+      fetcher
+    )
     await fetchListingsPreview("mischief", fetcher)
     await fetchItemSearchPreview("mischief", fetcher)
 
-    expect(fetcher).toHaveBeenNthCalledWith(1, "/api/deals?server=mischief&limit=5&resolved_only=true", {
-      headers: {
-        Accept: "application/json",
-      },
-    })
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      "/api/deals?server=mischief&min_discount=45&min_price_pp=5000&limit=25&resolved_only=false",
+      {
+        headers: {
+          Accept: "application/json",
+        },
+      }
+    )
     expect(fetcher).toHaveBeenNthCalledWith(2, "/api/listings/recent?server=mischief&limit=5", {
       headers: {
         Accept: "application/json",

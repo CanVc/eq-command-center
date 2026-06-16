@@ -51,6 +51,20 @@ export type DealPreview = DashboardDealPreview & {
   resolved: boolean
 }
 
+export type DealFilters = {
+  minDiscount: number
+  minPricePp: number
+  limit: number
+  resolvedOnly: boolean
+}
+
+export const DEFAULT_DEAL_FILTERS: DealFilters = {
+  minDiscount: 30,
+  minPricePp: 0,
+  limit: 100,
+  resolvedOnly: true,
+}
+
 export type ListingPreview = {
   listing_id: number
   timestamp: string
@@ -114,11 +128,21 @@ export async function fetchDealsPreview(
   server: string,
   fetcher: Fetcher = fetch
 ): Promise<DealPreview[]> {
+  return fetchDeals(server, { ...DEFAULT_DEAL_FILTERS, limit: 5 }, fetcher)
+}
+
+export async function fetchDeals(
+  server: string,
+  filters: DealFilters = DEFAULT_DEAL_FILTERS,
+  fetcher: Fetcher = fetch
+): Promise<DealPreview[]> {
   return fetchJson<DealPreview[]>(
     buildApiPath("/api/deals", {
       server,
-      limit: 5,
-      resolved_only: true,
+      min_discount: filters.minDiscount,
+      min_price_pp: filters.minPricePp,
+      limit: filters.limit,
+      resolved_only: filters.resolvedOnly,
     }),
     fetcher
   )
