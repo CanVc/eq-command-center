@@ -2,6 +2,20 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
+## E2E tests
+
+Playwright browser tests run from the `web/` directory. The test configuration starts or reuses the Vite dev server on `127.0.0.1:5173`.
+
+Install the Chromium browser once on a fresh machine:
+
+```bash
+npx playwright install chromium
+```
+
+```bash
+npm run test:e2e
+```
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
