@@ -1,6 +1,6 @@
 # Story — Endpoints listings et recherche marché
 
-- **Statut** : À faire
+- **Statut** : Terminé
 - **Date de création** : 2026-06-16
 - **Spec liée** : [docs/UI-spec/UI-spec.md](../UI-spec/UI-spec.md)
 
@@ -18,16 +18,16 @@ Lire `market_listings` avec filtres serveur, texte, limite et pagination simple.
 
 ## Tâches
 
-- [ ] Créer `eqmarket/api/routes/listings.py`.
-- [ ] Implémenter `GET /api/listings/recent?server=frostreaver&limit=100`.
-- [ ] Ajouter recherche texte sur item et seller.
-- [ ] Retourner timestamp, seller, item, prix raw, prix pp, source, confidence.
-- [ ] Indiquer le statut résolu via `item_id IS NOT NULL`.
-- [ ] Prévoir pagination `limit` + `offset`.
-- [ ] Trier par timestamp descendant.
+- [x] Créer `eqmarket/api/routes/listings.py`.
+- [x] Implémenter `GET /api/listings/recent?server=frostreaver&limit=100`.
+- [x] Ajouter recherche texte sur item et seller.
+- [x] Retourner timestamp, seller, item, prix raw, prix pp, source, confidence.
+- [x] Indiquer le statut résolu via `item_id IS NOT NULL`.
+- [x] Prévoir pagination `limit` + `offset`.
+- [x] Trier par timestamp descendant.
 
 ## Critères d'acceptation
 
-- [ ] La page Market peut afficher les dernières annonces.
-- [ ] La recherche fonctionne sur item et vendeur.
-- [ ] Les listings non résolus restent visibles.
+- [x] La page Market peut afficher les dernières annonces.
+- [x] La recherche fonctionne sur item et vendeur.
+- [x] Les listings non résolus restent visibles.
