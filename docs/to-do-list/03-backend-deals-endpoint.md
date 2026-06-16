@@ -1,6 +1,6 @@
 # Story — Endpoint deals et calcul discount
 
-- **Statut** : À faire
+- **Statut** : Terminé
 - **Date de création** : 2026-06-16
 - **Spec liée** : [docs/UI-spec/UI-spec.md](../UI-spec/UI-spec.md)
 
@@ -18,17 +18,17 @@ Joindre `market_listings` avec `market_prices` via `item_id`, puis utiliser `med
 
 ## Tâches
 
-- [ ] Créer `eqmarket/api/routes/deals.py`.
-- [ ] Implémenter `GET /api/deals?server=frostreaver&min_discount=30&limit=100`.
-- [ ] Ajouter un filtre `min_price_pp`.
-- [ ] Ajouter une option `resolved_only`.
-- [ ] Calculer `market_price_pp` avec fallbacks.
-- [ ] Calculer `discount_pct`.
-- [ ] Trier par discount puis valeur potentielle.
-- [ ] Inclure seller, item, `price_raw` pour l'action copier tell.
+- [x] Créer `eqmarket/api/routes/deals.py`.
+- [x] Implémenter `GET /api/deals?server=frostreaver&min_discount=30&limit=100`.
+- [x] Ajouter un filtre `min_price_pp`.
+- [x] Ajouter une option `resolved_only`.
+- [x] Calculer `market_price_pp` avec fallbacks.
+- [x] Calculer `discount_pct`.
+- [x] Trier par discount puis valeur potentielle.
+- [x] Inclure seller, item, `price_raw` pour l'action copier tell.
 
 ## Critères d'acceptation
 
-- [ ] Aucun deal n'est retourné si prix listing ou marché est nul.
-- [ ] `min_discount` filtre correctement.
-- [ ] Chaque résultat contient item, seller, prix vu, prix marché et discount.
+- [x] Aucun deal n'est retourné si prix listing ou marché est nul.
+- [x] `min_discount` filtre correctement.
+- [x] Chaque résultat contient item, seller, prix vu, prix marché et discount.

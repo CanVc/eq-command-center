@@ -9,6 +9,7 @@ from fastapi import FastAPI
 
 from eqmarket.api.db import resolve_db_path
 from eqmarket.api.routes.dashboard import router as dashboard_router
+from eqmarket.api.routes.deals import router as deals_router
 
 
 LOGGER = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         }
 
     app.include_router(dashboard_router)
+    app.include_router(deals_router)
 
     return app
 
