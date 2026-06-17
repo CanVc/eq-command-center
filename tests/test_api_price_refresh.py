@@ -14,10 +14,60 @@ from fastapi.testclient import TestClient
 from eqmarket.api.app import create_app
 from eqmarket.db import init_db
 from eqmarket.price_importer import TlpPriceImportStats, import_tlp_prices
+from eqmarket.sales_importer import TlpSalesSyncStats
 from eqmarket.sources.tlp_auctions import CatalogItem, KronoPrice, PricePoint, TlpAuctionsClient
 
 
 class TlpAuctionsClientTests(unittest.TestCase):
+    def test_get_sales_requests_priced_sell_sales_and_parses_payload(self) -> None:
+        class FakeClient(TlpAuctionsClient):
+            def __init__(self) -> None:
+                super().__init__()
+                self.request: tuple[str, dict[str, object] | None] | None = None
+
+            def _get_json(self, path: str, params: dict[str, object] | None = None) -> dict[str, object]:
+                self.request = (path, params)
+                return {
+                    "sales": [
+                        {
+                            "id": 123,
+                            "itemId": 456,
+                            "item": "Fungi Covered Scale Tunic",
+                            "auctioneer": "Trader",
+                            "transactionType": "WTS",
+                            "platPrice": 1000,
+                            "kronoPrice": 2,
+                            "datetime": "2026-06-17T18:00:00Z",
+                            "rawGuid": "raw-123",
+                            "isBuy": False,
+                        },
+                        {"id": 124, "item": "", "datetime": "2026-06-17T18:01:00Z"},
+                    ]
+                }
+
+        client = FakeClient()
+        sales = client.get_sales("frostreaver", page=2, page_size=200)
+
+        self.assertEqual(
+            client.request,
+            (
+                "/api/sales",
+                {
+                    "serverName": "Frostreaver",
+                    "page": 2,
+                    "pageSize": 200,
+                    "isBuy": "false",
+                    "pricedOnly": "true",
+                },
+            ),
+        )
+        self.assertEqual(len(sales), 1)
+        self.assertEqual(sales[0].sale_id, 123)
+        self.assertEqual(sales[0].item_id, 456)
+        self.assertEqual(sales[0].plat_price, 1000)
+        self.assertEqual(sales[0].krono_price, 2)
+        self.assertFalse(sales[0].is_buy)
+
     def test_krono_price_prefers_one_day_window_used_by_tlp_ui(self) -> None:
         class FakeClient(TlpAuctionsClient):
             def _get_json(self, path: str, params: dict[str, object] | None = None) -> dict[str, object]:
@@ -95,7 +145,11 @@ class ApiPriceRefreshTests(unittest.TestCase):
                 krono_price_pp=17463,
             )
 
-            with patch("eqmarket.api.routes.prices.import_tlp_prices", return_value=stats) as importer:
+            sales_stats = TlpSalesSyncStats(sales_seen=3, sales_inserted=2)
+            with (
+                patch("eqmarket.api.routes.prices.sync_tlp_sales", return_value=sales_stats) as sales_sync,
+                patch("eqmarket.api.routes.prices.import_tlp_prices", return_value=stats) as importer,
+            ):
                 with TestClient(app) as client:
                     response = client.post(
                         "/api/tlp-prices/refresh",
@@ -108,12 +162,38 @@ class ApiPriceRefreshTests(unittest.TestCase):
             self.assertEqual(payload["target_count"], 2)
             self.assertEqual(set(payload["target_item_ids"]), {101, 103})
             self.assertEqual(payload["history_prices_upserted"], 2)
+            self.assertEqual(payload["sales_sync"]["sales_inserted"], 2)
 
+            sales_sync.assert_called_once()
             importer.assert_called_once()
             self.assertEqual(importer.call_args.kwargs["item_ids"], payload["target_item_ids"])
             self.assertEqual(importer.call_args.kwargs["history_days"], 3)
             self.assertEqual(importer.call_args.kwargs["concurrency"], 5)
             self.assertEqual(payload["concurrency"], 5)
+
+    def test_tlp_sales_sync_route_returns_stats(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            app = create_app(db_path)
+            stats = TlpSalesSyncStats(sales_seen=4, sales_inserted=3, next_cursor_id=123)
+
+            with patch("eqmarket.api.routes.prices.sync_tlp_sales", return_value=stats) as sales_sync:
+                with TestClient(app) as client:
+                    response = client.post(
+                        "/api/tlp-sales/sync",
+                        params={"server": "frostreaver", "max_pages": 2},
+                    )
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertEqual(payload["server"], "frostreaver")
+            self.assertEqual(payload["max_pages"], 2)
+            self.assertEqual(payload["sales_seen"], 4)
+            self.assertEqual(payload["sales_inserted"], 3)
+            self.assertEqual(payload["next_cursor_id"], 123)
+            sales_sync.assert_called_once()
+            self.assertEqual(sales_sync.call_args.kwargs["max_pages"], 2)
 
     def test_tlp_refresh_job_reports_progress_until_completion(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -136,7 +216,11 @@ class ApiPriceRefreshTests(unittest.TestCase):
                     progress_callback({"phase": "history", "completed": 2, "total": 2, "item_id": 103})
                 return stats
 
-            with patch("eqmarket.api.routes.prices.import_tlp_prices", side_effect=fake_import):
+            sales_stats = TlpSalesSyncStats(sales_seen=2, sales_inserted=2)
+            with (
+                patch("eqmarket.api.routes.prices.sync_tlp_sales", return_value=sales_stats) as sales_sync,
+                patch("eqmarket.api.routes.prices.import_tlp_prices", side_effect=fake_import),
+            ):
                 with TestClient(app) as client:
                     response = client.post(
                         "/api/tlp-prices/refresh-jobs",
@@ -152,9 +236,12 @@ class ApiPriceRefreshTests(unittest.TestCase):
             self.assertEqual(status_payload["completed"], 2)
             self.assertEqual(status_payload["total"], 2)
             self.assertEqual(set(status_payload["target_item_ids"]), {101, 103})
+            self.assertEqual(status_payload["sales_stats"]["sales_inserted"], 2)
+            self.assertEqual(status_payload["stats"]["sales_sync"]["sales_inserted"], 2)
             self.assertEqual(status_payload["stats"]["history_prices_upserted"], 2)
             self.assertEqual(status_payload["concurrency"], 5)
             self.assertEqual(status_payload["stats"]["concurrency"], 5)
+            sales_sync.assert_called_once()
 
     def test_tlp_refresh_job_can_skip_krono_when_no_items_are_stale(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -163,6 +250,7 @@ class ApiPriceRefreshTests(unittest.TestCase):
             app = create_app(db_path)
 
             with (
+                patch("eqmarket.api.routes.prices.sync_tlp_sales", return_value=TlpSalesSyncStats()) as sales_sync,
                 patch("eqmarket.api.routes.prices.import_tlp_prices") as importer,
                 patch("eqmarket.api.routes.prices.refresh_krono_price") as krono_refresh,
             ):
@@ -181,6 +269,7 @@ class ApiPriceRefreshTests(unittest.TestCase):
             self.assertEqual(status_payload["target_count"], 0)
             self.assertEqual(status_payload["stats"]["target_count"], 0)
             self.assertFalse(status_payload["stats"]["krono_updated"])
+            sales_sync.assert_called_once()
             importer.assert_not_called()
             krono_refresh.assert_not_called()
 

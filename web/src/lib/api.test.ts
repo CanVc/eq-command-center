@@ -507,6 +507,17 @@ describe("page API helpers", () => {
         resolved: true,
       },
     ]
+    const tlpHistoryPayload = [
+      {
+        timestamp: "2026-06-01T10:00:00Z",
+        price_pp: 50000,
+        plat_price: 50000,
+        krono_price: 0,
+        krono_price_pp_used: null,
+        seller: "Auctioneer",
+        source: "tlp_auctions_history",
+      },
+    ]
     const kronoPayload = {
       server: "mischief",
       price_pp: 16000,
@@ -552,6 +563,10 @@ describe("page API helpers", () => {
         return jsonResponse(listingsPayload)
       }
 
+      if (url.pathname === "/api/items/1/tlp-history") {
+        return jsonResponse(tlpHistoryPayload)
+      }
+
       if (url.pathname === "/api/krono/latest") {
         return jsonResponse(kronoPayload)
       }
@@ -563,6 +578,7 @@ describe("page API helpers", () => {
       item: itemPayload,
       price: pricePayload,
       listings: listingsPayload,
+      tlpHistory: tlpHistoryPayload,
       kronoLatest: kronoPayload,
     })
 
@@ -587,7 +603,12 @@ describe("page API helpers", () => {
         Accept: "application/json",
       },
     })
-    expect(fetcher).toHaveBeenNthCalledWith(5, "/api/krono/latest?server=mischief", {
+    expect(fetcher).toHaveBeenNthCalledWith(5, "/api/items/1/tlp-history?server=mischief", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(6, "/api/krono/latest?server=mischief", {
       headers: {
         Accept: "application/json",
       },

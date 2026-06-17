@@ -1,11 +1,12 @@
-import type { ItemDetail, ItemListing } from "@/lib/api"
+import type { ItemDetail, ItemListing, TlpHistoryPoint } from "@/lib/api"
 
 export type PriceHistoryPoint = {
-  listingId: number
+  sourceId: string
   timestamp: string
   price_pp: number
   price_raw: string | null
   seller: string | null
+  source: string
 }
 
 export type ExternalItemLink = {
@@ -17,15 +18,33 @@ export function buildPriceHistory(listings: ItemListing[]): PriceHistoryPoint[] 
   return listings
     .filter((listing) => listing.price_pp !== null)
     .map((listing) => ({
-      listingId: listing.listing_id,
+      sourceId: `listing:${listing.listing_id}`,
       timestamp: listing.timestamp,
       price_pp: listing.price_pp as number,
       price_raw: listing.price_raw,
       seller: listing.seller,
+      source: listing.source,
     }))
     .sort((left, right) => {
       const timestampDelta = timestampValue(left.timestamp) - timestampValue(right.timestamp)
-      return timestampDelta === 0 ? left.listingId - right.listingId : timestampDelta
+      return timestampDelta === 0 ? left.sourceId.localeCompare(right.sourceId) : timestampDelta
+    })
+}
+
+export function buildTlpPriceHistory(points: TlpHistoryPoint[]): PriceHistoryPoint[] {
+  return points
+    .filter((point) => point.price_pp > 0)
+    .map((point, index) => ({
+      sourceId: `tlp:${point.timestamp}:${index}`,
+      timestamp: point.timestamp,
+      price_pp: point.price_pp,
+      price_raw: formatTlpRawPrice(point),
+      seller: point.seller,
+      source: point.source,
+    }))
+    .sort((left, right) => {
+      const timestampDelta = timestampValue(left.timestamp) - timestampValue(right.timestamp)
+      return timestampDelta === 0 ? left.sourceId.localeCompare(right.sourceId) : timestampDelta
     })
 }
 
@@ -74,4 +93,19 @@ export function buildExternalItemLinks(item: ItemDetail, server: string): Extern
 function timestampValue(value: string): number {
   const parsed = Date.parse(value)
   return Number.isNaN(parsed) ? 0 : parsed
+}
+
+function formatTlpRawPrice(point: TlpHistoryPoint): string {
+  const parts: string[] = []
+  if (point.krono_price > 0) {
+    parts.push(`${formatCompactNumber(point.krono_price)} krono`)
+  }
+  if (point.plat_price > 0) {
+    parts.push(`${formatCompactNumber(point.plat_price)}pp`)
+  }
+  return parts.join(" + ") || `${point.price_pp}pp`
+}
+
+function formatCompactNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "")
 }

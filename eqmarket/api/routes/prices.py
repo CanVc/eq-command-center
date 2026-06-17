@@ -17,6 +17,7 @@ from eqmarket.price_importer import (
     load_recent_listing_item_ids,
     refresh_krono_price,
 )
+from eqmarket.sales_importer import TlpSalesSyncStats, sales_stats_payload, sync_tlp_sales
 from eqmarket.sources.tlp_auctions import TlpAuctionsError, db_server_name
 
 
@@ -44,12 +45,14 @@ class PriceRefreshJob:
     history_days: int
     concurrency: int
     refresh_krono_when_empty: bool
+    sales_max_pages: int | None
     status: str = "queued"
     phase: str = "queued"
     completed: int = 0
     total: int | None = None
     current_item_id: int | None = None
     target_item_ids: list[int] = field(default_factory=list)
+    sales_stats: dict[str, Any] | None = None
     stats: dict[str, Any] | None = None
     error: str | None = None
     created_at: str = field(default_factory=_utcnow)
@@ -78,6 +81,19 @@ def refresh_krono(
     }
 
 
+@router.post("/api/tlp-sales/sync")
+def sync_tlp_sales_route(
+    request: Request,
+    server: str = Query("frostreaver", min_length=1),
+    max_pages: int | None = Query(None, gt=0, le=500),
+) -> dict[str, Any]:
+    db_server = _normalize_server(server)
+    stats = _sync_sales_or_502(Path(request.app.state.db_path), db_server, max_pages)
+    payload = sales_stats_payload(stats) or {}
+    payload.update({"server": db_server, "max_pages": max_pages})
+    return payload
+
+
 @router.post("/api/tlp-prices/refresh")
 def refresh_tlp_prices(
     request: Request,
@@ -87,9 +103,11 @@ def refresh_tlp_prices(
     history_days: int = Query(DEFAULT_HISTORY_DAYS, ge=0, le=365),
     concurrency: int = Query(DEFAULT_REFRESH_CONCURRENCY, ge=1, le=MAX_REFRESH_CONCURRENCY),
     refresh_krono_when_empty: bool = Query(True),
+    sales_max_pages: int | None = Query(None, gt=0, le=500),
 ) -> dict[str, Any]:
     db_server = _normalize_server(server)
     db_path = Path(request.app.state.db_path)
+    sales_stats = _sync_sales_or_502(db_path, db_server, sales_max_pages)
     item_ids = _load_item_ids_or_503(db_path, db_server, limit, max_age_hours)
 
     if item_ids:
@@ -114,6 +132,7 @@ def refresh_tlp_prices(
         max_age_hours=max_age_hours,
         history_days=history_days,
         concurrency=concurrency,
+        sales_stats=sales_stats,
     )
 
 
@@ -126,6 +145,7 @@ def start_tlp_price_refresh_job(
     history_days: int = Query(DEFAULT_HISTORY_DAYS, ge=0, le=365),
     concurrency: int = Query(DEFAULT_REFRESH_CONCURRENCY, ge=1, le=MAX_REFRESH_CONCURRENCY),
     refresh_krono_when_empty: bool = Query(True),
+    sales_max_pages: int | None = Query(None, gt=0, le=500),
 ) -> dict[str, Any]:
     db_server = _normalize_server(server)
     job = PriceRefreshJob(
@@ -137,6 +157,7 @@ def start_tlp_price_refresh_job(
         history_days=history_days,
         concurrency=concurrency,
         refresh_krono_when_empty=refresh_krono_when_empty,
+        sales_max_pages=sales_max_pages,
     )
 
     with _PRICE_REFRESH_JOBS_LOCK:
@@ -185,9 +206,19 @@ def _run_tlp_price_refresh_job(job_id: str) -> None:
     if job is None:
         return
 
-    _update_job(job_id, status="running", phase="selecting", started_at=_utcnow())
+    _update_job(job_id, status="running", phase="sales", started_at=_utcnow())
 
     try:
+        sales_stats = sync_tlp_sales(job.db_path, job.server, max_pages=job.sales_max_pages)
+        _update_job(
+            job_id,
+            sales_stats=sales_stats_payload(sales_stats),
+            phase="selecting",
+            completed=0,
+            total=None,
+            current_item_id=None,
+        )
+
         item_ids = load_recent_listing_item_ids(
             job.db_path,
             job.server,
@@ -239,6 +270,7 @@ def _run_tlp_price_refresh_job(job_id: str) -> None:
             max_age_hours=job.max_age_hours,
             history_days=job.history_days,
             concurrency=job.concurrency,
+            sales_stats=sales_stats,
         )
         _update_job(
             job_id,
@@ -276,6 +308,17 @@ def _refresh_krono_or_502(db_path: Path, db_server: str) -> TlpPriceImportStats:
         raise HTTPException(status_code=502, detail=f"TLP Auctions Krono refresh failed: {exc}") from exc
     except sqlite3.Error as exc:
         raise HTTPException(status_code=503, detail=f"SQLite Krono refresh failed: {exc}") from exc
+
+
+def _sync_sales_or_502(db_path: Path, db_server: str, max_pages: int | None) -> TlpSalesSyncStats:
+    try:
+        return sync_tlp_sales(db_path, db_server, max_pages=max_pages)
+    except TlpAuctionsError as exc:
+        raise HTTPException(status_code=502, detail=f"TLP Auctions sales sync failed: {exc}") from exc
+    except OSError as exc:
+        raise HTTPException(status_code=502, detail=f"TLP Auctions sales sync failed: {exc}") from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(status_code=503, detail=f"SQLite sales sync failed: {exc}") from exc
 
 
 def _load_item_ids_or_503(
@@ -358,6 +401,8 @@ def _job_payload(job: PriceRefreshJob) -> dict[str, Any]:
             "max_age_hours": job.max_age_hours,
             "history_days": job.history_days,
             "concurrency": job.concurrency,
+            "sales_max_pages": job.sales_max_pages,
+            "sales_stats": job.sales_stats,
             "stats": job.stats,
             "error": job.error,
             "created_at": job.created_at,
@@ -375,6 +420,7 @@ def _refresh_payload(
     max_age_hours: float | None,
     history_days: int,
     concurrency: int,
+    sales_stats: TlpSalesSyncStats | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = asdict(stats)
     payload.update(
@@ -386,6 +432,7 @@ def _refresh_payload(
             "max_age_hours": max_age_hours,
             "history_days": history_days,
             "concurrency": concurrency,
+            "sales_sync": sales_stats_payload(sales_stats),
         }
     )
     return payload
@@ -398,5 +445,3 @@ def _optional_int(value: object) -> int | None:
         return int(float(str(value)))
     except (TypeError, ValueError):
         return None
-
-

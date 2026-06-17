@@ -64,6 +64,20 @@ class PricePoint:
 
 
 @dataclass(frozen=True)
+class TlpSale:
+    sale_id: int | None
+    item_id: int | None
+    item_name: str
+    auctioneer: str | None
+    transaction_type: str | None
+    plat_price: float
+    krono_price: float
+    datetime: str
+    raw_guid: str | None
+    is_buy: bool
+
+
+@dataclass(frozen=True)
 class PriceStats:
     median_pp: int
     p25_pp: int
@@ -181,6 +195,48 @@ class TlpAuctionsClient:
                     krono_price=_as_float(point.get("kronoPrice")) or 0.0,
                     is_buy=bool(point.get("isBuy")),
                     auctioneer=point.get("auctioneer"),
+                )
+            )
+        return result
+
+    def get_sales(
+        self,
+        server_name: str,
+        *,
+        page: int = 1,
+        page_size: int = 200,
+        is_buy: bool = False,
+        priced_only: bool = True,
+    ) -> list[TlpSale]:
+        payload = self._get_json(
+            "/api/sales",
+            {
+                "serverName": api_server_name(server_name),
+                "page": page,
+                "pageSize": page_size,
+                "isBuy": str(is_buy).lower(),
+                "pricedOnly": str(priced_only).lower(),
+            },
+        )
+        sales = _extract_sales_payload(payload)
+        result: list[TlpSale] = []
+        for sale in sales:
+            item_name = sale.get("item")
+            timestamp = sale.get("datetime")
+            if not item_name or not timestamp:
+                continue
+            result.append(
+                TlpSale(
+                    sale_id=_as_int(sale.get("id")),
+                    item_id=_as_int(sale.get("itemId")),
+                    item_name=str(item_name),
+                    auctioneer=_as_optional_str(sale.get("auctioneer")),
+                    transaction_type=_as_optional_str(sale.get("transactionType")),
+                    plat_price=_as_float(sale.get("platPrice")) or 0.0,
+                    krono_price=_as_float(sale.get("kronoPrice")) or 0.0,
+                    datetime=str(timestamp),
+                    raw_guid=_as_optional_str(sale.get("rawGuid")),
+                    is_buy=_as_bool(sale.get("isBuy"), sale.get("transactionType")),
                 )
             )
         return result
@@ -351,3 +407,35 @@ def _as_float(value: object) -> float | None:
         return float(str(value))
     except (TypeError, ValueError):
         return None
+
+
+def _as_optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return text if text else None
+
+
+def _as_bool(value: object, transaction_type: object = None) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is not None:
+        text = str(value).strip().lower()
+        if text in {"true", "1", "yes"}:
+            return True
+        if text in {"false", "0", "no"}:
+            return False
+    transaction = str(transaction_type or "").strip().lower()
+    return transaction in {"buy", "wtb", "wanted"}
+
+
+def _extract_sales_payload(payload: object) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [sale for sale in payload if isinstance(sale, dict)]
+    if not isinstance(payload, dict):
+        return []
+    for key in ("sales", "items", "data", "results"):
+        sales = payload.get(key)
+        if isinstance(sales, list):
+            return [sale for sale in sales if isinstance(sale, dict)]
+    return []

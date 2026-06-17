@@ -1,6 +1,6 @@
 # Story — Sync incrémental des ventes TLP Auctions
 
-- **Statut** : À faire
+- **Statut** : Terminé
 - **Date de création** : 2026-06-17
 - **Spec liée** : [docs/UI-spec/UI-spec.md](../UI-spec/UI-spec.md)
 
@@ -41,19 +41,19 @@ Créer un importeur `tlp_auctions_sales` incrémental :
 
 ## Tâches
 
-- [ ] Ajouter un modèle client `TlpSale` et `TlpAuctionsClient.get_sales(...)`.
-- [ ] Ajouter une fonction backend `sync_tlp_sales(db_path, server, since_cursor, max_pages)`.
-- [ ] Stocker le curseur par serveur (`app_settings` ou table dédiée) : dernier `datetime` + dernier `id` traité.
-- [ ] Upsert les ventes TLP dans `market_listings` sans casser les entrées `eq_log` existantes.
-- [ ] Convertir les prix Krono si `kronoPrice > 0` avec le dernier prix Krono connu.
-- [ ] Ajouter une route/job API pour lancer ce sync, réutilisable par l'auto-refresh 5 minutes.
-- [ ] Faire utiliser ce sync par l'auto-refresh avant le refresh des prix item stale.
-- [ ] Ajouter tests unitaires : pagination, arrêt sur curseur datetime, déduplication, reprise après échec.
+- [x] Ajouter un modèle client `TlpSale` et `TlpAuctionsClient.get_sales(...)`.
+- [x] Ajouter une fonction backend `sync_tlp_sales(db_path, server, since_cursor, max_pages)`.
+- [x] Stocker le curseur par serveur (`app_settings` ou table dédiée) : dernier `datetime` + dernier `id` traité.
+- [x] Upsert les ventes TLP dans `market_listings` sans casser les entrées `eq_log` existantes.
+- [x] Convertir les prix Krono si `kronoPrice > 0` avec le dernier prix Krono connu.
+- [x] Ajouter une route/job API pour lancer ce sync, réutilisable par l'auto-refresh 5 minutes.
+- [x] Faire utiliser ce sync par l'auto-refresh avant le refresh des prix item stale.
+- [x] Ajouter tests unitaires : pagination, arrêt sur curseur datetime, déduplication, reprise après échec.
 
 ## Critères d'acceptation
 
-- [ ] Un refresh récupère toutes les nouvelles ventes TLP Auctions depuis le dernier sync réussi, sans limite fixe à 1000.
-- [ ] `market_listings` contient les annonces TLP récentes même si aucun personnage n'était connecté.
-- [ ] Relancer deux fois le sync ne crée pas de doublons.
-- [ ] En cas d'échec au milieu de la pagination, le curseur n'avance pas.
-- [ ] L'auto-refresh 5 minutes peut s'appuyer sur ce sync incrémental.
+- [x] Un refresh récupère toutes les nouvelles ventes TLP Auctions depuis le dernier sync réussi, sans limite fixe à 1000.
+- [x] `market_listings` contient les annonces TLP récentes même si aucun personnage n'était connecté.
+- [x] Relancer deux fois le sync ne crée pas de doublons.
+- [x] En cas d'échec au milieu de la pagination, le curseur n'avance pas.
+- [x] L'auto-refresh 5 minutes peut s'appuyer sur ce sync incrémental.

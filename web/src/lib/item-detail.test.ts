@@ -4,6 +4,7 @@ import type { ItemDetail, ItemListing } from "./api"
 import {
   buildExternalItemLinks,
   buildPriceHistory,
+  buildTlpPriceHistory,
   formatKronoEquivalent,
   latestPricedListing,
 } from "./item-detail"
@@ -18,18 +19,62 @@ describe("item detail helpers", () => {
 
     expect(buildPriceHistory(listings)).toEqual([
       {
-        listingId: 1,
+        sourceId: "listing:1",
         timestamp: "2026-06-16T10:00:00",
         price_pp: 50000,
         price_raw: "50000pp",
         seller: "Seller 1",
+        source: "eq_log",
       },
       {
-        listingId: 2,
+        sourceId: "listing:2",
         timestamp: "2026-06-16T11:00:00",
         price_pp: 42000,
         price_raw: "42000pp",
         seller: "Seller 2",
+        source: "eq_log",
+      },
+    ])
+  })
+
+  it("builds chart history from full TLP sell points in chronological order", () => {
+    expect(
+      buildTlpPriceHistory([
+        {
+          timestamp: "2026-06-16T12:00:00Z",
+          price_pp: 42000,
+          plat_price: 10000,
+          krono_price: 2,
+          krono_price_pp_used: 16000,
+          seller: "Seller Two",
+          source: "tlp_auctions_history",
+        },
+        {
+          timestamp: "2026-06-01T10:00:00Z",
+          price_pp: 50000,
+          plat_price: 50000,
+          krono_price: 0,
+          krono_price_pp_used: null,
+          seller: "Seller One",
+          source: "tlp_auctions_history",
+        },
+      ])
+    ).toEqual([
+      {
+        sourceId: "tlp:2026-06-01T10:00:00Z:1",
+        timestamp: "2026-06-01T10:00:00Z",
+        price_pp: 50000,
+        price_raw: "50000pp",
+        seller: "Seller One",
+        source: "tlp_auctions_history",
+      },
+      {
+        sourceId: "tlp:2026-06-16T12:00:00Z:0",
+        timestamp: "2026-06-16T12:00:00Z",
+        price_pp: 42000,
+        price_raw: "2 krono + 10000pp",
+        seller: "Seller Two",
+        source: "tlp_auctions_history",
       },
     ])
   })

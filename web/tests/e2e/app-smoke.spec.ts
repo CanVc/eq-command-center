@@ -410,8 +410,9 @@ test("opens item detail from item links and renders prices, history, chart, and 
   await expect(page.getByText("Ratio")).toBeVisible()
   await expect(page.getByText("0.40", { exact: true })).toBeVisible()
 
-  await expect(page.getByRole("heading", { name: "Local Price History" })).toBeVisible()
-  await expect(page.getByLabel("Local price history chart")).toBeVisible()
+  await expect(page.getByRole("heading", { name: "TLP Price History" })).toBeVisible()
+  await expect(page.getByLabel("Full TLP price history chart")).toBeVisible()
+  await expect(page.getByText("2 sell points from the full TLP Auctions history.")).toBeVisible()
   await expect(page.getByRole("heading", { name: "Local Listings" })).toBeVisible()
   await expect(page.locator("tbody")).toContainText("Stave of Shielding MQ")
   await expect(page.locator("tbody")).toContainText("42k")
@@ -432,6 +433,7 @@ test("opens item detail from item links and renders prices, history, chart, and 
   expect(requestedPaths).toContain("/api/items/1")
   expect(requestedPaths).toContain("/api/items/1/prices?server=frostreaver")
   expect(requestedPaths).toContain("/api/items/1/listings?server=frostreaver&limit=100")
+  expect(requestedPaths).toContain("/api/items/1/tlp-history?server=frostreaver")
 })
 
 test("keeps item detail usable when market price is unavailable", async ({ page }) => {
@@ -648,6 +650,16 @@ async function fulfillApi(route: Route) {
     return
   }
 
+  const itemTlpHistoryId = itemTlpHistoryIdFromPath(url.pathname)
+
+  if (itemTlpHistoryId !== null) {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(buildTlpHistory(itemTlpHistoryId)),
+    })
+    return
+  }
+
   if (url.pathname === "/api/items/tooltip") {
     await route.fulfill({
       contentType: "application/json",
@@ -747,6 +759,11 @@ function itemPricesIdFromPath(pathname: string): number | null {
 
 function itemListingsIdFromPath(pathname: string): number | null {
   const match = pathname.match(/^\/api\/items\/(\d+)\/listings$/)
+  return match ? Number(match[1]) : null
+}
+
+function itemTlpHistoryIdFromPath(pathname: string): number | null {
+  const match = pathname.match(/^\/api\/items\/(\d+)\/tlp-history$/)
   return match ? Number(match[1]) : null
 }
 
@@ -1039,6 +1056,33 @@ function buildItemListings(itemId: number) {
       source: "eq_log",
       confidence: "no_price",
       resolved: true,
+    },
+  ]
+}
+
+function buildTlpHistory(itemId: number) {
+  if (itemId !== 1) {
+    return []
+  }
+
+  return [
+    {
+      timestamp: "2026-06-01T10:00:00Z",
+      price_pp: 50000,
+      plat_price: 50000,
+      krono_price: 0,
+      krono_price_pp_used: null,
+      seller: "ArchiveSeller",
+      source: "tlp_auctions_history",
+    },
+    {
+      timestamp: "2026-06-16T12:00:00Z",
+      price_pp: 42000,
+      plat_price: 10000,
+      krono_price: 2,
+      krono_price_pp_used: 16000,
+      seller: "LatestSeller",
+      source: "tlp_auctions_history",
     },
   ]
 }

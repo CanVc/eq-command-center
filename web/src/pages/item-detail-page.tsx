@@ -50,6 +50,7 @@ import { formatDateTime, formatNumber, formatPrice } from "@/lib/format"
 import {
   buildExternalItemLinks,
   buildPriceHistory,
+  buildTlpPriceHistory,
   formatKronoEquivalent,
   latestPricedListing,
   type PriceHistoryPoint,
@@ -57,7 +58,8 @@ import {
 import { cn } from "@/lib/utils"
 
 export function ItemDetailPage({ data, server }: { data: ItemDetailPageData; server: string }) {
-  const history = buildPriceHistory(data.listings)
+  const hasTlpHistory = data.tlpHistory.length > 0
+  const history = hasTlpHistory ? buildTlpPriceHistory(data.tlpHistory) : buildPriceHistory(data.listings)
   const latestListing = latestPricedListing(data.listings)
 
   return (
@@ -94,7 +96,7 @@ export function ItemDetailPage({ data, server }: { data: ItemDetailPageData; ser
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.75fr)]">
-        <PriceChartCard history={history} />
+        <PriceChartCard history={history} source={hasTlpHistory ? "tlp" : "local"} />
         <MarketPriceCard price={data.price} />
       </div>
 
@@ -196,19 +198,28 @@ function MetricCard({
   )
 }
 
-function PriceChartCard({ history }: { history: PriceHistoryPoint[] }) {
+function PriceChartCard({ history, source }: { history: PriceHistoryPoint[]; source: "tlp" | "local" }) {
+  const isTlp = source === "tlp"
+
   return (
     <Card className="min-w-0">
       <CardHeader className="border-b">
         <CardTitle className="flex items-center gap-2">
           <LineChart aria-hidden="true" className="size-4" />
-          <h3>Local Price History</h3>
+          <h3>{isTlp ? "TLP Price History" : "Local Price History"}</h3>
         </CardTitle>
-        <CardDescription>{history.length} priced local listings from market_listings.</CardDescription>
+        <CardDescription>
+          {isTlp
+            ? `${history.length} sell points from the full TLP Auctions history.`
+            : `${history.length} priced local listings from market_listings.`}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {history.length > 0 ? (
-          <div className="h-72 w-full min-w-0" aria-label="Local price history chart">
+          <div
+            className="h-72 w-full min-w-0"
+            aria-label={isTlp ? "Full TLP price history chart" : "Local price history chart"}
+          >
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={history} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
                 <defs>
@@ -255,7 +266,7 @@ function PriceChartCard({ history }: { history: PriceHistoryPoint[] }) {
             </ResponsiveContainer>
           </div>
         ) : (
-          <EmptyState label="No local priced listings available for this item." />
+          <EmptyState label="No priced history available for this item." />
         )}
       </CardContent>
     </Card>

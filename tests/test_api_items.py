@@ -5,11 +5,13 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from eqmarket.api.app import create_app
 from eqmarket.db import init_db
+from eqmarket.sources.tlp_auctions import PricePoint
 
 
 class ApiItemsTests(unittest.TestCase):
@@ -98,6 +100,68 @@ class ApiItemsTests(unittest.TestCase):
             self.assertEqual(payload[0]["price_raw"], "42k")
             self.assertEqual(payload[0]["price_pp"], 42000)
             self.assertTrue(payload[0]["resolved"])
+
+    def test_tlp_history_returns_full_sell_history_with_krono_conversion(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            _seed_items_fixture(db_path)
+            _seed_krono_price(db_path)
+            app = create_app(db_path)
+
+            fake_points = [
+                PricePoint(
+                    datetime="2026-06-14T10:00:00Z",
+                    plat_price=5000,
+                    krono_price=0,
+                    is_buy=False,
+                    auctioneer="SellerOne",
+                ),
+                PricePoint(
+                    datetime="2026-06-01T10:00:00Z",
+                    plat_price=1000,
+                    krono_price=2,
+                    is_buy=False,
+                    auctioneer="SellerTwo",
+                ),
+                PricePoint(
+                    datetime="2026-06-16T10:00:00Z",
+                    plat_price=2000,
+                    krono_price=0,
+                    is_buy=True,
+                    auctioneer="BuyerOne",
+                ),
+            ]
+
+            with patch("eqmarket.api.routes.items.TlpAuctionsClient") as client_class:
+                client_class.return_value.get_item_history.return_value = fake_points
+                with TestClient(app) as client:
+                    response = client.get("/api/items/101/tlp-history", params={"server": "frostreaver"})
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                response.json(),
+                [
+                    {
+                        "timestamp": "2026-06-01T10:00:00Z",
+                        "price_pp": 33000,
+                        "plat_price": 1000,
+                        "krono_price": 2,
+                        "krono_price_pp_used": 16000,
+                        "seller": "SellerTwo",
+                        "source": "tlp_auctions_history",
+                    },
+                    {
+                        "timestamp": "2026-06-14T10:00:00Z",
+                        "price_pp": 5000,
+                        "plat_price": 5000,
+                        "krono_price": 0,
+                        "krono_price_pp_used": None,
+                        "seller": "SellerOne",
+                        "source": "tlp_auctions_history",
+                    },
+                ],
+            )
 
     def test_tooltip_by_id_contains_key_stats_prices_and_last_seen(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -386,3 +450,14 @@ def _seed_items_fixture(db_path: Path) -> dict[str, int]:
         connection.commit()
 
     return listing_ids
+
+
+def _seed_krono_price(db_path: Path) -> None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute(
+            """
+            INSERT INTO krono_prices (server, price_pp, source, confidence, last_refresh_at)
+            VALUES ('frostreaver', 16000, 'fixture', 'high', '2026-06-16 10:00:00')
+            """
+        )
+        connection.commit()

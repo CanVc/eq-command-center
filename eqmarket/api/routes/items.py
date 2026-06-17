@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from eqmarket.api.db import connect_readonly
 from eqmarket.log_parser import normalize_item_name
+from eqmarket.sources.tlp_auctions import PricePoint, TlpAuctionsClient, TlpAuctionsError
 
 
 DEFAULT_SEARCH_LIMIT = 20
@@ -147,6 +148,31 @@ def item_prices(
         price = _fetch_price_payload(connection, item_id, db_server)
 
     return price
+
+
+@router.get("/api/items/{item_id}/tlp-history")
+def item_tlp_history(
+    request: Request,
+    item_id: int,
+    server: str = Query("frostreaver", min_length=1),
+) -> list[dict[str, Any]]:
+    db_server = _normalize_server(server)
+
+    with closing(_connect_or_503(request.app.state.db_path)) as connection:
+        _fetch_item_or_404(connection, item_id)
+        krono_price_pp = _fetch_latest_krono_price(connection, db_server)
+
+    try:
+        points = TlpAuctionsClient().get_item_history(item_id, db_server)
+    except (OSError, TlpAuctionsError) as exc:
+        raise HTTPException(status_code=502, detail=f"TLP Auctions item history failed: {exc}") from exc
+
+    history = [
+        payload
+        for point in points
+        if (payload := _tlp_history_point_payload(point, krono_price_pp)) is not None
+    ]
+    return sorted(history, key=lambda point: point["timestamp"])
 
 
 @router.get("/api/items/{item_id}/listings")
@@ -329,6 +355,47 @@ def _fetch_last_seen_payload(connection: sqlite3.Connection, item_id: int, db_se
         "last_seen_at": row["timestamp"],
         "last_seen_seller": row["seller"],
         "last_seen_price_raw": row["price_raw"],
+    }
+
+
+def _fetch_latest_krono_price(connection: sqlite3.Connection, db_server: str) -> int | None:
+    row = connection.execute(
+        """
+        SELECT price_pp
+        FROM krono_prices
+        WHERE lower(server) = ?
+          AND price_pp IS NOT NULL
+        ORDER BY datetime(last_refresh_at) DESC
+        LIMIT 1
+        """,
+        (db_server,),
+    ).fetchone()
+    return _optional_int(row["price_pp"]) if row else None
+
+
+def _tlp_history_point_payload(point: PricePoint, krono_price_pp: int | None) -> dict[str, Any] | None:
+    if point.is_buy:
+        return None
+
+    price_pp = point.plat_price
+    krono_price_pp_used = None
+    if point.krono_price > 0:
+        if krono_price_pp is None:
+            return None
+        price_pp += point.krono_price * krono_price_pp
+        krono_price_pp_used = krono_price_pp
+
+    if price_pp <= 0:
+        return None
+
+    return {
+        "timestamp": point.datetime,
+        "price_pp": round(price_pp),
+        "plat_price": point.plat_price,
+        "krono_price": point.krono_price,
+        "krono_price_pp_used": krono_price_pp_used,
+        "seller": point.auctioneer,
+        "source": "tlp_auctions_history",
     }
 
 

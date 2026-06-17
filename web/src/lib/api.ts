@@ -299,10 +299,21 @@ export type ItemListing = ListingPreview & {
   listed_item_name: string
 }
 
+export type TlpHistoryPoint = {
+  timestamp: string
+  price_pp: number
+  plat_price: number
+  krono_price: number
+  krono_price_pp_used: number | null
+  seller: string | null
+  source: string
+}
+
 export type ItemDetailPageData = {
   item: ItemDetail
   price: ItemMarketPrice
   listings: ItemListing[]
+  tlpHistory: TlpHistoryPoint[]
   kronoLatest: KronoLatest
 }
 
@@ -587,6 +598,19 @@ export async function fetchItemListings(
   )
 }
 
+export async function fetchTlpItemHistory(
+  itemId: number,
+  server: string,
+  fetcher: Fetcher = fetch
+): Promise<TlpHistoryPoint[]> {
+  return fetchJson<TlpHistoryPoint[]>(
+    buildApiPath(`/api/items/${itemId}/tlp-history`, {
+      server,
+    }),
+    fetcher
+  )
+}
+
 export async function fetchItemDetailPageData(
   itemId: number,
   server: string,
@@ -598,14 +622,18 @@ export async function fetchItemDetailPageData(
     console.warn("Unable to refresh TLP item price before loading item detail", error)
   }
 
-  const [item, price, listings, kronoLatest] = await Promise.all([
+  const [item, price, listings, tlpHistory, kronoLatest] = await Promise.all([
     fetchItemDetail(itemId, fetcher),
     fetchItemPrices(itemId, server, fetcher),
     fetchItemListings(itemId, server, fetcher),
+    fetchTlpItemHistory(itemId, server, fetcher).catch((error) => {
+      console.warn("Unable to load full TLP item history", error)
+      return []
+    }),
     fetchKronoLatest(server, fetcher),
   ])
 
-  return { item, price, listings, kronoLatest }
+  return { item, price, listings, tlpHistory, kronoLatest }
 }
 
 export async function fetchItemTooltip(
@@ -737,4 +765,3 @@ async function buildApiErrorMessage(
 
   return fallbackMessage
 }
-
