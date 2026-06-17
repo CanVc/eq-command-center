@@ -78,6 +78,28 @@ The server binds to `127.0.0.1:8000` by default. You can also set the database p
 uvicorn eqmarket.api.app:app --host 127.0.0.1 --port 8000
 ```
 
+Run the frontend dev server:
+
+```bash
+# From the repository root
+npm --prefix web run dev
+
+# Or, if the current directory is already ./web
+npm run dev
+```
+
+To open the UI from a phone on the same Wi-Fi, start Vite on the LAN interface and use the `Network` URL it prints, for example `http://192.168.x.x:5173`:
+
+```bash
+# From the repository root
+npm --prefix web run dev -- --host 0.0.0.0
+
+# Or, if the current directory is already ./web
+npm run dev -- --host 0.0.0.0
+```
+
+When Codex or another agent changes frontend/server startup behavior, restart the affected process with the same commands: stop it with `Ctrl+C`, then rerun the API and/or Vite command above. Keep the API on `127.0.0.1:8000`; Vite proxies `/api` for LAN clients.
+
 Configure your EverQuest log path from the frontend Settings page with the file picker, or pass it directly to the CLI. Once saved, `import-log` and `run-alerts` can reuse the configured path.
 
 Preview EverQuest auction parsing without writing to SQLite:
