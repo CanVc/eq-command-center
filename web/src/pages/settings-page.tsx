@@ -7,7 +7,7 @@ import {
   Server,
   TriangleAlert,
 } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import type { FormEvent, ReactNode } from "react"
 
 import { Badge } from "@/components/ui/badge"
@@ -33,12 +33,6 @@ type SettingsPageProps = {
 }
 
 export function SettingsPage({ settings, mageloStatus }: SettingsPageProps) {
-  const [logSettings, setLogSettings] = useState<EqLogSettings>(() => settings)
-
-  useEffect(() => {
-    setLogSettings(settings)
-  }, [settings])
-
   return (
     <section className="flex flex-col gap-4">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
@@ -90,9 +84,9 @@ export function SettingsPage({ settings, mageloStatus }: SettingsPageProps) {
       </div>
 
       <LogPathCard
+        key={`${settings.active_server}:${settings.eq_log_path ?? ""}:${settings.eq_log_exists ?? "unknown"}`}
         server={settings.active_server}
-        logSettings={logSettings}
-        onLogSettingsChange={setLogSettings}
+        logSettings={settings}
       />
 
       <Card className="min-w-0">
@@ -124,23 +118,19 @@ export function SettingsPage({ settings, mageloStatus }: SettingsPageProps) {
 function LogPathCard({
   server,
   logSettings,
-  onLogSettingsChange,
 }: {
   server: string
   logSettings: EqLogSettings
-  onLogSettingsChange: (settings: EqLogSettings) => void
 }) {
-  const [draftPath, setDraftPath] = useState(logSettings.eq_log_path ?? "")
+  const [currentLogSettings, setCurrentLogSettings] = useState<EqLogSettings>(() => logSettings)
   const [saveState, setSaveState] = useState<"idle" | "browsing" | "saving" | "saved" | "error">("idle")
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  useEffect(() => {
-    setDraftPath(logSettings.eq_log_path ?? "")
-  }, [logSettings.eq_log_path])
-
   const saveLogPath = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    await persistLogPath(() => updateEqLogPath(server, draftPath), "saving")
+    const formData = new FormData(event.currentTarget)
+    const nextLogPath = String(formData.get("logPath") ?? "")
+    await persistLogPath(() => updateEqLogPath(server, nextLogPath), "saving")
   }
 
   const browseLogPath = async () => {
@@ -156,8 +146,7 @@ function LogPathCard({
 
     try {
       const nextSettings = await action()
-      onLogSettingsChange(nextSettings)
-      setDraftPath(nextSettings.eq_log_path ?? "")
+      setCurrentLogSettings(nextSettings)
       setSaveState("saved")
     } catch (error) {
       setErrorMessage(formatLogPathError(error, pendingState))
@@ -165,8 +154,8 @@ function LogPathCard({
     }
   }
 
-  const statusLabel = logSettings.eq_log_path
-    ? logSettings.eq_log_exists
+  const statusLabel = currentLogSettings.eq_log_path
+    ? currentLogSettings.eq_log_exists
       ? "found"
       : "missing"
     : "not configured"
@@ -186,8 +175,8 @@ function LogPathCard({
             variant="outline"
             className={cn(
               "rounded-md",
-              logSettings.eq_log_exists === true && "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-              logSettings.eq_log_exists === false && "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+              currentLogSettings.eq_log_exists === true && "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+              currentLogSettings.eq_log_exists === false && "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
             )}
           >
             {statusLabel}
@@ -201,10 +190,11 @@ function LogPathCard({
             <input
               aria-label="EverQuest log path"
               className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-              value={draftPath}
+              name="logPath"
+              key={currentLogSettings.eq_log_path ?? ""}
+              defaultValue={currentLogSettings.eq_log_path ?? ""}
               placeholder="C:\\...\\EverQuest\\Logs\\eqlog_Character_server.txt"
-              onChange={(event) => {
-                setDraftPath(event.target.value)
+              onChange={() => {
                 setSaveState("idle")
                 setErrorMessage(null)
               }}
@@ -235,12 +225,12 @@ function LogPathCard({
         ) : null}
 
         <dl className="grid gap-2 md:grid-cols-2">
-          <DetailRow label="Configured path" value={logSettings.eq_log_path ?? "n/a"} wide />
-          <DetailRow label="Exists" value={logSettings.eq_log_exists === null ? "n/a" : logSettings.eq_log_exists ? "yes" : "no"} />
-          <DetailRow label="Last offset" value={logSettings.eq_log_import_state ? formatNumber(logSettings.eq_log_import_state.last_position) : "n/a"} />
-          <DetailRow label="Last import state" value={logSettings.eq_log_import_state ? formatDateTime(logSettings.eq_log_import_state.updated_at) : "n/a"} />
-          {logSettings.log_settings_error ? (
-            <DetailRow label="Error" value={logSettings.log_settings_error} wide />
+          <DetailRow label="Configured path" value={currentLogSettings.eq_log_path ?? "n/a"} wide />
+          <DetailRow label="Exists" value={currentLogSettings.eq_log_exists === null ? "n/a" : currentLogSettings.eq_log_exists ? "yes" : "no"} />
+          <DetailRow label="Last offset" value={currentLogSettings.eq_log_import_state ? formatNumber(currentLogSettings.eq_log_import_state.last_position) : "n/a"} />
+          <DetailRow label="Last import state" value={currentLogSettings.eq_log_import_state ? formatDateTime(currentLogSettings.eq_log_import_state.updated_at) : "n/a"} />
+          {currentLogSettings.log_settings_error ? (
+            <DetailRow label="Error" value={currentLogSettings.log_settings_error} wide />
           ) : null}
         </dl>
       </CardContent>

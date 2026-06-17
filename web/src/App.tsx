@@ -53,6 +53,11 @@ import {
   type AppRoute,
 } from "@/lib/navigation"
 import { readPreferredServer, savePreferredServer } from "@/lib/server-preference"
+import {
+  formatTlpMaxAgeHours,
+  readTlpMaxAgeHours,
+  saveTlpMaxAgeHours,
+} from "@/lib/tlp-refresh-preference"
 import { formatTime } from "@/lib/format"
 import { DashboardPage } from "@/pages/dashboard-page"
 import { DealsPage } from "@/pages/deals-page"
@@ -76,6 +81,7 @@ type PageState =
 function App() {
   const [activeRoute, setActiveRoute] = useState<AppRoute>(() => getInitialRoute())
   const [server, setServer] = useState(() => readPreferredServer())
+  const [tlpMaxAgeHours, setTlpMaxAgeHours] = useState(() => readTlpMaxAgeHours())
   const [dealFilters, setDealFilters] = useState<DealFilters>(DEFAULT_DEAL_FILTERS)
   const [marketListingFilters, setMarketListingFilters] = useState<MarketListingFilters>(
     DEFAULT_MARKET_LISTING_FILTERS
@@ -224,9 +230,11 @@ function App() {
       return
     }
 
+    const refreshMaxAgeHours = tlpMaxAgeHours
+
     async function runTlpRefresh() {
       try {
-        let job = await startTlpPriceRefreshJob(server, { maxAgeHours: 6 })
+        let job = await startTlpPriceRefreshJob(server, { maxAgeHours: refreshMaxAgeHours })
         setTlpRefreshJob(job)
         setProgressNow(Date.now())
 
@@ -252,7 +260,7 @@ function App() {
           target_item_ids: [],
           target_count: 0,
           limit: 0,
-          max_age_hours: 6,
+          max_age_hours: refreshMaxAgeHours,
           history_days: 3,
           concurrency: 5,
           stats: null,
@@ -265,7 +273,13 @@ function App() {
     }
 
     void runTlpRefresh()
-  }, [server, tlpRefreshJob])
+  }, [server, tlpMaxAgeHours, tlpRefreshJob])
+
+  const changeTlpMaxAgeHours = useCallback((nextMaxAgeHours: number) => {
+    const savedMaxAgeHours = saveTlpMaxAgeHours(nextMaxAgeHours)
+    setTlpMaxAgeHours(savedMaxAgeHours)
+    return savedMaxAgeHours
+  }, [])
 
   const changeDealFilters = useCallback((nextFilters: DealFilters) => {
     setPageState({ status: "loading" })
@@ -284,8 +298,10 @@ function App() {
       server={server}
       isRefreshing={pageState.status === "loading"}
       isTlpRefreshing={isTlpRefreshing}
+      tlpMaxAgeHours={tlpMaxAgeHours}
       onNavigate={navigateTo}
       onServerChange={changeServer}
+      onTlpMaxAgeHoursChange={changeTlpMaxAgeHours}
       onRefresh={refresh}
       onTlpRefresh={refreshTlpMarketPrices}
     >
@@ -402,6 +418,7 @@ function TlpRefreshProgress({
   const hasTotal = total > 0
   const percent = hasTotal ? Math.min(100, Math.round((job.completed * 100) / total)) : job.status === "completed" ? 100 : 0
   const elapsed = formatElapsed(job.started_at ?? job.created_at, nowMs)
+  const refreshAge = formatRefreshAge(job.max_age_hours)
   const label = job.status === "failed" ? job.error ?? "TLP Auctions refresh failed" : formatTlpPhase(job.phase)
 
   return (
@@ -410,7 +427,7 @@ function TlpRefreshProgress({
         <div className="min-w-0">
           <p className="font-medium">TLP Auctions price refresh</p>
           <p className="text-muted-foreground">
-            {label} · {hasTotal ? `${job.completed}/${total} items` : `${job.completed} items`} · {job.concurrency} parallel · {elapsed}
+            {label} · {hasTotal ? `${job.completed}/${total} items` : `${job.completed} items`} · {refreshAge} · {job.concurrency} parallel · {elapsed}
           </p>
         </div>
         <Badge variant={job.status === "failed" ? "destructive" : running ? "secondary" : "outline"}>
@@ -454,6 +471,14 @@ function formatTlpPhase(phase: string): string {
     default:
       return phase
   }
+}
+
+function formatRefreshAge(maxAgeHours: number): string {
+  if (maxAgeHours <= 0) {
+    return "refresh all"
+  }
+
+  return `stale > ${formatTlpMaxAgeHours(maxAgeHours)}h`
 }
 
 function formatElapsed(startedAt: string | null, nowMs: number): string {

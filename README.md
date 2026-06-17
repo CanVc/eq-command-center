@@ -147,3 +147,5 @@ Or refresh only missing/stale recent prices:
 ```bash
 eqmarket run-alerts --db data/eqmarket.sqlite --server frostreaver --log "C:\\Users\\Public\\Daybreak Game Company\\Installed Games\\EverQuest\\Logs\\eqlog_Dreadbank_frostreaver.txt" --price-max-age-hours 12
 ```
+
+In the web UI, `TLP max age` controls the same stale-price window. It defaults to 6 hours; set it to 0 to refresh every eligible recent item.

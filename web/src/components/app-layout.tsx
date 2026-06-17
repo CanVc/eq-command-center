@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import type { ReactNode } from "react"
+import type { KeyboardEvent, ReactNode } from "react"
 import {
   BarChart3,
   Box,
@@ -21,6 +21,11 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { APP_PAGES, pathForPage, type AppPageId } from "@/lib/navigation"
+import {
+  MAX_TLP_MAX_AGE_HOURS,
+  MIN_TLP_MAX_AGE_HOURS,
+  formatTlpMaxAgeHours,
+} from "@/lib/tlp-refresh-preference"
 import { cn } from "@/lib/utils"
 
 type AppLayoutProps = {
@@ -29,9 +34,11 @@ type AppLayoutProps = {
   server: string
   isRefreshing: boolean
   isTlpRefreshing: boolean
+  tlpMaxAgeHours: number
   children: ReactNode
   onNavigate: (pageId: AppPageId) => void
   onServerChange: (server: string) => void
+  onTlpMaxAgeHoursChange: (maxAgeHours: number) => number
   onRefresh: () => void
   onTlpRefresh: () => void
 }
@@ -61,9 +68,11 @@ export function AppLayout({
   server,
   isRefreshing,
   isTlpRefreshing,
+  tlpMaxAgeHours,
   children,
   onNavigate,
   onServerChange,
+  onTlpMaxAgeHoursChange,
   onRefresh,
   onTlpRefresh,
 }: AppLayoutProps) {
@@ -78,6 +87,25 @@ export function AppLayout({
 
   const toggleTheme = () => {
     setTheme((current) => (current === "dark" ? "light" : "dark"))
+  }
+
+  const applyTlpMaxAgeInput = (input: HTMLInputElement) => {
+    const rawValue = input.value.trim()
+    const parsedValue = rawValue === "" ? Number.NaN : Number(rawValue)
+
+    if (!Number.isFinite(parsedValue)) {
+      input.value = formatTlpMaxAgeHours(tlpMaxAgeHours)
+      return
+    }
+
+    const savedMaxAgeHours = onTlpMaxAgeHoursChange(parsedValue)
+    input.value = formatTlpMaxAgeHours(savedMaxAgeHours)
+  }
+
+  const handleTlpMaxAgeKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      event.currentTarget.blur()
+    }
   }
 
   return (
@@ -130,6 +158,27 @@ export function AppLayout({
                 </Select>
 
                 <ThemeToggle theme={theme} onToggle={toggleTheme} />
+
+                <label
+                  className="flex h-9 items-center gap-1.5 rounded-md border border-input bg-background px-2 text-xs text-muted-foreground"
+                  title="Maximum age, in hours, before a TLP item price is considered stale. Use 0 to refresh every eligible recent item."
+                >
+                  <span className="whitespace-nowrap">TLP max age</span>
+                  <input
+                    aria-label="TLP max age hours"
+                    className="h-7 w-16 rounded-md border border-input bg-background px-2 text-right text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+                    type="number"
+                    min={MIN_TLP_MAX_AGE_HOURS}
+                    max={MAX_TLP_MAX_AGE_HOURS}
+                    step={0.5}
+                    key={tlpMaxAgeHours}
+                    defaultValue={formatTlpMaxAgeHours(tlpMaxAgeHours)}
+                    disabled={isTlpRefreshing}
+                    onBlur={(event) => applyTlpMaxAgeInput(event.currentTarget)}
+                    onKeyDown={handleTlpMaxAgeKeyDown}
+                  />
+                  <span>h</span>
+                </label>
 
                 <Button
                   type="button"
