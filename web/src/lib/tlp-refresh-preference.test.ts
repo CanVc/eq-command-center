@@ -3,10 +3,13 @@ import { describe, expect, it, vi } from "vitest"
 import {
   DEFAULT_TLP_MAX_AGE_HOURS,
   MAX_TLP_MAX_AGE_HOURS,
+  TLP_AUTO_REFRESH_STORAGE_KEY,
   TLP_REFRESH_STORAGE_KEY,
   formatTlpMaxAgeHours,
   normalizeTlpMaxAgeHours,
+  readTlpAutoRefreshEnabled,
   readTlpMaxAgeHours,
+  saveTlpAutoRefreshEnabled,
   saveTlpMaxAgeHours,
   type TlpRefreshStorage,
 } from "./tlp-refresh-preference"
@@ -56,6 +59,16 @@ describe("TLP refresh preference", () => {
     expect(readTlpMaxAgeHours(storage)).toBe(0.5)
   })
 
+  it("reads and saves the auto-refresh preference", () => {
+    const storage = createStorage("true")
+
+    expect(readTlpAutoRefreshEnabled(storage)).toBe(true)
+    expect(storage.getItem).toHaveBeenCalledWith(TLP_AUTO_REFRESH_STORAGE_KEY)
+    expect(saveTlpAutoRefreshEnabled(false, storage)).toBe(false)
+    expect(storage.setItem).toHaveBeenCalledWith(TLP_AUTO_REFRESH_STORAGE_KEY, "false")
+    expect(readTlpAutoRefreshEnabled(storage)).toBe(false)
+  })
+
   it("falls back to the default when storage throws", () => {
     const storage: TlpRefreshStorage = {
       getItem: vi.fn(() => {
@@ -69,5 +82,7 @@ describe("TLP refresh preference", () => {
 
     expect(readTlpMaxAgeHours(storage)).toBe(DEFAULT_TLP_MAX_AGE_HOURS)
     expect(saveTlpMaxAgeHours(24, storage)).toBe(24)
+    expect(readTlpAutoRefreshEnabled(storage)).toBe(false)
+    expect(saveTlpAutoRefreshEnabled(true, storage)).toBe(true)
   })
 })

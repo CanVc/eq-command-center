@@ -151,6 +151,7 @@ export type TlpPriceRefreshOptions = {
   maxAgeHours?: number
   historyDays?: number
   concurrency?: number
+  refreshKronoWhenEmpty?: boolean
 }
 
 export type TlpPriceRefreshJobStatus = {
@@ -437,6 +438,7 @@ export async function refreshTlpPrices(
       max_age_hours: options.maxAgeHours,
       history_days: options.historyDays,
       concurrency: options.concurrency,
+      refresh_krono_when_empty: options.refreshKronoWhenEmpty,
     }),
     fetcher,
     { method: "POST" }
@@ -455,6 +457,7 @@ export async function startTlpPriceRefreshJob(
       max_age_hours: options.maxAgeHours,
       history_days: options.historyDays,
       concurrency: options.concurrency,
+      refresh_krono_when_empty: options.refreshKronoWhenEmpty,
     }),
     fetcher,
     { method: "POST" }

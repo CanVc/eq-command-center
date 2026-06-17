@@ -54,8 +54,11 @@ import {
 } from "@/lib/navigation"
 import { readPreferredServer, savePreferredServer } from "@/lib/server-preference"
 import {
+  TLP_AUTO_REFRESH_INTERVAL_MS,
   formatTlpMaxAgeHours,
+  readTlpAutoRefreshEnabled,
   readTlpMaxAgeHours,
+  saveTlpAutoRefreshEnabled,
   saveTlpMaxAgeHours,
 } from "@/lib/tlp-refresh-preference"
 import { formatTime } from "@/lib/format"
@@ -82,6 +85,7 @@ function App() {
   const [activeRoute, setActiveRoute] = useState<AppRoute>(() => getInitialRoute())
   const [server, setServer] = useState(() => readPreferredServer())
   const [tlpMaxAgeHours, setTlpMaxAgeHours] = useState(() => readTlpMaxAgeHours())
+  const [tlpAutoRefreshEnabled, setTlpAutoRefreshEnabled] = useState(() => readTlpAutoRefreshEnabled())
   const [dealFilters, setDealFilters] = useState<DealFilters>(DEFAULT_DEAL_FILTERS)
   const [marketListingFilters, setMarketListingFilters] = useState<MarketListingFilters>(
     DEFAULT_MARKET_LISTING_FILTERS
@@ -225,16 +229,20 @@ function App() {
     void runRefresh()
   }, [activeRoute, server])
 
-  const refreshTlpMarketPrices = useCallback(() => {
+  const refreshTlpMarketPrices = useCallback((options: { refreshKronoWhenEmpty?: boolean } = {}) => {
     if (isRunningTlpJob(tlpRefreshJob)) {
       return
     }
 
     const refreshMaxAgeHours = tlpMaxAgeHours
+    const refreshKronoWhenEmpty = options.refreshKronoWhenEmpty ?? true
 
     async function runTlpRefresh() {
       try {
-        let job = await startTlpPriceRefreshJob(server, { maxAgeHours: refreshMaxAgeHours })
+        let job = await startTlpPriceRefreshJob(server, {
+          maxAgeHours: refreshMaxAgeHours,
+          refreshKronoWhenEmpty,
+        })
         setTlpRefreshJob(job)
         setProgressNow(Date.now())
 
@@ -275,10 +283,30 @@ function App() {
     void runTlpRefresh()
   }, [server, tlpMaxAgeHours, tlpRefreshJob])
 
+  useEffect(() => {
+    if (!tlpAutoRefreshEnabled) {
+      return undefined
+    }
+
+    const timer = window.setInterval(() => {
+      refreshTlpMarketPrices({ refreshKronoWhenEmpty: false })
+    }, TLP_AUTO_REFRESH_INTERVAL_MS)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [refreshTlpMarketPrices, tlpAutoRefreshEnabled])
+
   const changeTlpMaxAgeHours = useCallback((nextMaxAgeHours: number) => {
     const savedMaxAgeHours = saveTlpMaxAgeHours(nextMaxAgeHours)
     setTlpMaxAgeHours(savedMaxAgeHours)
     return savedMaxAgeHours
+  }, [])
+
+  const changeTlpAutoRefreshEnabled = useCallback((enabled: boolean) => {
+    const savedEnabled = saveTlpAutoRefreshEnabled(enabled)
+    setTlpAutoRefreshEnabled(savedEnabled)
+    return savedEnabled
   }, [])
 
   const changeDealFilters = useCallback((nextFilters: DealFilters) => {
@@ -299,9 +327,11 @@ function App() {
       isRefreshing={pageState.status === "loading"}
       isTlpRefreshing={isTlpRefreshing}
       tlpMaxAgeHours={tlpMaxAgeHours}
+      tlpAutoRefreshEnabled={tlpAutoRefreshEnabled}
       onNavigate={navigateTo}
       onServerChange={changeServer}
       onTlpMaxAgeHoursChange={changeTlpMaxAgeHours}
+      onTlpAutoRefreshEnabledChange={changeTlpAutoRefreshEnabled}
       onRefresh={refresh}
       onTlpRefresh={refreshTlpMarketPrices}
     >

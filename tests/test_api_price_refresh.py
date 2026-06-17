@@ -156,6 +156,34 @@ class ApiPriceRefreshTests(unittest.TestCase):
             self.assertEqual(status_payload["concurrency"], 5)
             self.assertEqual(status_payload["stats"]["concurrency"], 5)
 
+    def test_tlp_refresh_job_can_skip_krono_when_no_items_are_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            app = create_app(db_path)
+
+            with (
+                patch("eqmarket.api.routes.prices.import_tlp_prices") as importer,
+                patch("eqmarket.api.routes.prices.refresh_krono_price") as krono_refresh,
+            ):
+                with TestClient(app) as client:
+                    response = client.post(
+                        "/api/tlp-prices/refresh-jobs",
+                        params={
+                            "server": "frostreaver",
+                            "refresh_krono_when_empty": False,
+                        },
+                    )
+                    self.assertEqual(response.status_code, 200)
+                    status_payload = _poll_job_until_finished(client, response.json()["job_id"])
+
+            self.assertEqual(status_payload["status"], "completed")
+            self.assertEqual(status_payload["target_count"], 0)
+            self.assertEqual(status_payload["stats"]["target_count"], 0)
+            self.assertFalse(status_payload["stats"]["krono_updated"])
+            importer.assert_not_called()
+            krono_refresh.assert_not_called()
+
 
 class PriceImporterConcurrencyTests(unittest.TestCase):
     def test_import_tlp_prices_fetches_item_histories_in_parallel(self) -> None:

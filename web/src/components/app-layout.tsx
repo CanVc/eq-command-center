@@ -35,10 +35,12 @@ type AppLayoutProps = {
   isRefreshing: boolean
   isTlpRefreshing: boolean
   tlpMaxAgeHours: number
+  tlpAutoRefreshEnabled: boolean
   children: ReactNode
   onNavigate: (pageId: AppPageId) => void
   onServerChange: (server: string) => void
   onTlpMaxAgeHoursChange: (maxAgeHours: number) => number
+  onTlpAutoRefreshEnabledChange: (enabled: boolean) => boolean
   onRefresh: () => void
   onTlpRefresh: () => void
 }
@@ -69,10 +71,12 @@ export function AppLayout({
   isRefreshing,
   isTlpRefreshing,
   tlpMaxAgeHours,
+  tlpAutoRefreshEnabled,
   children,
   onNavigate,
   onServerChange,
   onTlpMaxAgeHoursChange,
+  onTlpAutoRefreshEnabledChange,
   onRefresh,
   onTlpRefresh,
 }: AppLayoutProps) {
@@ -178,6 +182,20 @@ export function AppLayout({
                     onKeyDown={handleTlpMaxAgeKeyDown}
                   />
                   <span>h</span>
+                </label>
+
+                <label
+                  className="flex h-9 items-center gap-2 rounded-md border border-input bg-background px-2.5 text-sm text-foreground"
+                  title="Automatically start a stale TLP price refresh every 5 minutes. Empty auto runs skip Krono refresh."
+                >
+                  <input
+                    aria-label="Auto-refresh TLP prices every 5 minutes"
+                    className="size-4 accent-foreground"
+                    type="checkbox"
+                    checked={tlpAutoRefreshEnabled}
+                    onChange={(event) => onTlpAutoRefreshEnabledChange(event.target.checked)}
+                  />
+                  <span className="whitespace-nowrap">Auto 5m</span>
                 </label>
 
                 <Button

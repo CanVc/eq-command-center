@@ -237,11 +237,15 @@ describe("page API helpers", () => {
       .mockResolvedValueOnce(jsonResponse(jobPayload))
       .mockResolvedValueOnce(jsonResponse(jobPayload))
       .mockResolvedValueOnce(jsonResponse(pricePayload))
+      .mockResolvedValueOnce(jsonResponse(jobPayload))
 
     await expect(refreshKronoPrice("frostreaver", fetcher)).resolves.toEqual(kronoPayload)
     await expect(startTlpPriceRefreshJob("frostreaver", { maxAgeHours: 6 }, fetcher)).resolves.toEqual(jobPayload)
     await expect(fetchTlpPriceRefreshJob("abc123", fetcher)).resolves.toEqual(jobPayload)
     await expect(refreshTlpPrices("frostreaver", { maxAgeHours: 6 }, fetcher)).resolves.toEqual(pricePayload)
+    await expect(
+      startTlpPriceRefreshJob("frostreaver", { maxAgeHours: 6, refreshKronoWhenEmpty: false }, fetcher)
+    ).resolves.toEqual(jobPayload)
 
     expect(fetcher).toHaveBeenNthCalledWith(1, "/api/krono/refresh?server=frostreaver", {
       method: "POST",
@@ -266,6 +270,16 @@ describe("page API helpers", () => {
         Accept: "application/json",
       },
     })
+    expect(fetcher).toHaveBeenNthCalledWith(
+      5,
+      "/api/tlp-prices/refresh-jobs?server=frostreaver&max_age_hours=6&refresh_krono_when_empty=false",
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+        },
+      }
+    )
   })
 
   it("updates the configured EQ log path", async () => {

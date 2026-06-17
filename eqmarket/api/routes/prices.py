@@ -43,6 +43,7 @@ class PriceRefreshJob:
     max_age_hours: float
     history_days: int
     concurrency: int
+    refresh_krono_when_empty: bool
     status: str = "queued"
     phase: str = "queued"
     completed: int = 0
@@ -85,6 +86,7 @@ def refresh_tlp_prices(
     max_age_hours: float = Query(DEFAULT_STALE_PRICE_HOURS, ge=0, le=24 * 30),
     history_days: int = Query(DEFAULT_HISTORY_DAYS, ge=0, le=365),
     concurrency: int = Query(DEFAULT_REFRESH_CONCURRENCY, ge=1, le=MAX_REFRESH_CONCURRENCY),
+    refresh_krono_when_empty: bool = Query(True),
 ) -> dict[str, Any]:
     db_server = _normalize_server(server)
     db_path = Path(request.app.state.db_path)
@@ -99,8 +101,10 @@ def refresh_tlp_prices(
             history_days=history_days,
             concurrency=concurrency,
         )
-    else:
+    elif refresh_krono_when_empty:
         stats = _refresh_krono_or_502(db_path, db_server)
+    else:
+        stats = TlpPriceImportStats()
 
     return _refresh_payload(
         db_server,
@@ -121,6 +125,7 @@ def start_tlp_price_refresh_job(
     max_age_hours: float = Query(DEFAULT_STALE_PRICE_HOURS, ge=0, le=24 * 30),
     history_days: int = Query(DEFAULT_HISTORY_DAYS, ge=0, le=365),
     concurrency: int = Query(DEFAULT_REFRESH_CONCURRENCY, ge=1, le=MAX_REFRESH_CONCURRENCY),
+    refresh_krono_when_empty: bool = Query(True),
 ) -> dict[str, Any]:
     db_server = _normalize_server(server)
     job = PriceRefreshJob(
@@ -131,6 +136,7 @@ def start_tlp_price_refresh_job(
         max_age_hours=max_age_hours,
         history_days=history_days,
         concurrency=concurrency,
+        refresh_krono_when_empty=refresh_krono_when_empty,
     )
 
     with _PRICE_REFRESH_JOBS_LOCK:
@@ -219,9 +225,11 @@ def _run_tlp_price_refresh_job(job_id: str) -> None:
                 progress_callback=update_progress,
                 concurrency=job.concurrency,
             )
-        else:
+        elif job.refresh_krono_when_empty:
             _update_job(job_id, phase="krono", completed=0, total=0)
             stats = refresh_krono_price(job.db_path, job.server)
+        else:
+            stats = TlpPriceImportStats()
 
         payload = _refresh_payload(
             job.server,

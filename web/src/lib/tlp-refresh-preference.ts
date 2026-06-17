@@ -2,6 +2,9 @@ export const DEFAULT_TLP_MAX_AGE_HOURS = 6
 export const MIN_TLP_MAX_AGE_HOURS = 0
 export const MAX_TLP_MAX_AGE_HOURS = 24 * 30
 export const TLP_REFRESH_STORAGE_KEY = "eq-command-center.tlp-max-age-hours"
+export const DEFAULT_TLP_AUTO_REFRESH_ENABLED = false
+export const TLP_AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000
+export const TLP_AUTO_REFRESH_STORAGE_KEY = "eq-command-center.tlp-auto-refresh"
 
 export type TlpRefreshStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">
 
@@ -63,6 +66,45 @@ export function saveTlpMaxAgeHours(
   }
 
   return normalizedValue
+}
+
+export function readTlpAutoRefreshEnabled(storage: TlpRefreshStorage | null = getBrowserStorage()): boolean {
+  if (!storage) {
+    return DEFAULT_TLP_AUTO_REFRESH_ENABLED
+  }
+
+  try {
+    const storedValue = storage.getItem(TLP_AUTO_REFRESH_STORAGE_KEY)
+
+    if (storedValue === "true") {
+      return true
+    }
+
+    if (storedValue === "false") {
+      return false
+    }
+  } catch {
+    return DEFAULT_TLP_AUTO_REFRESH_ENABLED
+  }
+
+  return DEFAULT_TLP_AUTO_REFRESH_ENABLED
+}
+
+export function saveTlpAutoRefreshEnabled(
+  enabled: boolean,
+  storage: TlpRefreshStorage | null = getBrowserStorage()
+): boolean {
+  if (!storage) {
+    return enabled
+  }
+
+  try {
+    storage.setItem(TLP_AUTO_REFRESH_STORAGE_KEY, String(enabled))
+  } catch {
+    return enabled
+  }
+
+  return enabled
 }
 
 function getBrowserStorage(): TlpRefreshStorage | null {
