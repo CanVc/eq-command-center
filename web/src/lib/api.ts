@@ -78,6 +78,18 @@ export type ListingPreview = {
   resolved: boolean
 }
 
+export type MarketListingFilters = {
+  query: string
+  limit: number
+}
+
+export const MARKET_LISTING_PAGE_SIZE = 25
+
+export const DEFAULT_MARKET_LISTING_FILTERS: MarketListingFilters = {
+  query: "",
+  limit: MARKET_LISTING_PAGE_SIZE,
+}
+
 export type ItemSearchResult = {
   item_id: number
   name: string
@@ -156,6 +168,21 @@ export async function fetchListingsPreview(
     buildApiPath("/api/listings/recent", {
       server,
       limit: 5,
+    }),
+    fetcher
+  )
+}
+
+export async function fetchMarketListings(
+  server: string,
+  filters: MarketListingFilters = DEFAULT_MARKET_LISTING_FILTERS,
+  fetcher: Fetcher = fetch
+): Promise<ListingPreview[]> {
+  return fetchJson<ListingPreview[]>(
+    buildApiPath("/api/listings/recent", {
+      server,
+      q: filters.query.trim() || undefined,
+      limit: filters.limit,
     }),
     fetcher
   )

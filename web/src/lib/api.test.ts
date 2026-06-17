@@ -7,6 +7,7 @@ import {
   fetchHealth,
   fetchItemSearchPreview,
   fetchListingsPreview,
+  fetchMarketListings,
   fetchSettingsHealth,
 } from "./api"
 
@@ -72,6 +73,7 @@ describe("page API helpers", () => {
       fetcher
     )
     await fetchListingsPreview("mischief", fetcher)
+    await fetchMarketListings("mischief", { query: " crown ", limit: 50 }, fetcher)
     await fetchItemSearchPreview("mischief", fetcher)
 
     expect(fetcher).toHaveBeenNthCalledWith(
@@ -88,7 +90,16 @@ describe("page API helpers", () => {
         Accept: "application/json",
       },
     })
-    expect(fetcher).toHaveBeenNthCalledWith(3, "/api/items/search?server=mischief&q=stave&limit=5", {
+    expect(fetcher).toHaveBeenNthCalledWith(
+      3,
+      "/api/listings/recent?server=mischief&q=crown&limit=50",
+      {
+        headers: {
+          Accept: "application/json",
+        },
+      }
+    )
+    expect(fetcher).toHaveBeenNthCalledWith(4, "/api/items/search?server=mischief&q=stave&limit=5", {
       headers: {
         Accept: "application/json",
       },

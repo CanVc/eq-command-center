@@ -230,6 +230,66 @@ test("renders, filters, and acts on the deals table", async ({ page }) => {
   await expect(page.getByText("No deals match the active filters.")).toBeVisible()
 })
 
+test("renders, searches, refreshes, and loads market listings", async ({ page }) => {
+  const listingRequests: URL[] = []
+
+  await page.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url())
+
+    if (url.pathname === "/api/listings/recent") {
+      listingRequests.push(url)
+    }
+
+    await fulfillApi(route)
+  })
+
+  await page.goto("/market")
+
+  await expect(page.getByRole("heading", { name: "Market", exact: true })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Raw Listings" })).toBeVisible()
+  await expect(page.getByRole("columnheader", { name: "Timestamp" })).toBeVisible()
+  await expect(page.getByRole("columnheader", { name: "Price raw" })).toBeVisible()
+  await expect(page.getByRole("columnheader", { name: "Price PP" })).toBeVisible()
+  await expect(page.getByRole("columnheader", { name: "Status" })).toBeVisible()
+
+  const tableBody = page.locator("tbody")
+  await expect(tableBody.locator("tr").first()).toContainText("Unidentified Idol")
+  await expect(page.getByText("Pending").first()).toBeVisible()
+  await expect(page.getByText("Resolved").first()).toBeVisible()
+  await expect(page.getByRole("link", { name: "Stave of Shielding" })).toHaveAttribute(
+    "rel",
+    "eq:item:1"
+  )
+  await expect(tableBody).not.toContainText("Fine Steel Sword 27")
+  await expect.poll(() => listingRequests.at(-1)?.searchParams.get("limit")).toBe("25")
+
+  await page.getByRole("button", { name: "Load more" }).click()
+
+  await expect.poll(() => listingRequests.at(-1)?.searchParams.get("limit")).toBe("50")
+  await expect(tableBody).toContainText("Fine Steel Sword 27")
+
+  await page.getByLabel("Search listings").fill("Nebblastin")
+  await page.getByRole("button", { name: "Search" }).click()
+
+  await expect.poll(() => listingRequests.at(-1)?.searchParams.get("q")).toBe("Nebblastin")
+  await expect(tableBody).toContainText("Stave of Shielding")
+  await expect(tableBody).not.toContainText("Unidentified Idol")
+
+  await page.getByLabel("Search listings").fill("idol")
+  await page.getByRole("button", { name: "Search" }).click()
+
+  await expect.poll(() => listingRequests.at(-1)?.searchParams.get("q")).toBe("idol")
+  await expect(tableBody).toContainText("Unidentified Idol")
+  await expect(page.getByText("Pending").first()).toBeVisible()
+  await expect(tableBody).not.toContainText("Stave of Shielding")
+
+  const requestCountBeforeRefresh = listingRequests.length
+  await page.getByRole("button", { name: "Refresh" }).click()
+
+  await expect.poll(() => listingRequests.length).toBeGreaterThan(requestCountBeforeRefresh)
+  await expect.poll(() => listingRequests.at(-1)?.searchParams.get("q")).toBe("idol")
+})
+
 async function fulfillApi(route: Route) {
   const url = new URL(route.request().url())
   const server = url.searchParams.get("server") ?? "frostreaver"
@@ -264,20 +324,7 @@ async function fulfillApi(route: Route) {
   if (url.pathname === "/api/listings/recent") {
     await route.fulfill({
       contentType: "application/json",
-      body: JSON.stringify([
-        {
-          listing_id: 20,
-          timestamp: "2026-06-16T10:05:00",
-          seller: "Aderyn",
-          item_id: 2,
-          item_name: "Silver Chitin Hand Wraps",
-          price_raw: "8k",
-          price_pp: 8000,
-          source: "eq_log",
-          confidence: "high",
-          resolved: true,
-        },
-      ]),
+      body: JSON.stringify(buildListings(url)),
     })
     return
   }
@@ -458,5 +505,77 @@ function buildDeals(url: URL) {
     .filter((deal) => deal.discount_pct >= minDiscount)
     .filter((deal) => deal.listing_price_pp >= minPricePp)
     .filter((deal) => !resolvedOnly || deal.resolved)
+    .slice(0, limit)
+}
+
+function buildListings(url: URL) {
+  const q = (url.searchParams.get("q") ?? "").trim().toLowerCase()
+  const limit = Number(url.searchParams.get("limit") ?? "25")
+  const listings = [
+    {
+      listing_id: 30,
+      timestamp: "2026-06-16T10:15:00",
+      seller: "Mystery",
+      item_id: null,
+      item_name: "Unidentified Idol",
+      price_raw: null,
+      price_pp: null,
+      source: "eq_log",
+      confidence: "no_price",
+      resolved: false,
+    },
+    {
+      listing_id: 20,
+      timestamp: "2026-06-16T10:05:00",
+      seller: "Aderyn",
+      item_id: 2,
+      item_name: "Silver Chitin Hand Wraps",
+      price_raw: "8k",
+      price_pp: 8000,
+      source: "eq_log",
+      confidence: "high",
+      resolved: true,
+    },
+    {
+      listing_id: 10,
+      timestamp: "2026-06-16T10:00:00",
+      seller: "Nebblastin",
+      item_id: 1,
+      item_name: "Stave of Shielding",
+      price_raw: "4k",
+      price_pp: 4000,
+      source: "eq_log",
+      confidence: "parsed",
+      resolved: true,
+    },
+    ...Array.from({ length: 27 }, (_, index) => {
+      const itemNumber = index + 1
+
+      return {
+        listing_id: 100 + itemNumber,
+        timestamp: `2026-06-16T09:${String(59 - index).padStart(2, "0")}:00`,
+        seller: `Trader ${itemNumber}`,
+        item_id: 1000 + itemNumber,
+        item_name: `Fine Steel Sword ${itemNumber}`,
+        price_raw: `${itemNumber}k`,
+        price_pp: itemNumber * 1000,
+        source: "eq_log",
+        confidence: "parsed",
+        resolved: true,
+      }
+    }),
+  ]
+
+  return listings
+    .filter((listing) => {
+      if (!q) {
+        return true
+      }
+
+      return (
+        listing.item_name.toLowerCase().includes(q) ||
+        (listing.seller ?? "").toLowerCase().includes(q)
+      )
+    })
     .slice(0, limit)
 }

@@ -1,6 +1,6 @@
 # Story — Page Market / Listings
 
-- **Statut** : À faire
+- **Statut** : Terminé
 - **Date de création** : 2026-06-16
 - **Spec liée** : [docs/UI-spec/UI-spec.md](../UI-spec/UI-spec.md)
 
@@ -18,16 +18,16 @@ Consommer `/api/listings/recent`, avec recherche texte, filtre serveur et pagina
 
 ## Tâches
 
-- [ ] Créer `MarketListingsPage`.
-- [ ] Afficher timestamp, seller, item, price raw, price pp, source, confidence, resolved.
-- [ ] Ajouter champ recherche texte.
-- [ ] Ajouter pagination ou bouton `Load more`.
-- [ ] Brancher refresh manuel.
-- [ ] Ajouter badge resolved/pending.
-- [ ] Utiliser `ItemLink` si `item_id` existe.
+- [x] Créer `MarketListingsPage`.
+- [x] Afficher timestamp, seller, item, price raw, price pp, source, confidence, resolved.
+- [x] Ajouter champ recherche texte.
+- [x] Ajouter pagination ou bouton `Load more`.
+- [x] Brancher refresh manuel.
+- [x] Ajouter badge resolved/pending.
+- [x] Utiliser `ItemLink` si `item_id` existe.
 
 ## Critères d'acceptation
 
-- [ ] Les listings récents apparaissent en ordre décroissant.
-- [ ] Les pending items sont visibles.
-- [ ] La recherche filtre item ou seller.
+- [x] Les listings récents apparaissent en ordre décroissant.
+- [x] Les pending items sont visibles.
+- [x] La recherche filtre item ou seller.

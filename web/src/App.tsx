@@ -14,10 +14,11 @@ import {
 } from "@/components/ui/table"
 import {
   DEFAULT_DEAL_FILTERS,
+  DEFAULT_MARKET_LISTING_FILTERS,
   fetchDashboardSummary,
   fetchDeals,
   fetchItemSearchPreview,
-  fetchListingsPreview,
+  fetchMarketListings,
   fetchSettingsHealth,
   type DashboardSummary,
   type DealFilters,
@@ -25,12 +26,13 @@ import {
   type HealthResponse,
   type ItemSearchResult,
   type ListingPreview,
+  type MarketListingFilters,
 } from "@/lib/api"
-import { formatPrice } from "@/lib/format"
 import { APP_PAGES, pageIdFromPath, pathForPage, type AppPageId } from "@/lib/navigation"
 import { readPreferredServer, savePreferredServer } from "@/lib/server-preference"
 import { DashboardPage } from "@/pages/dashboard-page"
 import { DealsPage } from "@/pages/deals-page"
+import { MarketListingsPage } from "@/pages/market-listings-page"
 
 type PageData =
   | { page: "dashboard"; payload: DashboardSummary }
@@ -48,6 +50,9 @@ function App() {
   const [activePage, setActivePage] = useState<AppPageId>(() => getInitialPage())
   const [server, setServer] = useState(() => readPreferredServer())
   const [dealFilters, setDealFilters] = useState<DealFilters>(DEFAULT_DEAL_FILTERS)
+  const [marketListingFilters, setMarketListingFilters] = useState<MarketListingFilters>(
+    DEFAULT_MARKET_LISTING_FILTERS
+  )
   const [refreshKey, setRefreshKey] = useState(0)
   const [pageState, setPageState] = useState<PageState>({ status: "loading" })
 
@@ -71,7 +76,7 @@ function App() {
 
     async function loadPage() {
       try {
-        const data = await fetchPageData(activePage, server, dealFilters)
+        const data = await fetchPageData(activePage, server, dealFilters, marketListingFilters)
         if (isActive) {
           setPageState({ status: "ready", data, loadedAt: new Date() })
         }
@@ -90,7 +95,7 @@ function App() {
     return () => {
       isActive = false
     }
-  }, [activePage, dealFilters, refreshKey, server])
+  }, [activePage, dealFilters, marketListingFilters, refreshKey, server])
 
   const navigateTo = useCallback((pageId: AppPageId) => {
     const nextPath = pathForPage(pageId)
@@ -128,6 +133,11 @@ function App() {
     setDealFilters(nextFilters)
   }, [])
 
+  const changeMarketListingFilters = useCallback((nextFilters: MarketListingFilters) => {
+    setPageState({ status: "loading" })
+    setMarketListingFilters(nextFilters)
+  }, [])
+
   return (
     <AppLayout
       activePage={activePage}
@@ -155,6 +165,8 @@ function App() {
             server={server}
             dealFilters={dealFilters}
             onDealFiltersChange={changeDealFilters}
+            marketListingFilters={marketListingFilters}
+            onMarketListingFiltersChange={changeMarketListingFilters}
           />
         )}
       </section>
@@ -165,7 +177,8 @@ function App() {
 async function fetchPageData(
   page: AppPageId,
   server: string,
-  dealFilters: DealFilters
+  dealFilters: DealFilters,
+  marketListingFilters: MarketListingFilters
 ): Promise<PageData> {
   switch (page) {
     case "dashboard":
@@ -173,7 +186,7 @@ async function fetchPageData(
     case "deals":
       return { page, payload: await fetchDeals(server, dealFilters) }
     case "market":
-      return { page, payload: await fetchListingsPreview(server) }
+      return { page, payload: await fetchMarketListings(server, marketListingFilters) }
     case "items":
       return { page, payload: await fetchItemSearchPreview(server) }
     case "settings":
@@ -210,11 +223,15 @@ function PageContent({
   server,
   dealFilters,
   onDealFiltersChange,
+  marketListingFilters,
+  onMarketListingFiltersChange,
 }: {
   data: PageData
   server: string
   dealFilters: DealFilters
   onDealFiltersChange: (filters: DealFilters) => void
+  marketListingFilters: MarketListingFilters
+  onMarketListingFiltersChange: (filters: MarketListingFilters) => void
 }) {
   switch (data.page) {
     case "dashboard":
@@ -228,47 +245,18 @@ function PageContent({
         />
       )
     case "market":
-      return <MarketPage listings={data.payload} />
+      return (
+        <MarketListingsPage
+          listings={data.payload}
+          filters={marketListingFilters}
+          onFiltersChange={onMarketListingFiltersChange}
+        />
+      )
     case "items":
       return <ItemsPage items={data.payload} />
     case "settings":
       return <SettingsPage health={data.payload} server={server} />
   }
-}
-
-function MarketPage({ listings }: { listings: ListingPreview[] }) {
-  return (
-    <PagePanel title="Recent Listings" eyebrow={`${listings.length} rows`}>
-      {listings.length > 0 ? (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Item</TableHead>
-              <TableHead>Seller</TableHead>
-              <TableHead>Price</TableHead>
-              <TableHead>Source</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {listings.map((listing) => (
-              <TableRow key={listing.listing_id}>
-                <TableCell className="font-medium">{listing.item_name}</TableCell>
-                <TableCell>{listing.seller ?? "Unknown"}</TableCell>
-                <TableCell>{listing.price_raw ?? formatPrice(listing.price_pp)}</TableCell>
-                <TableCell>
-                  <Badge variant={listing.resolved ? "secondary" : "outline"}>
-                    {listing.source}
-                  </Badge>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      ) : (
-        <EmptyState label="No listings returned" />
-      )}
-    </PagePanel>
-  )
 }
 
 function ItemsPage({ items }: { items: ItemSearchResult[] }) {
