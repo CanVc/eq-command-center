@@ -1,5 +1,11 @@
 import { expect, test, type Route } from "@playwright/test"
 
+test.beforeEach(async ({ page }) => {
+  await page.route("https://www.magelocdn.com/**", async (route) => {
+    await route.abort()
+  })
+})
+
 test("navigates main pages and stores the active server", async ({ page }) => {
   const requestedUrls: string[] = []
 
@@ -48,12 +54,55 @@ test("renders dashboard summary cards, trends, and item popovers", async ({ page
 
   const itemLink = page.getByRole("link", { name: "Stave of Shielding" }).first()
   await expect(itemLink).toHaveAttribute("rel", "eq:item:1")
-  await itemLink.click()
+  await itemLink.hover()
 
   const itemPopover = page.locator('[data-slot="hover-card-content"]')
   await expect(page.getByText("Item ID 1")).toBeVisible()
-  await expect(itemPopover.getByText("Listed", { exact: true })).toBeVisible()
-  await expect(itemPopover.getByText("Market", { exact: true })).toBeVisible()
+  await expect(itemPopover.getByText("Stats", { exact: true })).toBeVisible()
+  await expect(itemPopover.getByText("HP 55", { exact: false })).toBeVisible()
+  await expect(itemPopover.getByText("Market price", { exact: true })).toBeVisible()
+  await expect(itemPopover.getByText("16,000pp", { exact: true }).first()).toBeVisible()
+})
+
+test("uses the Magelo scanner when it is available", async ({ page }) => {
+  const tooltipRequests: string[] = []
+
+  await page.addInitScript(() => {
+    const testWindow = window as Window & {
+      __mageloScans?: number
+      Magelobar?: { scan: () => void }
+    }
+
+    testWindow.Magelobar = {
+      scan: () => {
+        testWindow.__mageloScans = (testWindow.__mageloScans ?? 0) + 1
+      },
+    }
+  })
+
+  await page.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url())
+
+    if (isTooltipPath(url.pathname)) {
+      tooltipRequests.push(url.toString())
+    }
+
+    await fulfillApi(route)
+  })
+
+  await page.goto("/")
+
+  const itemLink = page.getByRole("link", { name: "Stave of Shielding" }).first()
+  await expect(itemLink).toHaveAttribute("rel", "eq:item:1")
+  await expect
+    .poll(() => page.evaluate(() => (window as Window & { __mageloScans?: number }).__mageloScans ?? 0))
+    .toBeGreaterThan(0)
+
+  await itemLink.hover()
+  await page.waitForTimeout(200)
+
+  await expect(page.locator('[data-slot="hover-card-content"]')).toHaveCount(0)
+  expect(tooltipRequests).toEqual([])
 })
 
 test("keeps dashboard usable when summary lists and nullable metrics are empty", async ({ page }) => {
@@ -150,6 +199,7 @@ test("shows the shared error state when a page request fails", async ({ page }) 
 
 test("renders, filters, and acts on the deals table", async ({ page }) => {
   const dealRequests: URL[] = []
+  const tooltipRequests: URL[] = []
 
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", {
@@ -167,6 +217,10 @@ test("renders, filters, and acts on the deals table", async ({ page }) => {
 
     if (url.pathname === "/api/deals") {
       dealRequests.push(url)
+    }
+
+    if (isTooltipPath(url.pathname)) {
+      tooltipRequests.push(url)
     }
 
     await fulfillApi(route)
@@ -187,9 +241,9 @@ test("renders, filters, and acts on the deals table", async ({ page }) => {
     "eq:item:1"
   )
 
-  await page.getByRole("link", { name: "Stave of Shielding" }).click()
+  await page.getByRole("link", { name: "Stave of Shielding" }).hover()
   await expect(page.getByText("Item ID 1")).toBeVisible()
-  await expect(page.locator('[data-slot="hover-card-content"]').getByText("Market")).toBeVisible()
+  await expect(page.locator('[data-slot="hover-card-content"]').getByText("Market price")).toBeVisible()
 
   await page.getByRole("button", { name: "Copy tell for Stave of Shielding" }).click()
   await expect(page.getByRole("button", { name: "Copy tell for Stave of Shielding" })).toContainText(
@@ -212,6 +266,21 @@ test("renders, filters, and acts on the deals table", async ({ page }) => {
   await expect(rows.first()).toContainText("Manastone")
   await expect(page.locator("tbody")).toContainText("Unidentified Idol")
   await expect(page.locator("tbody")).not.toContainText("Stave of Shielding")
+
+  const unresolvedLink = page.getByRole("link", { name: "Unidentified Idol" })
+  await expect(unresolvedLink).not.toHaveAttribute("rel", /eq:item:/)
+  await unresolvedLink.hover()
+  await expect(page.getByText("Item ID 99")).toBeVisible()
+  await expect(page.locator('[data-slot="hover-card-content"]').getByText("Market price")).toBeVisible()
+  await expect
+    .poll(() =>
+      tooltipRequests.some(
+        (url) =>
+          url.pathname === "/api/items/tooltip" &&
+          url.searchParams.get("name") === "Unidentified Idol"
+      )
+    )
+    .toBe(true)
 
   const requestCountBeforeRefresh = dealRequests.length
   await page.getByRole("button", { name: "Refresh" }).click()
@@ -329,6 +398,40 @@ async function fulfillApi(route: Route) {
     return
   }
 
+  if (url.pathname === "/api/items/tooltip") {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(
+        buildItemTooltip({
+          itemId: 99,
+          name: url.searchParams.get("name") ?? "Unidentified Item",
+          server,
+          marketPricePp: 14000,
+          lastSeenPp: 2500,
+        })
+      ),
+    })
+    return
+  }
+
+  const tooltipItemId = itemTooltipIdFromPath(url.pathname)
+
+  if (tooltipItemId !== null) {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(
+        buildItemTooltip({
+          itemId: tooltipItemId,
+          name: tooltipItemName(tooltipItemId),
+          server,
+          marketPricePp: tooltipItemId === 1 ? 16000 : 10000,
+          lastSeenPp: tooltipItemId === 1 ? 4000 : 8000,
+        })
+      ),
+    })
+    return
+  }
+
   if (url.pathname === "/api/items/search") {
     await route.fulfill({
       contentType: "application/json",
@@ -353,9 +456,125 @@ async function fulfillApi(route: Route) {
   })
 }
 
+function isTooltipPath(pathname: string): boolean {
+  return pathname === "/api/items/tooltip" || itemTooltipIdFromPath(pathname) !== null
+}
+
+function itemTooltipIdFromPath(pathname: string): number | null {
+  const match = pathname.match(/^\/api\/items\/(\d+)\/tooltip$/)
+  return match ? Number(match[1]) : null
+}
+
 function hasServerParam(url: string, server: string): boolean {
   const parsedUrl = new URL(url)
   return parsedUrl.searchParams.get("server") === server
+}
+
+function tooltipItemName(itemId: number): string {
+  if (itemId === 1) {
+    return "Stave of Shielding"
+  }
+
+  if (itemId === 2) {
+    return "Silver Chitin Hand Wraps"
+  }
+
+  if (itemId === 3) {
+    return "Manastone"
+  }
+
+  return `Item ${itemId}`
+}
+
+function buildItemTooltip({
+  itemId,
+  name,
+  server,
+  marketPricePp,
+  lastSeenPp,
+}: {
+  itemId: number
+  name: string
+  server: string
+  marketPricePp: number
+  lastSeenPp: number
+}) {
+  return {
+    item_id: itemId,
+    name,
+    icon_url: null,
+    slot: itemId === 1 ? "PRIMARY" : "ANY",
+    classes: "WAR CLR PAL RNG SHD DRU MNK BRD ROG SHM NEC WIZ MAG ENC BST BER",
+    races: "ALL",
+    item_type: itemId === 1 ? "weapon" : "misc",
+    flags: "MAGIC",
+    server,
+    ac: itemId === 1 ? 12 : 0,
+    hp: itemId === 1 ? 55 : 10,
+    mana: itemId === 1 ? 10 : 0,
+    endurance: null,
+    hp_regen: null,
+    mana_regen: null,
+    endurance_regen: null,
+    str: itemId === 1 ? 4 : null,
+    sta: itemId === 1 ? 5 : null,
+    agi: itemId === 1 ? 6 : null,
+    dex: itemId === 1 ? 7 : null,
+    wis: itemId === 1 ? 8 : null,
+    int: itemId === 1 ? 9 : null,
+    cha: itemId === 1 ? 10 : null,
+    heroic_str: null,
+    heroic_sta: null,
+    heroic_agi: null,
+    heroic_dex: null,
+    heroic_wis: null,
+    heroic_int: null,
+    heroic_cha: null,
+    sv_magic: itemId === 1 ? 11 : null,
+    sv_fire: itemId === 1 ? 12 : null,
+    sv_cold: itemId === 1 ? 13 : null,
+    sv_poison: itemId === 1 ? 14 : null,
+    sv_disease: itemId === 1 ? 15 : null,
+    damage: itemId === 1 ? 12 : null,
+    delay: itemId === 1 ? 30 : null,
+    ratio: itemId === 1 ? 0.4 : null,
+    haste: null,
+    required_level: null,
+    recommended_level: itemId === 1 ? 50 : null,
+    market_price_pp: marketPricePp,
+    market_price_source: "median_pp",
+    median_pp: marketPricePp,
+    p25_pp: marketPricePp - 1000,
+    p75_pp: marketPricePp + 1000,
+    avg_pp: marketPricePp,
+    sample_size: 12,
+    confidence: "high",
+    last_refresh_at: "2026-06-16T10:00:00",
+    last_seen_pp: lastSeenPp,
+    last_seen_at: "2026-06-16T10:00:00",
+    last_seen_seller: "Nebblastin",
+    last_seen_price_raw: `${lastSeenPp}pp`,
+    effects: [
+      {
+        effect_slot: 0,
+        trigger_type: "worn",
+        effect_type_raw: 1,
+        spell: {
+          spell_id: 1806,
+          name: "Fungal Regrowth",
+          spell_type: "Beneficial",
+          target_type: "Self",
+          skill: "Alteration",
+        },
+        cast_time_ms: 0,
+        required_level: null,
+        effective_level: 0,
+        proc_rate: null,
+        charges: null,
+        description: "Fungal Regrowth",
+      },
+    ],
+  }
 }
 
 function buildDashboardSummary(server: string) {

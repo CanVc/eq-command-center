@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import type { ReactNode } from "react"
 
 import { AppLayout } from "@/components/app-layout"
+import { ItemLink } from "@/components/item-link"
 import { ErrorState, LoadingState } from "@/components/page-state"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -28,6 +29,13 @@ import {
   type ListingPreview,
   type MarketListingFilters,
 } from "@/lib/api"
+import {
+  ensureMageloScript,
+  getMageloStatus,
+  scanMageloItems,
+  subscribeMageloStatus,
+  type MageloStatus,
+} from "@/lib/magelo"
 import { APP_PAGES, pageIdFromPath, pathForPage, type AppPageId } from "@/lib/navigation"
 import { readPreferredServer, savePreferredServer } from "@/lib/server-preference"
 import { DashboardPage } from "@/pages/dashboard-page"
@@ -54,6 +62,7 @@ function App() {
     DEFAULT_MARKET_LISTING_FILTERS
   )
   const [refreshKey, setRefreshKey] = useState(0)
+  const [mageloStatus, setMageloStatus] = useState<MageloStatus>(() => getMageloStatus())
   const [pageState, setPageState] = useState<PageState>({ status: "loading" })
 
   const pageDefinition = APP_PAGES.find((page) => page.id === activePage) ?? APP_PAGES[0]
@@ -70,6 +79,27 @@ function App() {
       window.removeEventListener("popstate", handlePopState)
     }
   }, [])
+
+  useEffect(() => {
+    const unsubscribe = subscribeMageloStatus(setMageloStatus)
+    ensureMageloScript()
+
+    return unsubscribe
+  }, [])
+
+  useEffect(() => {
+    if (pageState.status !== "ready" || mageloStatus !== "loaded") {
+      return undefined
+    }
+
+    const timer = window.setTimeout(() => {
+      scanMageloItems()
+    }, 100)
+
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [mageloStatus, pageState])
 
   useEffect(() => {
     let isActive = true
@@ -163,6 +193,7 @@ function App() {
           <PageContent
             data={pageState.data}
             server={server}
+            mageloStatus={mageloStatus}
             dealFilters={dealFilters}
             onDealFiltersChange={changeDealFilters}
             marketListingFilters={marketListingFilters}
@@ -221,6 +252,7 @@ function StatusLine({ pageState }: { pageState: PageState }) {
 function PageContent({
   data,
   server,
+  mageloStatus,
   dealFilters,
   onDealFiltersChange,
   marketListingFilters,
@@ -228,6 +260,7 @@ function PageContent({
 }: {
   data: PageData
   server: string
+  mageloStatus: MageloStatus
   dealFilters: DealFilters
   onDealFiltersChange: (filters: DealFilters) => void
   marketListingFilters: MarketListingFilters
@@ -240,6 +273,7 @@ function PageContent({
       return (
         <DealsPage
           deals={data.payload}
+          server={server}
           filters={dealFilters}
           onFiltersChange={onDealFiltersChange}
         />
@@ -248,18 +282,19 @@ function PageContent({
       return (
         <MarketListingsPage
           listings={data.payload}
+          server={server}
           filters={marketListingFilters}
           onFiltersChange={onMarketListingFiltersChange}
         />
       )
     case "items":
-      return <ItemsPage items={data.payload} />
+      return <ItemsPage items={data.payload} server={server} />
     case "settings":
-      return <SettingsPage health={data.payload} server={server} />
+      return <SettingsPage health={data.payload} server={server} mageloStatus={mageloStatus} />
   }
 }
 
-function ItemsPage({ items }: { items: ItemSearchResult[] }) {
+function ItemsPage({ items, server }: { items: ItemSearchResult[]; server: string }) {
   return (
     <PagePanel title="Item Index" eyebrow={`${items.length} matches`}>
       {items.length > 0 ? (
@@ -275,7 +310,18 @@ function ItemsPage({ items }: { items: ItemSearchResult[] }) {
           <TableBody>
             {items.map((item) => (
               <TableRow key={item.item_id}>
-                <TableCell className="font-medium">{item.name}</TableCell>
+                <TableCell className="font-medium">
+                  <ItemLink
+                    itemId={item.item_id}
+                    name={item.name}
+                    server={server}
+                    details={[
+                      { label: "Slot", value: item.slot },
+                      { label: "Classes", value: item.classes },
+                      { label: "Flags", value: item.flags },
+                    ]}
+                  />
+                </TableCell>
                 <TableCell>{item.slot ?? "Any"}</TableCell>
                 <TableCell>{item.classes ?? "All"}</TableCell>
                 <TableCell>{item.flags ?? "None"}</TableCell>
@@ -290,7 +336,15 @@ function ItemsPage({ items }: { items: ItemSearchResult[] }) {
   )
 }
 
-function SettingsPage({ health, server }: { health: HealthResponse; server: string }) {
+function SettingsPage({
+  health,
+  server,
+  mageloStatus,
+}: {
+  health: HealthResponse
+  server: string
+  mageloStatus: MageloStatus
+}) {
   return (
     <PagePanel title="Local Settings" eyebrow={health.status}>
       <SimpleList
@@ -298,7 +352,7 @@ function SettingsPage({ health, server }: { health: HealthResponse; server: stri
           { label: "Active server", value: server },
           { label: "API health", value: health.status },
           { label: "SQLite", value: health.db_path },
-          { label: "Magelo", value: "not loaded" },
+          { label: "Magelo", value: formatMageloStatus(mageloStatus) },
         ]}
       />
     </PagePanel>
@@ -345,6 +399,18 @@ function SimpleList({ rows }: { rows: Array<{ label: string; value: string }> })
 
 function EmptyState({ label }: { label: string }) {
   return <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">{label}</p>
+}
+
+function formatMageloStatus(status: MageloStatus): string {
+  if (status === "loaded") {
+    return "loaded"
+  }
+
+  if (status === "loading") {
+    return "loading"
+  }
+
+  return "not loaded"
 }
 
 export default App

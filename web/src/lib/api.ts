@@ -99,6 +99,83 @@ export type ItemSearchResult = {
   flags: string | null
 }
 
+export type ItemTooltipEffect = {
+  effect_slot: number
+  trigger_type: string | null
+  effect_type_raw: number | null
+  spell: {
+    spell_id: number | null
+    name: string | null
+    spell_type: string | null
+    target_type: string | null
+    skill: string | null
+  }
+  cast_time_ms: number | null
+  required_level: number | null
+  effective_level: number | null
+  proc_rate: number | null
+  charges: number | null
+  description: string | null
+}
+
+export type ItemTooltip = {
+  item_id: number
+  name: string
+  icon_url: string | null
+  slot: string | null
+  classes: string | null
+  races: string | null
+  item_type: string | null
+  flags: string | null
+  server: string
+  ac: number | null
+  hp: number | null
+  mana: number | null
+  endurance: number | null
+  hp_regen: number | null
+  mana_regen: number | null
+  endurance_regen: number | null
+  str: number | null
+  sta: number | null
+  agi: number | null
+  dex: number | null
+  wis: number | null
+  int: number | null
+  cha: number | null
+  heroic_str: number | null
+  heroic_sta: number | null
+  heroic_agi: number | null
+  heroic_dex: number | null
+  heroic_wis: number | null
+  heroic_int: number | null
+  heroic_cha: number | null
+  sv_magic: number | null
+  sv_fire: number | null
+  sv_cold: number | null
+  sv_poison: number | null
+  sv_disease: number | null
+  damage: number | null
+  delay: number | null
+  ratio: number | null
+  haste: number | null
+  required_level: number | null
+  recommended_level: number | null
+  market_price_pp: number | null
+  market_price_source: string | null
+  median_pp: number | null
+  p25_pp: number | null
+  p75_pp: number | null
+  avg_pp: number | null
+  sample_size: number | null
+  confidence: string | null
+  last_refresh_at: string | null
+  last_seen_pp: number | null
+  last_seen_at: string | null
+  last_seen_seller: string | null
+  last_seen_price_raw: string | null
+  effects: ItemTooltipEffect[]
+}
+
 export type Fetcher = (
   input: RequestInfo | URL,
   init?: RequestInit
@@ -197,6 +274,36 @@ export async function fetchItemSearchPreview(
       server,
       q: "stave",
       limit: 5,
+    }),
+    fetcher
+  )
+}
+
+export async function fetchItemTooltip(
+  {
+    itemId,
+    name,
+    server,
+  }: {
+    itemId: number | null
+    name: string
+    server: string
+  },
+  fetcher: Fetcher = fetch
+): Promise<ItemTooltip> {
+  if (itemId !== null && itemId !== undefined) {
+    return fetchJson<ItemTooltip>(
+      buildApiPath(`/api/items/${itemId}/tooltip`, {
+        server,
+      }),
+      fetcher
+    )
+  }
+
+  return fetchJson<ItemTooltip>(
+    buildApiPath("/api/items/tooltip", {
+      server,
+      name,
     }),
     fetcher
   )

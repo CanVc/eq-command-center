@@ -86,7 +86,7 @@ export function DashboardPage({ summary }: { summary: DashboardSummary }) {
           </CardHeader>
           <CardContent>
             {summary.top_discounts.length > 0 ? (
-              <TopDiscountsTable deals={summary.top_discounts} />
+              <TopDiscountsTable deals={summary.top_discounts} server={summary.server} />
             ) : (
               <EmptyState label="No qualifying discounts in the current window." />
             )}
@@ -103,7 +103,7 @@ export function DashboardPage({ summary }: { summary: DashboardSummary }) {
           </CardHeader>
           <CardContent>
             {summary.top_seen_items.length > 0 ? (
-              <TopSeenItems items={summary.top_seen_items} />
+              <TopSeenItems items={summary.top_seen_items} server={summary.server} />
             ) : (
               <EmptyState label="No item activity in the current window." />
             )}
@@ -155,7 +155,7 @@ function MetricCard({
   )
 }
 
-function TopDiscountsTable({ deals }: { deals: DashboardDealPreview[] }) {
+function TopDiscountsTable({ deals, server }: { deals: DashboardDealPreview[]; server: string }) {
   return (
     <Table>
       <TableHeader>
@@ -174,6 +174,7 @@ function TopDiscountsTable({ deals }: { deals: DashboardDealPreview[] }) {
               <ItemLink
                 itemId={deal.item_id}
                 name={deal.item_name}
+                server={server}
                 details={[
                   { label: "Listed", value: formatPrice(deal.listing_price_pp) },
                   { label: "Market", value: formatPrice(deal.market_price_pp) },
@@ -205,8 +206,10 @@ function TopDiscountsTable({ deals }: { deals: DashboardDealPreview[] }) {
 
 function TopSeenItems({
   items,
+  server,
 }: {
   items: DashboardSummary["top_seen_items"]
+  server: string
 }) {
   return (
     <ol className="grid gap-2">
@@ -219,6 +222,7 @@ function TopSeenItems({
                 <ItemLink
                   itemId={item.item_id}
                   name={item.item_name}
+                  server={server}
                   details={[
                     { label: "Seen", value: `${formatNumber(item.seen_count)} listings` },
                     { label: "Last seen", value: formatDateTime(item.last_seen_at) },

@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils"
 
 type DealsPageProps = {
   deals: DealPreview[]
+  server: string
   filters: DealFilters
   onFiltersChange: (filters: DealFilters) => void
 }
@@ -34,7 +35,7 @@ type DealsPageProps = {
 const numberInputClassName =
   "h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
 
-export function DealsPage({ deals, filters, onFiltersChange }: DealsPageProps) {
+export function DealsPage({ deals, server, filters, onFiltersChange }: DealsPageProps) {
   const [copiedListingId, setCopiedListingId] = useState<number | null>(null)
 
   useEffect(() => {
@@ -75,7 +76,12 @@ export function DealsPage({ deals, filters, onFiltersChange }: DealsPageProps) {
       />
 
       {deals.length > 0 ? (
-        <DealsTable deals={deals} copiedListingId={copiedListingId} onCopyTell={copyTell} />
+        <DealsTable
+          deals={deals}
+          server={server}
+          copiedListingId={copiedListingId}
+          onCopyTell={copyTell}
+        />
       ) : (
         <EmptyState />
       )}
@@ -171,10 +177,12 @@ function DealFiltersForm({
 
 function DealsTable({
   deals,
+  server,
   copiedListingId,
   onCopyTell,
 }: {
   deals: DealPreview[]
+  server: string
   copiedListingId: number | null
   onCopyTell: (deal: DealPreview) => void
 }) {
@@ -200,6 +208,7 @@ function DealsTable({
                 <ItemLink
                   itemId={deal.item_id}
                   name={deal.item_name}
+                  server={server}
                   details={[
                     { label: "Seen", value: deal.price_raw ?? formatPrice(deal.listing_price_pp) },
                     { label: "Market", value: formatPrice(deal.market_price_pp) },

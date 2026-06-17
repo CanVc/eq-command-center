@@ -1,6 +1,6 @@
 # Story — Popup item Magelo et fallback local
 
-- **Statut** : À faire
+- **Statut** : Terminé
 - **Date de création** : 2026-06-16
 - **Spec liée** : [docs/UI-spec/UI-spec.md](../UI-spec/UI-spec.md)
 
@@ -18,17 +18,17 @@ Reproduire l'intégration observée sur TLP Auctions : script Magelo, liens `rel
 
 ## Tâches
 
-- [ ] Charger `https://www.magelocdn.com/pack/eq/en/magelo-bar.js#3`.
-- [ ] Créer `ItemLink` réutilisable.
-- [ ] Rendre `rel="eq:item:{itemId}"` quand `item_id` existe.
-- [ ] Appeler `window.Magelobar?.scan?.()` après rendu des listes.
-- [ ] Détecter le cas Magelo non chargé.
-- [ ] Créer fallback `HoverCard` alimenté par `/api/items/{item_id}/tooltip`.
-- [ ] Afficher stats clés et prix marché dans le fallback.
-- [ ] Ne pas bloquer l'affichage si le tooltip échoue.
+- [x] Charger `https://www.magelocdn.com/pack/eq/en/magelo-bar.js#3`.
+- [x] Créer `ItemLink` réutilisable.
+- [x] Rendre `rel="eq:item:{itemId}"` quand `item_id` existe.
+- [x] Appeler `window.Magelobar?.scan?.()` après rendu des listes.
+- [x] Détecter le cas Magelo non chargé.
+- [x] Créer fallback `HoverCard` alimenté par `/api/items/{item_id}/tooltip`.
+- [x] Afficher stats clés et prix marché dans le fallback.
+- [x] Ne pas bloquer l'affichage si le tooltip échoue.
 
 ## Critères d'acceptation
 
-- [ ] Survoler un item résolu déclenche un tooltip Magelo ou local.
-- [ ] Les items sans item_id affichent au minimum le fallback par nom si possible.
-- [ ] Une panne Magelo ne casse pas la page.
+- [x] Survoler un item résolu déclenche un tooltip Magelo ou local.
+- [x] Les items sans item_id affichent au minimum le fallback par nom si possible.
+- [x] Une panne Magelo ne casse pas la page.

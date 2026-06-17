@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils"
 
 type MarketListingsPageProps = {
   listings: ListingPreview[]
+  server: string
   filters: MarketListingFilters
   onFiltersChange: (filters: MarketListingFilters) => void
 }
@@ -33,6 +34,7 @@ const searchInputClassName =
 
 export function MarketListingsPage({
   listings,
+  server,
   filters,
   onFiltersChange,
 }: MarketListingsPageProps) {
@@ -91,7 +93,11 @@ export function MarketListingsPage({
         </div>
       </form>
 
-      {listings.length > 0 ? <ListingsTable listings={listings} /> : <EmptyState filtered={!!filters.query} />}
+      {listings.length > 0 ? (
+        <ListingsTable listings={listings} server={server} />
+      ) : (
+        <EmptyState filtered={!!filters.query} />
+      )}
 
       {canLoadMore ? (
         <div className="flex justify-center">
@@ -109,7 +115,7 @@ export function MarketListingsPage({
   )
 }
 
-function ListingsTable({ listings }: { listings: ListingPreview[] }) {
+function ListingsTable({ listings, server }: { listings: ListingPreview[]; server: string }) {
   return (
     <div className="overflow-x-auto rounded-lg border">
       <Table>
@@ -136,6 +142,7 @@ function ListingsTable({ listings }: { listings: ListingPreview[] }) {
                 <ItemLink
                   itemId={listing.item_id}
                   name={listing.item_name}
+                  server={server}
                   details={[
                     { label: "Seller", value: listing.seller },
                     { label: "Raw price", value: listing.price_raw },
