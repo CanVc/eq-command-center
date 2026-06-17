@@ -48,6 +48,7 @@ import {
   type AppRoute,
 } from "@/lib/navigation"
 import { readPreferredServer, savePreferredServer } from "@/lib/server-preference"
+import { formatTime } from "@/lib/format"
 import { DashboardPage } from "@/pages/dashboard-page"
 import { DealsPage } from "@/pages/deals-page"
 import { ItemDetailPage } from "@/pages/item-detail-page"
@@ -282,7 +283,7 @@ function StatusLine({ pageState }: { pageState: PageState }) {
 
   return (
     <Badge variant="outline" className="rounded-md">
-      Updated {pageState.loadedAt.toLocaleTimeString()}
+      Updated {formatTime(pageState.loadedAt)}
     </Badge>
   )
 }

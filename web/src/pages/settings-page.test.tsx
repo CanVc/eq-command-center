@@ -45,5 +45,9 @@ function buildSettingsPayload(): SettingsStatusResponse {
       finished_at: "2026-06-16T10:00:00",
     },
     import_runs_error: null,
+    eq_log_path: "C:/EverQuest/Logs/eqlog_Dreadbank_frostreaver.txt",
+    eq_log_exists: true,
+    eq_log_import_state: null,
+    log_settings_error: null,
   }
 }

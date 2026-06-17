@@ -36,6 +36,28 @@ test("navigates main pages and stores the active server", async ({ page }) => {
   expect(storedServer).toBe("mischief")
 })
 
+test("toggles and persists dark mode", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "light" })
+
+  await page.route("**/api/**", async (route) => {
+    await fulfillApi(route)
+  })
+
+  await page.goto("/")
+
+  await page.getByRole("button", { name: "Switch to dark mode" }).click()
+  await expect(page.locator("html")).toHaveClass(/dark/)
+  await expect(page.getByRole("button", { name: "Switch to light mode" })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("eq-command-center.theme"))).toBe("dark")
+
+  await page.reload()
+  await expect(page.locator("html")).toHaveClass(/dark/)
+
+  await page.getByRole("button", { name: "Switch to light mode" }).click()
+  await expect(page.locator("html")).not.toHaveClass(/dark/)
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("eq-command-center.theme"))).toBe("light")
+})
+
 test("renders local settings diagnostics as read-only status", async ({ page }) => {
   const settingsRequests: URL[] = []
 
@@ -62,17 +84,58 @@ test("renders local settings diagnostics as read-only status", async ({ page }) 
   await expect(page.getByText("Default server: frostreaver")).toBeVisible()
   await expect(page.getByText("Magelo", { exact: true })).toBeVisible()
   await expect(page.getByText("not loaded", { exact: true })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "EverQuest Log File" })).toBeVisible()
+  await expect(page.getByLabel("EverQuest log path")).toHaveValue(
+    "C:/EverQuest/Logs/eqlog_Dreadbank_frostreaver.txt"
+  )
+  await expect(page.getByText("Last offset", { exact: true })).toBeVisible()
+  await expect(page.getByText("2,048", { exact: true })).toBeVisible()
+  await page.getByRole("button", { name: "Browse" }).click()
+  await expect(page.getByText("C:/EverQuest/Logs/eqlog_Browse_frostreaver.txt")).toBeVisible()
   await expect(page.getByRole("heading", { name: "Last TLP Auctions Import" })).toBeVisible()
   await expect(page.getByText("tlp_auctions_prices").first()).toBeVisible()
   await expect(page.getByText("completed", { exact: true }).first()).toBeVisible()
   await expect(page.getByText("Items seen", { exact: true })).toBeVisible()
   await expect(page.getByText("50", { exact: true })).toBeVisible()
-  await expect(page.locator("main").getByRole("button")).toHaveCount(0)
+  await page.getByLabel("EverQuest log path").fill("C:/EverQuest/Logs/eqlog_New_frostreaver.txt")
+  await page.getByRole("button", { name: "Save" }).click()
+  await expect(page.getByText("Log path saved.")).toBeVisible()
+  await expect(page.getByText("C:/EverQuest/Logs/eqlog_New_frostreaver.txt")).toBeVisible()
   await expect.poll(() => settingsRequests.at(-1)?.searchParams.get("server")).toBe("frostreaver")
 })
 
-test("renders dashboard summary cards, trends, and item popovers", async ({ page }) => {
+test("explains when the backend log picker endpoint is unavailable", async ({ page }) => {
   await page.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url())
+
+    if (url.pathname === "/api/settings/log-path/browse") {
+      await route.fulfill({
+        status: 404,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "Not Found" }),
+      })
+      return
+    }
+
+    await fulfillApi(route)
+  })
+
+  await page.goto("/settings")
+  await page.getByRole("button", { name: "Browse" }).click()
+
+  await expect(page.getByText("Restart the API, then refresh this page.")).toBeVisible()
+})
+
+test("renders dashboard summary cards and trends without app item popovers", async ({ page }) => {
+  const tooltipRequests: string[] = []
+
+  await page.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url())
+
+    if (isTooltipPath(url.pathname)) {
+      tooltipRequests.push(url.toString())
+    }
+
     await fulfillApi(route)
   })
 
@@ -91,12 +154,8 @@ test("renders dashboard summary cards, trends, and item popovers", async ({ page
   await expect(itemLink).toHaveAttribute("rel", "eq:item:1")
   await itemLink.hover()
 
-  const itemPopover = page.locator('[data-slot="hover-card-content"]')
-  await expect(page.getByText("Item ID 1")).toBeVisible()
-  await expect(itemPopover.getByText("Stats", { exact: true })).toBeVisible()
-  await expect(itemPopover.getByText("HP 55", { exact: false })).toBeVisible()
-  await expect(itemPopover.getByText("Market price", { exact: true })).toBeVisible()
-  await expect(itemPopover.getByText("16,000pp", { exact: true }).first()).toBeVisible()
+  await expect(page.locator('[data-slot="hover-card-content"]')).toHaveCount(0)
+  expect(tooltipRequests).toEqual([])
 })
 
 test("uses the Magelo scanner when it is available", async ({ page }) => {
@@ -277,8 +336,7 @@ test("renders, filters, and acts on the deals table", async ({ page }) => {
   )
 
   await page.getByRole("link", { name: "Stave of Shielding" }).hover()
-  await expect(page.getByText("Item ID 1")).toBeVisible()
-  await expect(page.locator('[data-slot="hover-card-content"]').getByText("Market price")).toBeVisible()
+  await expect(page.locator('[data-slot="hover-card-content"]')).toHaveCount(0)
 
   await page.getByRole("button", { name: "Copy tell for Stave of Shielding" }).click()
   await expect(page.getByRole("button", { name: "Copy tell for Stave of Shielding" })).toContainText(
@@ -305,17 +363,8 @@ test("renders, filters, and acts on the deals table", async ({ page }) => {
   const unresolvedLink = page.getByRole("link", { name: "Unidentified Idol" })
   await expect(unresolvedLink).not.toHaveAttribute("rel", /eq:item:/)
   await unresolvedLink.hover()
-  await expect(page.getByText("Item ID 99")).toBeVisible()
-  await expect(page.locator('[data-slot="hover-card-content"]').getByText("Market price")).toBeVisible()
-  await expect
-    .poll(() =>
-      tooltipRequests.some(
-        (url) =>
-          url.pathname === "/api/items/tooltip" &&
-          url.searchParams.get("name") === "Unidentified Idol"
-      )
-    )
-    .toBe(true)
+  await expect(page.locator('[data-slot="hover-card-content"]')).toHaveCount(0)
+  expect(tooltipRequests).toEqual([])
 
   const requestCountBeforeRefresh = dealRequests.length
   await page.getByRole("button", { name: "Refresh" }).click()
@@ -357,9 +406,9 @@ test("opens item detail from item links and renders prices, history, chart, and 
   await expect(page.getByText("1.00 Krono")).toBeVisible()
   await expect(page.getByRole("heading", { name: "Stats" })).toBeVisible()
   await expect(page.getByText("HP")).toBeVisible()
-  await expect(page.getByText("55")).toBeVisible()
+  await expect(page.getByText("55", { exact: true })).toBeVisible()
   await expect(page.getByText("Ratio")).toBeVisible()
-  await expect(page.getByText("0.40")).toBeVisible()
+  await expect(page.getByText("0.40", { exact: true })).toBeVisible()
 
   await expect(page.getByRole("heading", { name: "Local Price History" })).toBeVisible()
   await expect(page.getByLabel("Local price history chart")).toBeVisible()
@@ -482,6 +531,23 @@ async function fulfillApi(route: Route) {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify(buildSettingsStatus(server)),
+    })
+    return
+  }
+
+  if (url.pathname === "/api/settings/log-path" && route.request().method() === "PUT") {
+    const body = route.request().postDataJSON() as { log_path?: string | null }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(buildEqLogSettings(body.log_path ?? null)),
+    })
+    return
+  }
+
+  if (url.pathname === "/api/settings/log-path/browse" && route.request().method() === "POST") {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(buildEqLogSettings("C:/EverQuest/Logs/eqlog_Browse_frostreaver.txt")),
     })
     return
   }
@@ -1012,6 +1078,25 @@ function buildSettingsStatus(server: string) {
       finished_at: "2026-06-16T10:00:00",
     },
     import_runs_error: null,
+    ...buildEqLogSettings("C:/EverQuest/Logs/eqlog_Dreadbank_frostreaver.txt"),
+  }
+}
+
+function buildEqLogSettings(logPath: string | null) {
+  return {
+    eq_log_path: logPath,
+    eq_log_exists: logPath ? true : null,
+    eq_log_import_state: logPath
+      ? {
+          log_path: logPath,
+          server: "frostreaver",
+          file_size: 123456,
+          file_mtime: 1780000000,
+          last_position: 2048,
+          updated_at: "2026-06-16T10:00:00",
+        }
+      : null,
+    log_settings_error: null,
   }
 }
 

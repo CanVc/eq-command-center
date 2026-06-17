@@ -443,6 +443,16 @@ CREATE INDEX IF NOT EXISTS idx_listing_scores_alert_level
     ON listing_scores(alert_level);
 
 -- -----------------------------------------------------------------------------
+-- Local app settings
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- -----------------------------------------------------------------------------
 -- Alerts
 -- -----------------------------------------------------------------------------
 

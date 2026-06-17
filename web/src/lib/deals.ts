@@ -46,14 +46,14 @@ export function dealFiltersKey(filters: DealFilters): string {
 
 export function discountBadgeClassName(value: number): string {
   if (value >= 70) {
-    return "border-red-500/25 bg-red-500/10 text-red-700"
+    return "border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-300"
   }
 
   if (value >= 50) {
-    return "border-amber-500/25 bg-amber-500/10 text-amber-700"
+    return "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300"
   }
 
-  return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700"
+  return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
 }
 
 function clampNumber(value: string, fallback: number, min: number, max: number): number {

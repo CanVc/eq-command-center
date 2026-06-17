@@ -16,7 +16,23 @@ export type LatestTlpImport = {
   finished_at: string | null
 }
 
-export type SettingsStatusResponse = {
+export type EqLogImportState = {
+  log_path: string
+  server: string
+  file_size: number | null
+  file_mtime: number | null
+  last_position: number
+  updated_at: string
+}
+
+export type EqLogSettings = {
+  eq_log_path: string | null
+  eq_log_exists: boolean | null
+  eq_log_import_state: EqLogImportState | null
+  log_settings_error: string | null
+}
+
+export type SettingsStatusResponse = EqLogSettings & {
   status: string
   db_path: string
   default_server: string
@@ -497,6 +513,41 @@ export async function fetchSettingsStatus(
   )
 }
 
+export async function updateEqLogPath(
+  server: string,
+  logPath: string,
+  fetcher: Fetcher = fetch
+): Promise<EqLogSettings> {
+  return fetchJson<EqLogSettings>(
+    buildApiPath("/api/settings/log-path", {
+      server,
+    }),
+    fetcher,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ log_path: logPath }),
+    }
+  )
+}
+
+export async function browseEqLogPath(
+  server: string,
+  fetcher: Fetcher = fetch
+): Promise<EqLogSettings> {
+  return fetchJson<EqLogSettings>(
+    buildApiPath("/api/settings/log-path/browse", {
+      server,
+    }),
+    fetcher,
+    {
+      method: "POST",
+    }
+  )
+}
+
 export function buildApiPath(path: string, params: Record<string, QueryValue> = {}): string {
   const search = new URLSearchParams()
 
@@ -510,16 +561,43 @@ export function buildApiPath(path: string, params: Record<string, QueryValue> = 
   return query ? `${path}?${query}` : path
 }
 
-async function fetchJson<T>(path: string, fetcher: Fetcher = fetch): Promise<T> {
+async function fetchJson<T>(
+  path: string,
+  fetcher: Fetcher = fetch,
+  init: RequestInit = {}
+): Promise<T> {
+  const method = init.method ?? "GET"
   const response = await fetcher(`${API_BASE_URL}${path}`, {
+    ...init,
     headers: {
       Accept: "application/json",
+      ...init.headers,
     },
   })
 
   if (!response.ok) {
-    throw new ApiError(response.status, `GET ${path} failed with ${response.status}`)
+    throw new ApiError(response.status, await buildApiErrorMessage(response, method, path))
   }
 
   return (await response.json()) as T
 }
+
+async function buildApiErrorMessage(
+  response: Response,
+  method: string,
+  path: string
+): Promise<string> {
+  const fallbackMessage = `${method} ${path} failed with ${response.status}`
+
+  try {
+    const payload = (await response.clone().json()) as { detail?: unknown }
+    if (typeof payload.detail === "string" && payload.detail.trim()) {
+      return `${fallbackMessage}: ${payload.detail}`
+    }
+  } catch {
+    // Ignore non-JSON error bodies.
+  }
+
+  return fallbackMessage
+}
+

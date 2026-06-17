@@ -19,18 +19,42 @@ export function formatPercent(value: number | null | undefined): string {
 }
 
 export function formatDateTime(value: string | null | undefined): string {
-  if (!value) {
+  const date = parseDate(value)
+
+  if (!date) {
     return "n/a"
   }
 
-  const date = new Date(value)
-
-  if (Number.isNaN(date.getTime())) {
-    return "n/a"
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat("fr-FR", {
     dateStyle: "medium",
     timeStyle: "short",
+    hour12: false,
   }).format(date)
+}
+
+export function formatTime(value: Date | string | number | null | undefined): string {
+  const date = parseDate(value)
+
+  if (!date) {
+    return "n/a"
+  }
+
+  return new Intl.DateTimeFormat("fr-FR", {
+    timeStyle: "short",
+    hour12: false,
+  }).format(date)
+}
+
+function parseDate(value: Date | string | number | null | undefined): Date | null {
+  if (value === null || value === undefined || value === "") {
+    return null
+  }
+
+  const date = value instanceof Date ? value : new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+
+  return date
 }

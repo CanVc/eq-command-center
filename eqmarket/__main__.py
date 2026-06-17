@@ -6,6 +6,7 @@ from pathlib import Path
 
 from eqmarket.db import init_db
 from eqmarket.enrichment import enrich_pending_items
+from eqmarket.local_settings import get_configured_log_path
 from eqmarket.log_importer import import_log_file, parse_log_file
 from eqmarket.price_importer import import_tlp_prices
 from eqmarket.scoring.deals import format_deal_score, score_market_listings
@@ -24,7 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     api_parser.add_argument("--port", type=int, default=8000, help="TCP port to bind")
 
     log_parser = subparsers.add_parser("import-log", help="Parse an EverQuest log file into market listings")
-    log_parser.add_argument("--log", required=True, help="Path to eqlog_*.txt")
+    log_parser.add_argument("--log", help="Path to eqlog_*.txt (defaults to the path saved in Settings)")
     log_parser.add_argument("--db", default="data/eqmarket.sqlite", help="SQLite database path")
     log_parser.add_argument("--server", default="frostreaver", help="Server name to store with listings")
     log_parser.add_argument("--limit", type=int, help="Stop after N auction lines (useful for tests)")
@@ -55,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
     alerts_parser = subparsers.add_parser("run-alerts", help="Run the full pipeline and print deal alerts")
     alerts_parser.add_argument("--db", default="data/eqmarket.sqlite", help="SQLite database path")
     alerts_parser.add_argument("--server", default="frostreaver", help="Server name")
-    alerts_parser.add_argument("--log", help="Optional eqlog_*.txt to import before scoring")
+    alerts_parser.add_argument("--log", help="Optional eqlog_*.txt to import before scoring (defaults to the path saved in Settings)")
     alerts_parser.add_argument("--log-limit", type=int, help="Stop log import after N auction lines")
     alerts_parser.add_argument("--full-log-rescan", action="store_true", help="Ignore saved log cursor and scan the log from the beginning")
     alerts_parser.add_argument("--enrich-limit", type=int, default=25, help="Maximum pending items to resolve before scoring")
@@ -89,7 +90,8 @@ def main() -> None:
         print(f"Serving API on http://{args.host}:{args.port} with database: {app.state.db_path}")
         uvicorn.run(app, host=args.host, port=args.port)
     elif args.command == "import-log":
-        log_path = Path(args.log)
+        db_path = Path(args.db)
+        log_path = _resolve_required_log_path(args.log, db_path, parser)
         if args.dry_run:
             listings = parse_log_file(log_path, limit=args.limit)
             for listing in listings[:25]:
@@ -104,7 +106,7 @@ def main() -> None:
             print(f"Parsed listings: {len(listings)}")
         else:
             stats = import_log_file(
-                Path(args.db),
+                db_path,
                 log_path,
                 args.server,
                 limit=args.limit,
@@ -164,10 +166,11 @@ def main() -> None:
             print(f"... {len(scores) - 50} more")
     elif args.command == "run-alerts":
         db_path = Path(args.db)
-        if args.log:
+        log_path = Path(args.log) if args.log else _configured_log_path(db_path)
+        if log_path:
             log_stats = import_log_file(
                 db_path,
-                Path(args.log),
+                log_path,
                 args.server,
                 limit=args.log_limit,
                 incremental=not args.full_log_rescan,
@@ -239,6 +242,22 @@ def main() -> None:
             print(format_deal_score(score))
         if len(scores) > 50:
             print(f"... {len(scores) - 50} more")
+
+
+def _resolve_required_log_path(log_arg: str | None, db_path: Path, parser: argparse.ArgumentParser) -> Path:
+    log_path = Path(log_arg) if log_arg else _configured_log_path(db_path)
+    if log_path is None:
+        parser.error("provide --log or save an EverQuest log path in Settings")
+    return log_path
+
+
+def _configured_log_path(db_path: Path) -> Path | None:
+    configured_log_path = get_configured_log_path(db_path)
+    if configured_log_path is None:
+        return None
+
+    print(f"Using configured EQ log: {configured_log_path}")
+    return Path(configured_log_path)
 
 
 def _recent_listing_item_ids(

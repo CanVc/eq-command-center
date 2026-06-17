@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import {
+  browseEqLogPath,
   buildApiPath,
   fetchDeals,
   fetchDashboardSummary,
@@ -11,6 +12,7 @@ import {
   fetchListingsPreview,
   fetchMarketListings,
   fetchSettingsStatus,
+  updateEqLogPath,
 } from "./api"
 
 describe("fetchHealth", () => {
@@ -143,6 +145,10 @@ describe("page API helpers", () => {
         finished_at: "2026-06-16T10:00:00",
       },
       import_runs_error: null,
+      eq_log_path: "C:/EverQuest/Logs/eqlog_Dreadbank_frostreaver.txt",
+      eq_log_exists: true,
+      eq_log_import_state: null,
+      log_settings_error: null,
     }
     const fetcher = vi
       .fn()
@@ -168,6 +174,58 @@ describe("page API helpers", () => {
       },
     })
     expect(fetcher).toHaveBeenNthCalledWith(2, "/api/settings/status?server=frostreaver", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
+  })
+
+  it("updates the configured EQ log path", async () => {
+    const payload = {
+      eq_log_path: "C:/EverQuest/Logs/eqlog_Dreadbank_frostreaver.txt",
+      eq_log_exists: true,
+      eq_log_import_state: null,
+      log_settings_error: null,
+    }
+    const fetcher = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    )
+
+    await expect(
+      updateEqLogPath("frostreaver", "C:/EverQuest/Logs/eqlog_Dreadbank_frostreaver.txt", fetcher)
+    ).resolves.toEqual(payload)
+
+    expect(fetcher).toHaveBeenCalledWith("/api/settings/log-path?server=frostreaver", {
+      method: "PUT",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ log_path: "C:/EverQuest/Logs/eqlog_Dreadbank_frostreaver.txt" }),
+    })
+  })
+
+  it("opens the backend native picker for the EQ log path", async () => {
+    const payload = {
+      eq_log_path: "C:/EverQuest/Logs/eqlog_Browse_frostreaver.txt",
+      eq_log_exists: true,
+      eq_log_import_state: null,
+      log_settings_error: null,
+    }
+    const fetcher = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    )
+
+    await expect(browseEqLogPath("frostreaver", fetcher)).resolves.toEqual(payload)
+
+    expect(fetcher).toHaveBeenCalledWith("/api/settings/log-path/browse?server=frostreaver", {
+      method: "POST",
       headers: {
         Accept: "application/json",
       },

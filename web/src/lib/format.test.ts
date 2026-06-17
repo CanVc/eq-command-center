@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { formatDateTime, formatNumber, formatPercent, formatPrice } from "./format"
+import { formatDateTime, formatNumber, formatPercent, formatPrice, formatTime } from "./format"
 
 describe("format helpers", () => {
   it("formats market numbers and prices", () => {
@@ -17,5 +17,15 @@ describe("format helpers", () => {
 
   it("formats percentages with one decimal place", () => {
     expect(formatPercent(75)).toBe("75.0%")
+  })
+
+  it("formats dates and refresh times with French 24-hour time", () => {
+    const formattedDate = formatDateTime("2026-06-16T10:05:00")
+    const formattedTime = formatTime(new Date("2026-06-16T22:15:30"))
+
+    expect(formattedDate).toContain("10:05")
+    expect(formattedDate).not.toMatch(/\b(?:AM|PM)\b/i)
+    expect(formattedTime).toContain("22:15")
+    expect(formattedTime).not.toMatch(/\b(?:AM|PM)\b/i)
   })
 })

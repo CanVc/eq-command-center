@@ -78,6 +78,8 @@ The server binds to `127.0.0.1:8000` by default. You can also set the database p
 uvicorn eqmarket.api.app:app --host 127.0.0.1 --port 8000
 ```
 
+Configure your EverQuest log path from the frontend Settings page with the file picker, or pass it directly to the CLI. Once saved, `import-log` and `run-alerts` can reuse the configured path.
+
 Preview EverQuest auction parsing without writing to SQLite:
 
 ```bash
@@ -87,6 +89,10 @@ eqmarket import-log --log "C:\\Users\\Public\\Daybreak Game Company\\Installed G
 Import parsed WTS auction listings into SQLite:
 
 ```bash
+# Uses the log path saved in Settings
+eqmarket import-log --db data/eqmarket.sqlite --server frostreaver
+
+# Or override it for this run
 eqmarket import-log --log "C:\\Users\\Public\\Daybreak Game Company\\Installed Games\\EverQuest\\Logs\\eqlog_Dreadbank_frostreaver.txt" --db data/eqmarket.sqlite --server frostreaver
 ```
 
@@ -123,6 +129,10 @@ eqmarket score-listings --db data/eqmarket.sqlite --server frostreaver --limit 2
 Run the full alert pipeline in one command. TLP history prices default to the last 3 days, which is safer for a fresh server with rapidly falling prices:
 
 ```bash
+# Uses the log path saved in Settings if available
+eqmarket run-alerts --db data/eqmarket.sqlite --server frostreaver --history-days 3
+
+# Or override it for this run
 eqmarket run-alerts --db data/eqmarket.sqlite --server frostreaver --log "C:\\Users\\Public\\Daybreak Game Company\\Installed Games\\EverQuest\\Logs\\eqlog_Dreadbank_frostreaver.txt" --history-days 3
 ```
 

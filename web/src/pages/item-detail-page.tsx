@@ -18,6 +18,7 @@ import {
   YAxis,
 } from "recharts"
 
+import { ItemLink } from "@/components/item-link"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -104,7 +105,7 @@ export function ItemDetailPage({ data, server }: { data: ItemDetailPageData; ser
 
       {data.item.effects.length > 0 ? <EffectsCard item={data.item} /> : null}
 
-      <ListingsCard listings={data.listings} />
+      <ListingsCard listings={data.listings} itemId={data.item.item_id} server={server} />
     </section>
   )
 }
@@ -116,7 +117,19 @@ function ItemSummary({ item, server }: { item: ItemDetail; server: string }) {
         <CardTitle>
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
-              <h2 className="break-words text-xl font-semibold">{item.name}</h2>
+              <h2>
+                <ItemLink
+                  itemId={item.item_id}
+                  name={item.name}
+                  server={server}
+                  details={[
+                    { label: "Slot", value: item.slot },
+                    { label: "Classes", value: item.classes },
+                    { label: "Flags", value: item.flags },
+                  ]}
+                  className="break-words text-xl font-semibold text-foreground"
+                />
+              </h2>
               <p className="text-sm font-normal text-muted-foreground">
                 Item ID {item.item_id} on {server}
               </p>
@@ -161,8 +174,8 @@ function MetricCard({
 }) {
   const toneClass = {
     neutral: "bg-muted/20 text-muted-foreground",
-    emerald: "bg-emerald-500/10 text-emerald-700",
-    amber: "bg-amber-500/10 text-amber-700",
+    emerald: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    amber: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
   }[tone]
 
   return (
@@ -219,6 +232,13 @@ function PriceChartCard({ history }: { history: PriceHistoryPoint[] }) {
                   tickFormatter={(value) => compactPrice(Number(value))}
                 />
                 <Tooltip
+                  contentStyle={{
+                    backgroundColor: "var(--color-popover)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "var(--radius-lg)",
+                    color: "var(--color-popover-foreground)",
+                  }}
+                  labelStyle={{ color: "var(--color-popover-foreground)" }}
                   formatter={(value) => [formatPrice(Number(value)), "Price"]}
                   labelFormatter={(value) => formatDateTime(String(value))}
                 />
@@ -422,7 +442,15 @@ function EffectsCard({ item }: { item: ItemDetail }) {
   )
 }
 
-function ListingsCard({ listings }: { listings: ItemListing[] }) {
+function ListingsCard({
+  listings,
+  itemId,
+  server,
+}: {
+  listings: ItemListing[]
+  itemId: number
+  server: string
+}) {
   return (
     <Card className="min-w-0">
       <CardHeader className="border-b">
@@ -455,7 +483,19 @@ function ListingsCard({ listings }: { listings: ItemListing[] }) {
                     </TableCell>
                     <TableCell>{listing.seller ?? "Unknown"}</TableCell>
                     <TableCell className="min-w-[13rem] whitespace-normal">
-                      {listing.listed_item_name}
+                      <ItemLink
+                        itemId={listing.item_id ?? itemId}
+                        name={listing.listed_item_name}
+                        server={server}
+                        details={[
+                          { label: "Seller", value: listing.seller },
+                          { label: "Raw price", value: listing.price_raw },
+                          { label: "Price PP", value: formatPrice(listing.price_pp) },
+                          { label: "Source", value: listing.source },
+                          { label: "Confidence", value: listing.confidence },
+                          { label: "Seen", value: formatDateTime(listing.timestamp) },
+                        ]}
+                      />
                     </TableCell>
                     <TableCell>{listing.price_raw ?? "n/a"}</TableCell>
                     <TableCell>{formatPrice(listing.price_pp)}</TableCell>
@@ -546,7 +586,7 @@ function formatChartTick(value: string): string {
     return value
   }
 
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat("fr-FR", {
     month: "short",
     day: "numeric",
   }).format(date)

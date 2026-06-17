@@ -58,6 +58,10 @@ class ApiContractTests(unittest.TestCase):
                     "active_server",
                     "latest_tlp_import",
                     "import_runs_error",
+                    "eq_log_path",
+                    "eq_log_exists",
+                    "eq_log_import_state",
+                    "log_settings_error",
                 },
             )
             self.assertTrue(

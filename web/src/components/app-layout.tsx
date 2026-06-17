@@ -1,12 +1,15 @@
+import { useEffect, useState } from "react"
 import type { ReactNode } from "react"
 import {
   BarChart3,
   Box,
   LayoutDashboard,
   ListFilter,
+  Moon,
   RefreshCw,
   Search,
   Settings,
+  Sun,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -46,6 +49,10 @@ const NAV_ICONS: Record<AppPageId, ReactNode> = {
   settings: <Settings aria-hidden="true" />,
 }
 
+const THEME_STORAGE_KEY = "eq-command-center.theme"
+
+type Theme = "light" | "dark"
+
 export function AppLayout({
   activePage,
   pageTitle,
@@ -58,6 +65,16 @@ export function AppLayout({
 }: AppLayoutProps) {
   const activePageDefinition = APP_PAGES.find((page) => page.id === activePage) ?? APP_PAGES[0]
   const title = pageTitle ?? activePageDefinition.title
+  const [theme, setTheme] = useState<Theme>(() => getInitialTheme())
+
+  useEffect(() => {
+    applyTheme(theme)
+    saveTheme(theme)
+  }, [theme])
+
+  const toggleTheme = () => {
+    setTheme((current) => (current === "dark" ? "light" : "dark"))
+  }
 
   return (
     <div className="min-h-svh bg-background text-foreground">
@@ -86,7 +103,7 @@ export function AppLayout({
 
         <div className="flex min-w-0 flex-col">
           <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur">
-            <div className="flex min-h-16 flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-h-16 flex-col gap-3 px-4 py-3 sm:px-6 lg:h-16 lg:flex-row lg:items-center lg:justify-between lg:px-8 lg:py-0">
               <div className="min-w-0">
                 <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">
                   {server}
@@ -107,6 +124,8 @@ export function AppLayout({
                     ))}
                   </SelectContent>
                 </Select>
+
+                <ThemeToggle theme={theme} onToggle={toggleTheme} />
 
                 <Button type="button" onClick={onRefresh} disabled={isRefreshing}>
                   <RefreshCw className={cn(isRefreshing && "animate-spin")} />
@@ -135,6 +154,23 @@ export function AppLayout({
         </div>
       </div>
     </div>
+  )
+}
+
+function ThemeToggle({ theme, onToggle }: { theme: Theme; onToggle: () => void }) {
+  const isDark = theme === "dark"
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="icon-lg"
+      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      onClick={onToggle}
+    >
+      {isDark ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
+    </Button>
   )
 }
 
@@ -173,4 +209,42 @@ function NavLink({
       <span>{page.label}</span>
     </a>
   )
+}
+
+function getInitialTheme(): Theme {
+  if (typeof window === "undefined") {
+    return "light"
+  }
+
+  try {
+    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
+
+    if (storedTheme === "light" || storedTheme === "dark") {
+      return storedTheme
+    }
+  } catch {
+    // Ignore storage errors and fall back to the system preference.
+  }
+
+  return window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light"
+}
+
+function applyTheme(theme: Theme) {
+  if (typeof document === "undefined") {
+    return
+  }
+
+  document.documentElement.classList.toggle("dark", theme === "dark")
+}
+
+function saveTheme(theme: Theme) {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme)
+  } catch {
+    // Ignore storage errors; the in-memory toggle still works.
+  }
 }

@@ -131,8 +131,8 @@ function MetricCard({
 }) {
   const toneClass = {
     neutral: "bg-muted/20 text-muted-foreground",
-    emerald: "bg-emerald-500/10 text-emerald-700",
-    amber: "bg-amber-500/10 text-amber-700",
+    emerald: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    amber: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
   }[tone]
 
   return (
