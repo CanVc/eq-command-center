@@ -67,16 +67,22 @@ Ce test ne remplace pas les tests unitaires. Il vérifie surtout que les endpoin
 
 ## Commandes
 
-Tests complets. Le script relance automatiquement avec `.venv/Scripts/python.exe` si le venv local existe :
+Tests complets. Le script relance automatiquement avec `.venv/Scripts/python.exe` si le venv local existe, puis lance les tests Python et les commandes frontend `npm run test`, `npm run build` et `npm run test:e2e` dans `web/`. Le frontend nécessite Node.js/npm et les dépendances installées dans `web/` :
 
 ```bash
 python scripts/run_tests.py
 ```
 
-Tests complets avec sortie détaillée :
+Tests complets avec sortie détaillée côté `unittest` :
 
 ```bash
 .venv/Scripts/python scripts/run_tests.py --verbose
+```
+
+Tests Python seuls :
+
+```bash
+.venv/Scripts/python scripts/run_tests.py --no-frontend
 ```
 
 Tests complets + smoke API local :

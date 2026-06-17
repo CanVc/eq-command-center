@@ -24,7 +24,16 @@ python -m venv .venv
 pip install -e .
 ```
 
-Run the test suite. The script auto-reruns with `.venv/Scripts/python.exe` when the local venv exists:
+Install frontend dependencies once before running the full suite; Node.js/npm must be available:
+
+```bash
+cd web
+npm install
+npx playwright install chromium
+cd ..
+```
+
+Run the test suite. The script auto-reruns with `.venv/Scripts/python.exe` when the local venv exists, then runs Python tests plus frontend test/build/e2e commands:
 
 ```bash
 python scripts/run_tests.py
@@ -35,6 +44,9 @@ Useful variants:
 ```bash
 # Verbose unittest output
 python scripts/run_tests.py --verbose
+
+# Python tests only
+python scripts/run_tests.py --no-frontend
 
 # Run automated tests, then a smoke test against the local DB
 python scripts/run_tests.py --smoke --db data/eqmarket.sqlite
