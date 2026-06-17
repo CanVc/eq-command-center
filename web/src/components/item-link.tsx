@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
+import type { MouseEvent } from "react"
 
 import {
   HoverCard,
@@ -8,6 +9,7 @@ import {
 import { fetchItemTooltip, type ItemTooltip } from "@/lib/api"
 import { formatDateTime, formatNumber, formatPrice } from "@/lib/format"
 import { getMageloStatus, subscribeMageloStatus, type MageloStatus } from "@/lib/magelo"
+import { navigateToPath, pathForItemDetail } from "@/lib/navigation"
 import { cn } from "@/lib/utils"
 
 export type ItemLinkDetail = {
@@ -40,6 +42,7 @@ export function ItemLink({ itemId, name, server, details = [], className }: Item
   const requestIdRef = useRef(0)
   const hasItemId = itemId !== null && itemId !== undefined
   const shouldUseLocalFallback = !hasItemId || mageloStatus !== "loaded"
+  const href = hasItemId ? pathForItemDetail(itemId) : "#"
   const currentTooltipState = useMemo<TooltipState>(() => {
     if (tooltipState.key === tooltipKey) {
       return tooltipState
@@ -82,12 +85,19 @@ export function ItemLink({ itemId, name, server, details = [], className }: Item
 
   const itemAnchor = (
     <a
-      href={hasItemId ? `/items/${itemId}` : "#"}
+      href={href}
       rel={hasItemId ? `eq:item:${itemId}` : undefined}
       aria-haspopup={shouldUseLocalFallback ? "dialog" : undefined}
       onClick={(event) => {
-        event.preventDefault()
+        if (hasItemId) {
+          if (shouldHandleClientNavigation(event)) {
+            event.preventDefault()
+            navigateToPath(href)
+          }
+          return
+        }
 
+        event.preventDefault()
         if (shouldUseLocalFallback) {
           handleOpenChange(!open)
         }
@@ -117,6 +127,17 @@ export function ItemLink({ itemId, name, server, details = [], className }: Item
         />
       </HoverCardContent>
     </HoverCard>
+  )
+}
+
+function shouldHandleClientNavigation(event: MouseEvent<HTMLAnchorElement>): boolean {
+  return (
+    event.button === 0 &&
+    !event.defaultPrevented &&
+    !event.metaKey &&
+    !event.altKey &&
+    !event.ctrlKey &&
+    !event.shiftKey
   )
 }
 

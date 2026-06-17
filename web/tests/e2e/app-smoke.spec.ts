@@ -299,6 +299,75 @@ test("renders, filters, and acts on the deals table", async ({ page }) => {
   await expect(page.getByText("No deals match the active filters.")).toBeVisible()
 })
 
+test("opens item detail from item links and renders prices, history, chart, and sources", async ({ page }) => {
+  const requestedPaths: string[] = []
+
+  await page.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url())
+    requestedPaths.push(`${url.pathname}${url.search}`)
+    await fulfillApi(route)
+  })
+
+  await page.goto("/deals")
+
+  await page.getByRole("link", { name: "Stave of Shielding" }).click()
+
+  await expect(page).toHaveURL(/\/items\/1$/)
+  await expect(page.getByRole("heading", { name: "Item Detail", exact: true })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Stave of Shielding" })).toBeVisible()
+  await expect(page.getByText("Item ID 1 on frostreaver")).toBeVisible()
+
+  await expect(page.getByText("Market median")).toBeVisible()
+  await expect(page.getByText("Krono equivalent")).toBeVisible()
+  await expect(page.getByText("1.00 Krono")).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Stats" })).toBeVisible()
+  await expect(page.getByText("HP")).toBeVisible()
+  await expect(page.getByText("55")).toBeVisible()
+  await expect(page.getByText("Ratio")).toBeVisible()
+  await expect(page.getByText("0.40")).toBeVisible()
+
+  await expect(page.getByRole("heading", { name: "Local Price History" })).toBeVisible()
+  await expect(page.getByLabel("Local price history chart")).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Local Listings" })).toBeVisible()
+  await expect(page.locator("tbody")).toContainText("Stave of Shielding MQ")
+  await expect(page.locator("tbody")).toContainText("42k")
+
+  await expect(page.getByRole("link", { name: "Lucy" })).toHaveAttribute(
+    "href",
+    "https://lucy.allakhazam.com/item.html?id=1"
+  )
+  await expect(page.getByRole("link", { name: "Magelo" })).toHaveAttribute(
+    "href",
+    "https://eq.magelo.com/item/1"
+  )
+  await expect(page.getByRole("link", { name: "TLP Auctions" })).toHaveAttribute(
+    "href",
+    "https://www.tlp-auctions.com/search/frostreaver/Stave%20of%20Shielding"
+  )
+
+  expect(requestedPaths).toContain("/api/items/1")
+  expect(requestedPaths).toContain("/api/items/1/prices?server=frostreaver")
+  expect(requestedPaths).toContain("/api/items/1/listings?server=frostreaver&limit=100")
+})
+
+test("keeps item detail usable when market price is unavailable", async ({ page }) => {
+  await page.route("**/api/**", async (route) => {
+    await fulfillApi(route)
+  })
+
+  await page.goto("/items/2")
+
+  await expect(page.getByRole("heading", { name: "Item Detail", exact: true })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Silver Chitin Hand Wraps" })).toBeVisible()
+  await expect(page.getByText("No market reference")).toBeVisible()
+  await expect(page.getByText("No external market price imported.")).toBeVisible()
+  await expect(page.getByText("Krono equivalent")).toBeVisible()
+  await expect(page.getByText("n/a").first()).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Local Price History" })).toBeVisible()
+  await expect(page.getByLabel("Local price history chart")).toBeVisible()
+  await expect(page.locator("tbody")).toContainText("Silver Chitin Hand Wraps")
+})
+
 test("renders, searches, refreshes, and loads market listings", async ({ page }) => {
   const listingRequests: URL[] = []
 
@@ -382,6 +451,14 @@ async function fulfillApi(route: Route) {
     return
   }
 
+  if (url.pathname === "/api/krono/latest") {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(buildKronoLatest(server)),
+    })
+    return
+  }
+
   if (url.pathname === "/api/deals") {
     await route.fulfill({
       contentType: "application/json",
@@ -394,6 +471,26 @@ async function fulfillApi(route: Route) {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify(buildListings(url)),
+    })
+    return
+  }
+
+  const itemPricesId = itemPricesIdFromPath(url.pathname)
+
+  if (itemPricesId !== null) {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(buildItemPrice(itemPricesId, server)),
+    })
+    return
+  }
+
+  const itemListingsId = itemListingsIdFromPath(url.pathname)
+
+  if (itemListingsId !== null) {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(buildItemListings(itemListingsId)),
     })
     return
   }
@@ -432,6 +529,16 @@ async function fulfillApi(route: Route) {
     return
   }
 
+  const itemDetailId = itemDetailIdFromPath(url.pathname)
+
+  if (itemDetailId !== null) {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(buildItemDetail(itemDetailId)),
+    })
+    return
+  }
+
   if (url.pathname === "/api/items/search") {
     await route.fulfill({
       contentType: "application/json",
@@ -462,6 +569,21 @@ function isTooltipPath(pathname: string): boolean {
 
 function itemTooltipIdFromPath(pathname: string): number | null {
   const match = pathname.match(/^\/api\/items\/(\d+)\/tooltip$/)
+  return match ? Number(match[1]) : null
+}
+
+function itemDetailIdFromPath(pathname: string): number | null {
+  const match = pathname.match(/^\/api\/items\/(\d+)$/)
+  return match ? Number(match[1]) : null
+}
+
+function itemPricesIdFromPath(pathname: string): number | null {
+  const match = pathname.match(/^\/api\/items\/(\d+)\/prices$/)
+  return match ? Number(match[1]) : null
+}
+
+function itemListingsIdFromPath(pathname: string): number | null {
+  const match = pathname.match(/^\/api\/items\/(\d+)\/listings$/)
   return match ? Number(match[1]) : null
 }
 
@@ -574,6 +696,197 @@ function buildItemTooltip({
         description: "Fungal Regrowth",
       },
     ],
+  }
+}
+
+function buildItemDetail(itemId: number) {
+  return {
+    item_id: itemId,
+    name: tooltipItemName(itemId),
+    icon_url: null,
+    icon_id: itemId === 1 ? 601 : null,
+    item_type: itemId === 1 ? "weapon" : "armor",
+    slot: itemId === 1 ? "PRIMARY" : "HAND",
+    classes: "WAR CLR PAL RNG SHD DRU MNK BRD ROG SHM NEC WIZ MAG ENC BST BER",
+    races: "ALL",
+    flags: "MAGIC",
+    stats: {
+      ac: itemId === 1 ? 12 : 8,
+      hp: itemId === 1 ? 55 : 25,
+      mana: itemId === 1 ? 10 : null,
+      endurance: null,
+      hp_regen: null,
+      mana_regen: null,
+      endurance_regen: null,
+      str: itemId === 1 ? 4 : null,
+      sta: itemId === 1 ? 5 : null,
+      agi: itemId === 1 ? 6 : null,
+      dex: itemId === 1 ? 7 : null,
+      wis: itemId === 1 ? 8 : null,
+      int: itemId === 1 ? 9 : null,
+      cha: itemId === 1 ? 10 : null,
+      heroic_str: null,
+      heroic_sta: null,
+      heroic_agi: null,
+      heroic_dex: null,
+      heroic_wis: null,
+      heroic_int: null,
+      heroic_cha: null,
+      sv_magic: itemId === 1 ? 11 : null,
+      sv_fire: itemId === 1 ? 12 : null,
+      sv_cold: itemId === 1 ? 13 : null,
+      sv_poison: itemId === 1 ? 14 : null,
+      sv_disease: itemId === 1 ? 15 : null,
+    },
+    combat: {
+      damage: itemId === 1 ? 12 : null,
+      delay: itemId === 1 ? 30 : null,
+      ratio: itemId === 1 ? 0.4 : null,
+      haste: null,
+    },
+    levels: {
+      required_level: null,
+      recommended_level: itemId === 1 ? 50 : null,
+    },
+    effects:
+      itemId === 1
+        ? [
+            {
+              effect_slot: 0,
+              trigger_type: "worn",
+              effect_type_raw: 1,
+              spell: {
+                spell_id: 1806,
+                name: "Fungal Regrowth",
+                spell_type: "Beneficial",
+                target_type: "Self",
+                skill: "Alteration",
+              },
+              cast_time_ms: 0,
+              required_level: null,
+              effective_level: 0,
+              proc_rate: null,
+              charges: null,
+              description: "Fungal Regrowth",
+            },
+          ]
+        : [],
+    source_primary: "fixture",
+    last_imported_at: "2026-06-16T09:00:00",
+  }
+}
+
+function buildItemPrice(itemId: number, server: string) {
+  if (itemId === 2) {
+    return {
+      item_id: itemId,
+      server,
+      market_price_pp: null,
+      market_price_source: null,
+      median_pp: null,
+      p25_pp: null,
+      p75_pp: null,
+      avg_pp: null,
+      min_pp: null,
+      max_pp: null,
+      sample_size: null,
+      confidence: null,
+      last_refresh_at: null,
+      source: null,
+    }
+  }
+
+  return {
+    item_id: itemId,
+    server,
+    market_price_pp: 16000,
+    market_price_source: "median_pp",
+    median_pp: 16000,
+    p25_pp: 12000,
+    p75_pp: 20000,
+    avg_pp: 17000,
+    min_pp: 10000,
+    max_pp: 24000,
+    sample_size: 12,
+    confidence: "high",
+    last_refresh_at: "2026-06-16T10:00:00",
+    source: "fixture",
+  }
+}
+
+function buildItemListings(itemId: number) {
+  if (itemId === 2) {
+    return [
+      {
+        listing_id: 20,
+        timestamp: "2026-06-16T10:05:00",
+        seller: "Aderyn",
+        item: { item_id: 2, name: "Silver Chitin Hand Wraps" },
+        item_id: 2,
+        item_name: "Silver Chitin Hand Wraps",
+        listed_item_name: "Silver Chitin Hand Wraps",
+        price_raw: "8k",
+        price_pp: 8000,
+        source: "eq_log",
+        confidence: "parsed",
+        resolved: true,
+      },
+    ]
+  }
+
+  return [
+    {
+      listing_id: 30,
+      timestamp: "2026-06-16T12:00:00",
+      seller: "LatestSeller",
+      item: { item_id: 1, name: "Stave of Shielding" },
+      item_id: 1,
+      item_name: "Stave of Shielding",
+      listed_item_name: "Stave of Shielding MQ",
+      price_raw: "42k",
+      price_pp: 42000,
+      source: "eq_log",
+      confidence: "parsed",
+      resolved: true,
+    },
+    {
+      listing_id: 10,
+      timestamp: "2026-06-16T10:00:00",
+      seller: "Nebblastin",
+      item: { item_id: 1, name: "Stave of Shielding" },
+      item_id: 1,
+      item_name: "Stave of Shielding",
+      listed_item_name: "Stave of Shielding",
+      price_raw: "4k",
+      price_pp: 4000,
+      source: "eq_log",
+      confidence: "parsed",
+      resolved: true,
+    },
+    {
+      listing_id: 9,
+      timestamp: "2026-06-16T09:00:00",
+      seller: "NoPrice",
+      item: { item_id: 1, name: "Stave of Shielding" },
+      item_id: 1,
+      item_name: "Stave of Shielding",
+      listed_item_name: "Stave of Shielding",
+      price_raw: null,
+      price_pp: null,
+      source: "eq_log",
+      confidence: "no_price",
+      resolved: true,
+    },
+  ]
+}
+
+function buildKronoLatest(server: string) {
+  return {
+    server,
+    price_pp: 16000,
+    source: "fixture",
+    confidence: "high",
+    last_refresh_at: "2026-06-16T10:00:00",
   }
 }
 

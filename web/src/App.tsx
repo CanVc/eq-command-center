@@ -18,6 +18,7 @@ import {
   DEFAULT_MARKET_LISTING_FILTERS,
   fetchDashboardSummary,
   fetchDeals,
+  fetchItemDetailPageData,
   fetchItemSearchPreview,
   fetchMarketListings,
   fetchSettingsHealth,
@@ -25,6 +26,7 @@ import {
   type DealFilters,
   type DealPreview,
   type HealthResponse,
+  type ItemDetailPageData,
   type ItemSearchResult,
   type ListingPreview,
   type MarketListingFilters,
@@ -36,10 +38,19 @@ import {
   subscribeMageloStatus,
   type MageloStatus,
 } from "@/lib/magelo"
-import { APP_PAGES, pageIdFromPath, pathForPage, type AppPageId } from "@/lib/navigation"
+import {
+  activePageIdFromRoute,
+  APP_PAGES,
+  pathForPage,
+  routeFromPath,
+  type AppPageDefinition,
+  type AppPageId,
+  type AppRoute,
+} from "@/lib/navigation"
 import { readPreferredServer, savePreferredServer } from "@/lib/server-preference"
 import { DashboardPage } from "@/pages/dashboard-page"
 import { DealsPage } from "@/pages/deals-page"
+import { ItemDetailPage } from "@/pages/item-detail-page"
 import { MarketListingsPage } from "@/pages/market-listings-page"
 
 type PageData =
@@ -47,6 +58,7 @@ type PageData =
   | { page: "deals"; payload: DealPreview[] }
   | { page: "market"; payload: ListingPreview[] }
   | { page: "items"; payload: ItemSearchResult[] }
+  | { page: "item-detail"; payload: ItemDetailPageData }
   | { page: "settings"; payload: HealthResponse }
 
 type PageState =
@@ -55,7 +67,7 @@ type PageState =
   | { status: "error"; message: string }
 
 function App() {
-  const [activePage, setActivePage] = useState<AppPageId>(() => getInitialPage())
+  const [activeRoute, setActiveRoute] = useState<AppRoute>(() => getInitialRoute())
   const [server, setServer] = useState(() => readPreferredServer())
   const [dealFilters, setDealFilters] = useState<DealFilters>(DEFAULT_DEAL_FILTERS)
   const [marketListingFilters, setMarketListingFilters] = useState<MarketListingFilters>(
@@ -65,12 +77,13 @@ function App() {
   const [mageloStatus, setMageloStatus] = useState<MageloStatus>(() => getMageloStatus())
   const [pageState, setPageState] = useState<PageState>({ status: "loading" })
 
-  const pageDefinition = APP_PAGES.find((page) => page.id === activePage) ?? APP_PAGES[0]
+  const activePage = activePageIdFromRoute(activeRoute)
+  const pageDefinition = pageDefinitionForRoute(activeRoute)
 
   useEffect(() => {
     const handlePopState = () => {
       setPageState({ status: "loading" })
-      setActivePage(pageIdFromPath(window.location.pathname))
+      setActiveRoute(routeFromPath(window.location.pathname))
     }
 
     window.addEventListener("popstate", handlePopState)
@@ -106,7 +119,7 @@ function App() {
 
     async function loadPage() {
       try {
-        const data = await fetchPageData(activePage, server, dealFilters, marketListingFilters)
+        const data = await fetchPageData(activeRoute, server, dealFilters, marketListingFilters)
         if (isActive) {
           setPageState({ status: "ready", data, loadedAt: new Date() })
         }
@@ -125,7 +138,7 @@ function App() {
     return () => {
       isActive = false
     }
-  }, [activePage, dealFilters, marketListingFilters, refreshKey, server])
+  }, [activeRoute, dealFilters, marketListingFilters, refreshKey, server])
 
   const navigateTo = useCallback((pageId: AppPageId) => {
     const nextPath = pathForPage(pageId)
@@ -139,7 +152,7 @@ function App() {
     }
 
     setPageState({ status: "loading" })
-    setActivePage(pageId)
+    setActiveRoute({ kind: "page", pageId })
   }, [activePage])
 
   const changeServer = useCallback((nextServer: string) => {
@@ -171,6 +184,7 @@ function App() {
   return (
     <AppLayout
       activePage={activePage}
+      pageTitle={pageDefinition.title}
       server={server}
       isRefreshing={pageState.status === "loading"}
       onNavigate={navigateTo}
@@ -206,11 +220,20 @@ function App() {
 }
 
 async function fetchPageData(
-  page: AppPageId,
+  route: AppRoute,
   server: string,
   dealFilters: DealFilters,
   marketListingFilters: MarketListingFilters
 ): Promise<PageData> {
+  if (route.kind === "item-detail") {
+    return {
+      page: "item-detail",
+      payload: await fetchItemDetailPageData(route.itemId, server),
+    }
+  }
+
+  const page = route.pageId
+
   switch (page) {
     case "dashboard":
       return { page, payload: await fetchDashboardSummary(server) }
@@ -225,12 +248,26 @@ async function fetchPageData(
   }
 }
 
-function getInitialPage(): AppPageId {
+function getInitialRoute(): AppRoute {
   if (typeof window === "undefined") {
-    return "dashboard"
+    return { kind: "page", pageId: "dashboard" }
   }
 
-  return pageIdFromPath(window.location.pathname)
+  return routeFromPath(window.location.pathname)
+}
+
+function pageDefinitionForRoute(route: AppRoute): AppPageDefinition {
+  if (route.kind === "item-detail") {
+    return {
+      id: "items",
+      label: "Items",
+      path: "/items",
+      title: "Item Detail",
+      description: "Stats, market price, local history, and source links.",
+    }
+  }
+
+  return APP_PAGES.find((page) => page.id === route.pageId) ?? APP_PAGES[0]
 }
 
 function StatusLine({ pageState }: { pageState: PageState }) {
@@ -289,6 +326,8 @@ function PageContent({
       )
     case "items":
       return <ItemsPage items={data.payload} server={server} />
+    case "item-detail":
+      return <ItemDetailPage data={data.payload} server={server} />
     case "settings":
       return <SettingsPage health={data.payload} server={server} mageloStatus={mageloStatus} />
   }

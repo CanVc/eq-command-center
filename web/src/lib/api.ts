@@ -9,13 +9,7 @@ export type DashboardSummary = {
   min_discount: number
   listings_recent_count: number
   deals_recent_count: number
-  krono_latest: {
-    server: string
-    price_pp: number | null
-    source: string | null
-    confidence: string | null
-    last_refresh_at: string | null
-  }
+  krono_latest: KronoLatest
   top_seen_items: Array<{
     item_id: number | null
     item_name: string
@@ -78,6 +72,14 @@ export type ListingPreview = {
   resolved: boolean
 }
 
+export type KronoLatest = {
+  server: string
+  price_pp: number | null
+  source: string | null
+  confidence: string | null
+  last_refresh_at: string | null
+}
+
 export type MarketListingFilters = {
   query: string
   limit: number
@@ -116,6 +118,97 @@ export type ItemTooltipEffect = {
   proc_rate: number | null
   charges: number | null
   description: string | null
+}
+
+export type ItemStats = {
+  ac: number | null
+  hp: number | null
+  mana: number | null
+  endurance: number | null
+  hp_regen: number | null
+  mana_regen: number | null
+  endurance_regen: number | null
+  str: number | null
+  sta: number | null
+  agi: number | null
+  dex: number | null
+  wis: number | null
+  int: number | null
+  cha: number | null
+  heroic_str: number | null
+  heroic_sta: number | null
+  heroic_agi: number | null
+  heroic_dex: number | null
+  heroic_wis: number | null
+  heroic_int: number | null
+  heroic_cha: number | null
+  sv_magic: number | null
+  sv_fire: number | null
+  sv_cold: number | null
+  sv_poison: number | null
+  sv_disease: number | null
+}
+
+export type ItemCombat = {
+  damage: number | null
+  delay: number | null
+  ratio: number | null
+  haste: number | null
+}
+
+export type ItemLevels = {
+  required_level: number | null
+  recommended_level: number | null
+}
+
+export type ItemDetail = {
+  item_id: number
+  name: string
+  icon_url: string | null
+  icon_id: number | null
+  item_type: string | null
+  slot: string | null
+  classes: string | null
+  races: string | null
+  flags: string | null
+  stats: ItemStats
+  combat: ItemCombat
+  levels: ItemLevels
+  effects: ItemTooltipEffect[]
+  source_primary: string | null
+  last_imported_at: string | null
+}
+
+export type ItemMarketPrice = {
+  item_id: number
+  server: string
+  market_price_pp: number | null
+  market_price_source: string | null
+  median_pp: number | null
+  p25_pp: number | null
+  p75_pp: number | null
+  avg_pp: number | null
+  min_pp: number | null
+  max_pp: number | null
+  sample_size: number | null
+  confidence: string | null
+  last_refresh_at: string | null
+  source: string | null
+}
+
+export type ItemListing = ListingPreview & {
+  item: {
+    item_id: number | null
+    name: string
+  }
+  listed_item_name: string
+}
+
+export type ItemDetailPageData = {
+  item: ItemDetail
+  price: ItemMarketPrice
+  listings: ItemListing[]
+  kronoLatest: KronoLatest
 }
 
 export type ItemTooltip = {
@@ -213,6 +306,18 @@ export async function fetchDashboardSummary(
   )
 }
 
+export async function fetchKronoLatest(
+  server: string,
+  fetcher: Fetcher = fetch
+): Promise<KronoLatest> {
+  return fetchJson<KronoLatest>(
+    buildApiPath("/api/krono/latest", {
+      server,
+    }),
+    fetcher
+  )
+}
+
 export async function fetchDealsPreview(
   server: string,
   fetcher: Fetcher = fetch
@@ -277,6 +382,55 @@ export async function fetchItemSearchPreview(
     }),
     fetcher
   )
+}
+
+export async function fetchItemDetail(
+  itemId: number,
+  fetcher: Fetcher = fetch
+): Promise<ItemDetail> {
+  return fetchJson<ItemDetail>(`/api/items/${itemId}`, fetcher)
+}
+
+export async function fetchItemPrices(
+  itemId: number,
+  server: string,
+  fetcher: Fetcher = fetch
+): Promise<ItemMarketPrice> {
+  return fetchJson<ItemMarketPrice>(
+    buildApiPath(`/api/items/${itemId}/prices`, {
+      server,
+    }),
+    fetcher
+  )
+}
+
+export async function fetchItemListings(
+  itemId: number,
+  server: string,
+  fetcher: Fetcher = fetch
+): Promise<ItemListing[]> {
+  return fetchJson<ItemListing[]>(
+    buildApiPath(`/api/items/${itemId}/listings`, {
+      server,
+      limit: 100,
+    }),
+    fetcher
+  )
+}
+
+export async function fetchItemDetailPageData(
+  itemId: number,
+  server: string,
+  fetcher: Fetcher = fetch
+): Promise<ItemDetailPageData> {
+  const [item, price, listings, kronoLatest] = await Promise.all([
+    fetchItemDetail(itemId, fetcher),
+    fetchItemPrices(itemId, server, fetcher),
+    fetchItemListings(itemId, server, fetcher),
+    fetchKronoLatest(server, fetcher),
+  ])
+
+  return { item, price, listings, kronoLatest }
 }
 
 export async function fetchItemTooltip(

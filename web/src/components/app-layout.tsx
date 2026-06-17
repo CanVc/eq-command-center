@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils"
 
 type AppLayoutProps = {
   activePage: AppPageId
+  pageTitle?: string
   server: string
   isRefreshing: boolean
   children: ReactNode
@@ -47,6 +48,7 @@ const NAV_ICONS: Record<AppPageId, ReactNode> = {
 
 export function AppLayout({
   activePage,
+  pageTitle,
   server,
   isRefreshing,
   children,
@@ -55,6 +57,7 @@ export function AppLayout({
   onRefresh,
 }: AppLayoutProps) {
   const activePageDefinition = APP_PAGES.find((page) => page.id === activePage) ?? APP_PAGES[0]
+  const title = pageTitle ?? activePageDefinition.title
 
   return (
     <div className="min-h-svh bg-background text-foreground">
@@ -88,7 +91,7 @@ export function AppLayout({
                 <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">
                   {server}
                 </p>
-                <h1 className="truncate text-xl font-semibold">{activePageDefinition.title}</h1>
+                <h1 className="truncate text-xl font-semibold">{title}</h1>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { pageIdFromPath, pathForPage } from "./navigation"
+import { activePageIdFromRoute, pageIdFromPath, pathForItemDetail, pathForPage, routeFromPath } from "./navigation"
 
 describe("navigation", () => {
   it("maps known paths to pages", () => {
@@ -21,5 +21,13 @@ describe("navigation", () => {
     expect(pathForPage("market")).toBe("/market")
     expect(pathForPage("items")).toBe("/items")
     expect(pathForPage("settings")).toBe("/settings")
+  })
+
+  it("parses item detail routes while keeping the Items nav active", () => {
+    const route = routeFromPath("/items/10895/")
+
+    expect(route).toEqual({ kind: "item-detail", itemId: 10895 })
+    expect(activePageIdFromRoute(route)).toBe("items")
+    expect(pathForItemDetail(10895)).toBe("/items/10895")
   })
 })
