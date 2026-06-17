@@ -6,14 +6,15 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from threading import Lock
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from eqmarket.api.app import create_app
 from eqmarket.db import init_db
-from eqmarket.price_importer import TlpPriceImportStats
-from eqmarket.sources.tlp_auctions import KronoPrice, TlpAuctionsClient
+from eqmarket.price_importer import TlpPriceImportStats, import_tlp_prices
+from eqmarket.sources.tlp_auctions import CatalogItem, KronoPrice, PricePoint, TlpAuctionsClient
 
 
 class TlpAuctionsClientTests(unittest.TestCase):
@@ -111,6 +112,8 @@ class ApiPriceRefreshTests(unittest.TestCase):
             importer.assert_called_once()
             self.assertEqual(importer.call_args.kwargs["item_ids"], payload["target_item_ids"])
             self.assertEqual(importer.call_args.kwargs["history_days"], 3)
+            self.assertEqual(importer.call_args.kwargs["concurrency"], 5)
+            self.assertEqual(payload["concurrency"], 5)
 
     def test_tlp_refresh_job_reports_progress_until_completion(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -150,6 +153,68 @@ class ApiPriceRefreshTests(unittest.TestCase):
             self.assertEqual(status_payload["total"], 2)
             self.assertEqual(set(status_payload["target_item_ids"]), {101, 103})
             self.assertEqual(status_payload["stats"]["history_prices_upserted"], 2)
+            self.assertEqual(status_payload["concurrency"], 5)
+            self.assertEqual(status_payload["stats"]["concurrency"], 5)
+
+
+class PriceImporterConcurrencyTests(unittest.TestCase):
+    def test_import_tlp_prices_fetches_item_histories_in_parallel(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            _seed_parallel_item_fixture(db_path)
+            fake_client = _ConcurrentFakeTlpClient()
+
+            with patch("eqmarket.price_importer.TlpAuctionsClient", return_value=fake_client):
+                stats = import_tlp_prices(
+                    db_path,
+                    "frostreaver",
+                    item_ids=[201, 202, 203, 204],
+                    history_days=None,
+                    concurrency=4,
+                )
+
+            self.assertEqual(stats.history_items_checked, 4)
+            self.assertEqual(stats.history_prices_upserted, 4)
+            self.assertGreater(fake_client.max_active, 1)
+
+
+class _ConcurrentFakeTlpClient:
+    def __init__(self) -> None:
+        self.active = 0
+        self.max_active = 0
+        self._lock = Lock()
+
+    def get_krono_price(self, server_name: str) -> KronoPrice:
+        return KronoPrice(
+            server_name="Frostreaver",
+            average_price=17463,
+            sample_size=50,
+            last_updated="2026-06-17T17:59:45Z",
+        )
+
+    def get_catalog(self, server_name: str) -> list[CatalogItem]:
+        return [CatalogItem(item_id=item_id, name=f"Parallel Item {item_id}", price=1000) for item_id in range(201, 205)]
+
+    def get_item_history(self, item_id: int, server_name: str) -> list[PricePoint]:
+        with self._lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+
+        time.sleep(0.05)
+
+        with self._lock:
+            self.active -= 1
+
+        return [
+            PricePoint(
+                datetime="2026-06-17T10:00:00Z",
+                plat_price=1000 + item_id,
+                krono_price=0,
+                is_buy=False,
+                auctioneer="Fixture",
+            )
+        ]
 
 
 def _poll_job_until_finished(client: TestClient, job_id: str) -> dict:
@@ -176,6 +241,16 @@ def _seed_krono_listing(db_path: Path) -> None:
             ) VALUES (1, 'frostreaver', CURRENT_TIMESTAMP, 'KronoSeller', 'Any Item', 'any item',
                       '2 krono', 2, 'krono', NULL, 'eq_log', 'parsed')
             """
+        )
+        connection.commit()
+
+
+def _seed_parallel_item_fixture(db_path: Path) -> None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.executemany(
+            "INSERT INTO items (item_id, name, normalized_name) VALUES (?, ?, ?)",
+            [(item_id, f"Parallel Item {item_id}", f"parallel item {item_id}") for item_id in range(201, 205)],
         )
         connection.commit()
 

@@ -23,6 +23,8 @@ from eqmarket.sources.tlp_auctions import TlpAuctionsError, db_server_name
 DEFAULT_STALE_PRICE_HOURS = 6.0
 DEFAULT_REFRESH_LIMIT = 500
 DEFAULT_HISTORY_DAYS = 3
+DEFAULT_REFRESH_CONCURRENCY = 5
+MAX_REFRESH_CONCURRENCY = 10
 
 
 router = APIRouter()
@@ -40,6 +42,7 @@ class PriceRefreshJob:
     limit: int
     max_age_hours: float
     history_days: int
+    concurrency: int
     status: str = "queued"
     phase: str = "queued"
     completed: int = 0
@@ -81,6 +84,7 @@ def refresh_tlp_prices(
     limit: int = Query(DEFAULT_REFRESH_LIMIT, gt=0, le=2000),
     max_age_hours: float = Query(DEFAULT_STALE_PRICE_HOURS, ge=0, le=24 * 30),
     history_days: int = Query(DEFAULT_HISTORY_DAYS, ge=0, le=365),
+    concurrency: int = Query(DEFAULT_REFRESH_CONCURRENCY, ge=1, le=MAX_REFRESH_CONCURRENCY),
 ) -> dict[str, Any]:
     db_server = _normalize_server(server)
     db_path = Path(request.app.state.db_path)
@@ -93,6 +97,7 @@ def refresh_tlp_prices(
             item_ids=item_ids,
             fetch_history=True,
             history_days=history_days,
+            concurrency=concurrency,
         )
     else:
         stats = _refresh_krono_or_502(db_path, db_server)
@@ -104,6 +109,7 @@ def refresh_tlp_prices(
         limit=limit,
         max_age_hours=max_age_hours,
         history_days=history_days,
+        concurrency=concurrency,
     )
 
 
@@ -114,6 +120,7 @@ def start_tlp_price_refresh_job(
     limit: int = Query(DEFAULT_REFRESH_LIMIT, gt=0, le=2000),
     max_age_hours: float = Query(DEFAULT_STALE_PRICE_HOURS, ge=0, le=24 * 30),
     history_days: int = Query(DEFAULT_HISTORY_DAYS, ge=0, le=365),
+    concurrency: int = Query(DEFAULT_REFRESH_CONCURRENCY, ge=1, le=MAX_REFRESH_CONCURRENCY),
 ) -> dict[str, Any]:
     db_server = _normalize_server(server)
     job = PriceRefreshJob(
@@ -123,6 +130,7 @@ def start_tlp_price_refresh_job(
         limit=limit,
         max_age_hours=max_age_hours,
         history_days=history_days,
+        concurrency=concurrency,
     )
 
     with _PRICE_REFRESH_JOBS_LOCK:
@@ -152,6 +160,7 @@ def refresh_tlp_item_price(
         item_ids=[item_id],
         fetch_history=True,
         history_days=history_days,
+        concurrency=1,
     )
 
     return _refresh_payload(
@@ -161,6 +170,7 @@ def refresh_tlp_item_price(
         limit=1,
         max_age_hours=None,
         history_days=history_days,
+        concurrency=1,
     )
 
 
@@ -207,6 +217,7 @@ def _run_tlp_price_refresh_job(job_id: str) -> None:
                 fetch_history=True,
                 history_days=job.history_days,
                 progress_callback=update_progress,
+                concurrency=job.concurrency,
             )
         else:
             _update_job(job_id, phase="krono", completed=0, total=0)
@@ -219,6 +230,7 @@ def _run_tlp_price_refresh_job(job_id: str) -> None:
             limit=job.limit,
             max_age_hours=job.max_age_hours,
             history_days=job.history_days,
+            concurrency=job.concurrency,
         )
         _update_job(
             job_id,
@@ -281,6 +293,7 @@ def _import_prices_or_502(
     item_ids: list[int],
     fetch_history: bool,
     history_days: int,
+    concurrency: int = 1,
 ) -> TlpPriceImportStats:
     try:
         return import_tlp_prices(
@@ -289,6 +302,7 @@ def _import_prices_or_502(
             item_ids=item_ids,
             fetch_history=fetch_history,
             history_days=history_days,
+            concurrency=concurrency,
         )
     except TlpAuctionsError as exc:
         raise HTTPException(status_code=502, detail=f"TLP Auctions price refresh failed: {exc}") from exc
@@ -335,6 +349,7 @@ def _job_payload(job: PriceRefreshJob) -> dict[str, Any]:
             "limit": job.limit,
             "max_age_hours": job.max_age_hours,
             "history_days": job.history_days,
+            "concurrency": job.concurrency,
             "stats": job.stats,
             "error": job.error,
             "created_at": job.created_at,
@@ -351,6 +366,7 @@ def _refresh_payload(
     limit: int,
     max_age_hours: float | None,
     history_days: int,
+    concurrency: int,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = asdict(stats)
     payload.update(
@@ -361,6 +377,7 @@ def _refresh_payload(
             "limit": limit,
             "max_age_hours": max_age_hours,
             "history_days": history_days,
+            "concurrency": concurrency,
         }
     )
     return payload

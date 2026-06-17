@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +12,7 @@ from eqmarket.db import init_db
 from eqmarket.log_parser import normalize_item_name
 from eqmarket.sources.tlp_auctions import (
     CatalogItem,
+    PriceStats,
     TlpAuctionsClient,
     TlpAuctionsError,
     compute_price_stats,
@@ -31,6 +33,13 @@ class TlpPriceImportStats:
     krono_updated: bool = False
     krono_price_pp: int | None = None
     krono_listings_converted: int = 0
+
+
+@dataclass(frozen=True)
+class _HistoryPriceRefreshResult:
+    item_id: int
+    price_stats: PriceStats | None = None
+    error: Exception | None = None
 
 
 PriceImportProgressCallback = Callable[[dict[str, object]], None]
@@ -109,6 +118,7 @@ def import_tlp_prices(
     fetch_history: bool = True,
     history_days: int | None = 3,
     progress_callback: PriceImportProgressCallback | None = None,
+    concurrency: int = 1,
 ) -> TlpPriceImportStats:
     """Import TLP Auctions reference prices into market_prices.
 
@@ -170,9 +180,23 @@ def import_tlp_prices(
             total=len(sorted_target_item_ids),
         )
 
-        for completed, item_id in enumerate(sorted_target_item_ids, start=1):
-            item = catalog_by_id.get(item_id)
-            if not fetch_history:
+        if fetch_history:
+            _refresh_history_prices(
+                connection,
+                client,
+                db_server,
+                api_server,
+                sorted_target_item_ids,
+                stats.krono_price_pp,
+                history_days,
+                max(1, concurrency),
+                stats,
+                progress_callback,
+                progress_phase,
+            )
+        else:
+            for completed, item_id in enumerate(sorted_target_item_ids, start=1):
+                item = catalog_by_id.get(item_id)
                 if item is not None and item.price is not None and item.price > 0:
                     _upsert_catalog_price(connection, db_server, item)
                     stats.catalog_prices_upserted += 1
@@ -185,50 +209,118 @@ def import_tlp_prices(
                     total=len(sorted_target_item_ids),
                     item_id=item_id,
                 )
-                continue
-
-            stats.history_items_checked += 1
-            try:
-                points = client.get_item_history(item_id, api_server)
-            except (OSError, TlpAuctionsError) as exc:
-                stats.price_refresh_failed += 1
-                _record_price_refresh_failure(connection, db_server, item_id, exc)
-                _upsert_price_refresh_marker(connection, db_server, item_id, "failed", str(exc)[:1000])
-                _notify_price_import_progress(
-                    progress_callback,
-                    phase=progress_phase,
-                    completed=completed,
-                    total=len(sorted_target_item_ids),
-                    item_id=item_id,
-                )
-                continue
-
-            price_stats = compute_price_stats(points, stats.krono_price_pp, max_age_days=history_days)
-            if price_stats is None:
-                _upsert_price_refresh_marker(connection, db_server, item_id, "no_data", None)
-                stats.no_price_data += 1
-                _notify_price_import_progress(
-                    progress_callback,
-                    phase=progress_phase,
-                    completed=completed,
-                    total=len(sorted_target_item_ids),
-                    item_id=item_id,
-                )
-                continue
-            _upsert_history_price(connection, db_server, item_id, price_stats)
-            stats.history_prices_upserted += 1
-            _notify_price_import_progress(
-                progress_callback,
-                phase=progress_phase,
-                completed=completed,
-                total=len(sorted_target_item_ids),
-                item_id=item_id,
-            )
 
         _record_tlp_price_import_run(connection, db_server, stats, fetch_history, history_days)
         connection.commit()
 
     return stats
+
+
+def _refresh_history_prices(
+    connection: sqlite3.Connection,
+    client: TlpAuctionsClient,
+    db_server: str,
+    api_server: str,
+    item_ids: list[int],
+    krono_price_pp: int | None,
+    history_days: int | None,
+    concurrency: int,
+    stats: TlpPriceImportStats,
+    progress_callback: PriceImportProgressCallback | None,
+    progress_phase: str,
+) -> None:
+    total = len(item_ids)
+    if total == 0:
+        return
+
+    if concurrency <= 1 or total == 1:
+        results = (
+            _fetch_history_price_stats(client, item_id, api_server, krono_price_pp, history_days)
+            for item_id in item_ids
+        )
+        for completed, result in enumerate(results, start=1):
+            _record_history_refresh_result(
+                connection,
+                db_server,
+                result,
+                stats,
+                progress_callback,
+                progress_phase,
+                completed,
+                total,
+            )
+        return
+
+    max_workers = min(concurrency, total)
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="tlp-item-history") as executor:
+        futures = {
+            executor.submit(_fetch_history_price_stats, client, item_id, api_server, krono_price_pp, history_days): item_id
+            for item_id in item_ids
+        }
+        for completed, future in enumerate(as_completed(futures), start=1):
+            item_id = futures[future]
+            try:
+                result = future.result()
+            except Exception as exc:
+                result = _HistoryPriceRefreshResult(item_id=item_id, error=exc)
+            _record_history_refresh_result(
+                connection,
+                db_server,
+                result,
+                stats,
+                progress_callback,
+                progress_phase,
+                completed,
+                total,
+            )
+
+
+def _fetch_history_price_stats(
+    client: TlpAuctionsClient,
+    item_id: int,
+    api_server: str,
+    krono_price_pp: int | None,
+    history_days: int | None,
+) -> _HistoryPriceRefreshResult:
+    try:
+        points = client.get_item_history(item_id, api_server)
+    except (OSError, TlpAuctionsError) as exc:
+        return _HistoryPriceRefreshResult(item_id=item_id, error=exc)
+
+    price_stats = compute_price_stats(points, krono_price_pp, max_age_days=history_days)
+    return _HistoryPriceRefreshResult(item_id=item_id, price_stats=price_stats)
+
+
+def _record_history_refresh_result(
+    connection: sqlite3.Connection,
+    db_server: str,
+    result: _HistoryPriceRefreshResult,
+    stats: TlpPriceImportStats,
+    progress_callback: PriceImportProgressCallback | None,
+    progress_phase: str,
+    completed: int,
+    total: int,
+) -> None:
+    stats.history_items_checked += 1
+
+    if result.error is not None:
+        stats.price_refresh_failed += 1
+        _record_price_refresh_failure(connection, db_server, result.item_id, result.error)
+        _upsert_price_refresh_marker(connection, db_server, result.item_id, "failed", str(result.error)[:1000])
+    elif result.price_stats is None:
+        _upsert_price_refresh_marker(connection, db_server, result.item_id, "no_data", None)
+        stats.no_price_data += 1
+    else:
+        _upsert_history_price(connection, db_server, result.item_id, result.price_stats)
+        stats.history_prices_upserted += 1
+
+    _notify_price_import_progress(
+        progress_callback,
+        phase=progress_phase,
+        completed=completed,
+        total=total,
+        item_id=result.item_id,
+    )
 
 
 def _notify_price_import_progress(

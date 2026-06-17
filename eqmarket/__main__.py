@@ -11,6 +11,10 @@ from eqmarket.price_importer import import_tlp_prices, load_recent_listing_item_
 from eqmarket.scoring.deals import format_deal_score, score_market_listings
 
 
+DEFAULT_PRICE_REFRESH_CONCURRENCY = 5
+MAX_PRICE_REFRESH_CONCURRENCY = 10
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="eqmarket")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -44,6 +48,12 @@ def build_parser() -> argparse.ArgumentParser:
     tlp_parser.add_argument("--all-catalog", action="store_true", help="Seed all TLP catalog items/prices instead of only local targets")
     tlp_parser.add_argument("--no-history", action="store_true", help="Only import cached catalog medians; skip per-item history stats")
     tlp_parser.add_argument("--history-days", type=int, default=3, help="Only use TLP sales from the last N days for history stats")
+    tlp_parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=DEFAULT_PRICE_REFRESH_CONCURRENCY,
+        help=f"Parallel TLP item history requests (1-{MAX_PRICE_REFRESH_CONCURRENCY})",
+    )
 
     score_parser = subparsers.add_parser("score-listings", help="Score resolved listings against market_prices")
     score_parser.add_argument("--db", default="data/eqmarket.sqlite", help="SQLite database path")
@@ -62,6 +72,12 @@ def build_parser() -> argparse.ArgumentParser:
     alerts_parser.add_argument("--skip-enrich", action="store_true", help="Skip Lucy pending item enrichment")
     alerts_parser.add_argument("--price-limit", type=int, default=500, help="Maximum recent item ids to refresh from TLP history")
     alerts_parser.add_argument("--price-max-age-hours", type=float, help="Only refresh recent item prices that are missing or older than N hours")
+    alerts_parser.add_argument(
+        "--price-concurrency",
+        type=int,
+        default=DEFAULT_PRICE_REFRESH_CONCURRENCY,
+        help=f"Parallel TLP item history requests (1-{MAX_PRICE_REFRESH_CONCURRENCY})",
+    )
     alerts_parser.add_argument("--skip-price-refresh", action="store_true", help="Do not call TLP Auctions; score with cached prices/manual overrides only")
     alerts_parser.add_argument("--history-days", type=int, default=3, help="Only use TLP sales from the last N days")
     alerts_parser.add_argument("--no-history", action="store_true", help="Use cached TLP catalog medians instead of recent history")
@@ -129,6 +145,7 @@ def main() -> None:
             f"listings_linked={stats.listings_linked}, not_found={stats.not_found}, failed={stats.failed}"
         )
     elif args.command == "import-tlp-prices":
+        _validate_price_refresh_concurrency(args.concurrency, parser)
         stats = import_tlp_prices(
             Path(args.db),
             args.server,
@@ -137,6 +154,7 @@ def main() -> None:
             all_catalog=args.all_catalog,
             fetch_history=not args.no_history,
             history_days=args.history_days,
+            concurrency=args.concurrency,
         )
         print(
             "Imported TLP Auctions prices: "
@@ -194,6 +212,7 @@ def main() -> None:
         else:
             if args.price_max_age_hours is not None and args.price_max_age_hours < 0:
                 parser.error("--price-max-age-hours must be >= 0")
+            _validate_price_refresh_concurrency(args.price_concurrency, parser)
             recent_item_ids = _recent_listing_item_ids(
                 db_path,
                 args.server,
@@ -207,6 +226,7 @@ def main() -> None:
                     item_ids=recent_item_ids,
                     fetch_history=not args.no_history,
                     history_days=args.history_days,
+                    concurrency=args.price_concurrency,
                 )
                 price_window = "catalog" if args.no_history else f"last_{args.history_days}_days"
                 print(
@@ -272,6 +292,11 @@ def _recent_listing_item_ids(
 def _validate_loopback_host(host: str, parser: argparse.ArgumentParser) -> None:
     if host not in {"127.0.0.1", "localhost", "::1"}:
         parser.error("serve-api only supports loopback hosts: 127.0.0.1, localhost, or ::1")
+
+
+def _validate_price_refresh_concurrency(concurrency: int, parser: argparse.ArgumentParser) -> None:
+    if concurrency < 1 or concurrency > MAX_PRICE_REFRESH_CONCURRENCY:
+        parser.error(f"price refresh concurrency must be between 1 and {MAX_PRICE_REFRESH_CONCURRENCY}")
 
 
 if __name__ == "__main__":

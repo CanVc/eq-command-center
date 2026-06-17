@@ -254,6 +254,7 @@ function App() {
           limit: 0,
           max_age_hours: 6,
           history_days: 3,
+          concurrency: 5,
           stats: null,
           error: error instanceof Error ? error.message : "Unknown TLP Auctions error",
           created_at: new Date().toISOString(),
@@ -409,7 +410,7 @@ function TlpRefreshProgress({
         <div className="min-w-0">
           <p className="font-medium">TLP Auctions price refresh</p>
           <p className="text-muted-foreground">
-            {label} · {hasTotal ? `${job.completed}/${total} items` : `${job.completed} items`} · {elapsed}
+            {label} · {hasTotal ? `${job.completed}/${total} items` : `${job.completed} items`} · {job.concurrency} parallel · {elapsed}
           </p>
         </div>
         <Badge variant={job.status === "failed" ? "destructive" : running ? "secondary" : "outline"}>

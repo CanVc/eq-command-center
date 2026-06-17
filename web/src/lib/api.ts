@@ -132,6 +132,7 @@ export type TlpPriceRefreshResult = {
   limit: number
   max_age_hours: number | null
   history_days: number
+  concurrency: number
   catalog_items_seen: number
   items_upserted: number
   listings_linked: number
@@ -149,6 +150,7 @@ export type TlpPriceRefreshOptions = {
   limit?: number
   maxAgeHours?: number
   historyDays?: number
+  concurrency?: number
 }
 
 export type TlpPriceRefreshJobStatus = {
@@ -164,6 +166,7 @@ export type TlpPriceRefreshJobStatus = {
   limit: number
   max_age_hours: number
   history_days: number
+  concurrency: number
   stats: TlpPriceRefreshResult | null
   error: string | null
   created_at: string
@@ -433,6 +436,7 @@ export async function refreshTlpPrices(
       limit: options.limit,
       max_age_hours: options.maxAgeHours,
       history_days: options.historyDays,
+      concurrency: options.concurrency,
     }),
     fetcher,
     { method: "POST" }
@@ -450,6 +454,7 @@ export async function startTlpPriceRefreshJob(
       limit: options.limit,
       max_age_hours: options.maxAgeHours,
       history_days: options.historyDays,
+      concurrency: options.concurrency,
     }),
     fetcher,
     { method: "POST" }
