@@ -21,15 +21,15 @@ import {
   fetchItemDetailPageData,
   fetchItemSearchPreview,
   fetchMarketListings,
-  fetchSettingsHealth,
+  fetchSettingsStatus,
   type DashboardSummary,
   type DealFilters,
   type DealPreview,
-  type HealthResponse,
   type ItemDetailPageData,
   type ItemSearchResult,
   type ListingPreview,
   type MarketListingFilters,
+  type SettingsStatusResponse,
 } from "@/lib/api"
 import {
   ensureMageloScript,
@@ -52,6 +52,7 @@ import { DashboardPage } from "@/pages/dashboard-page"
 import { DealsPage } from "@/pages/deals-page"
 import { ItemDetailPage } from "@/pages/item-detail-page"
 import { MarketListingsPage } from "@/pages/market-listings-page"
+import { SettingsPage } from "@/pages/settings-page"
 
 type PageData =
   | { page: "dashboard"; payload: DashboardSummary }
@@ -59,7 +60,7 @@ type PageData =
   | { page: "market"; payload: ListingPreview[] }
   | { page: "items"; payload: ItemSearchResult[] }
   | { page: "item-detail"; payload: ItemDetailPageData }
-  | { page: "settings"; payload: HealthResponse }
+  | { page: "settings"; payload: SettingsStatusResponse }
 
 type PageState =
   | { status: "loading" }
@@ -244,7 +245,7 @@ async function fetchPageData(
     case "items":
       return { page, payload: await fetchItemSearchPreview(server) }
     case "settings":
-      return { page, payload: await fetchSettingsHealth(server) }
+      return { page, payload: await fetchSettingsStatus(server) }
   }
 }
 
@@ -329,7 +330,7 @@ function PageContent({
     case "item-detail":
       return <ItemDetailPage data={data.payload} server={server} />
     case "settings":
-      return <SettingsPage health={data.payload} server={server} mageloStatus={mageloStatus} />
+      return <SettingsPage settings={data.payload} mageloStatus={mageloStatus} />
   }
 }
 
@@ -375,29 +376,6 @@ function ItemsPage({ items, server }: { items: ItemSearchResult[]; server: strin
   )
 }
 
-function SettingsPage({
-  health,
-  server,
-  mageloStatus,
-}: {
-  health: HealthResponse
-  server: string
-  mageloStatus: MageloStatus
-}) {
-  return (
-    <PagePanel title="Local Settings" eyebrow={health.status}>
-      <SimpleList
-        rows={[
-          { label: "Active server", value: server },
-          { label: "API health", value: health.status },
-          { label: "SQLite", value: health.db_path },
-          { label: "Magelo", value: formatMageloStatus(mageloStatus) },
-        ]}
-      />
-    </PagePanel>
-  )
-}
-
 function PagePanel({
   title,
   eyebrow,
@@ -420,36 +398,8 @@ function PagePanel({
   )
 }
 
-function SimpleList({ rows }: { rows: Array<{ label: string; value: string }> }) {
-  return (
-    <dl className="grid gap-2">
-      {rows.map((row) => (
-        <div
-          key={row.label}
-          className="grid gap-1 rounded-md border bg-background px-3 py-2 sm:grid-cols-[10rem_1fr]"
-        >
-          <dt className="text-sm text-muted-foreground">{row.label}</dt>
-          <dd className="min-w-0 break-words text-sm font-medium">{row.value}</dd>
-        </div>
-      ))}
-    </dl>
-  )
-}
-
 function EmptyState({ label }: { label: string }) {
   return <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">{label}</p>
-}
-
-function formatMageloStatus(status: MageloStatus): string {
-  if (status === "loaded") {
-    return "loaded"
-  }
-
-  if (status === "loading") {
-    return "loading"
-  }
-
-  return "not loaded"
 }
 
 export default App

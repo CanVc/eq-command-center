@@ -36,6 +36,41 @@ test("navigates main pages and stores the active server", async ({ page }) => {
   expect(storedServer).toBe("mischief")
 })
 
+test("renders local settings diagnostics as read-only status", async ({ page }) => {
+  const settingsRequests: URL[] = []
+
+  await page.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url())
+
+    if (url.pathname === "/api/settings/status") {
+      settingsRequests.push(url)
+    }
+
+    await fulfillApi(route)
+  })
+
+  await page.goto("/settings")
+
+  await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Local Status" })).toBeVisible()
+  await expect(page.getByText("API health", { exact: true })).toBeVisible()
+  await expect(page.getByText("ok", { exact: true }).first()).toBeVisible()
+  await expect(page.getByText("Database", { exact: true })).toBeVisible()
+  await expect(page.getByText("C:/Dev/Projects/eq-command-center/data/eqmarket.sqlite")).toBeVisible()
+  await expect(page.getByText("Server", { exact: true })).toBeVisible()
+  await expect(page.getByText("frostreaver", { exact: true }).first()).toBeVisible()
+  await expect(page.getByText("Default server: frostreaver")).toBeVisible()
+  await expect(page.getByText("Magelo", { exact: true })).toBeVisible()
+  await expect(page.getByText("not loaded", { exact: true })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Last TLP Auctions Import" })).toBeVisible()
+  await expect(page.getByText("tlp_auctions_prices").first()).toBeVisible()
+  await expect(page.getByText("completed", { exact: true }).first()).toBeVisible()
+  await expect(page.getByText("Items seen", { exact: true })).toBeVisible()
+  await expect(page.getByText("50", { exact: true })).toBeVisible()
+  await expect(page.locator("main").getByRole("button")).toHaveCount(0)
+  await expect.poll(() => settingsRequests.at(-1)?.searchParams.get("server")).toBe("frostreaver")
+})
+
 test("renders dashboard summary cards, trends, and item popovers", async ({ page }) => {
   await page.route("**/api/**", async (route) => {
     await fulfillApi(route)
@@ -439,6 +474,14 @@ async function fulfillApi(route: Route) {
         status: "ok",
         db_path: "C:/Dev/Projects/eq-command-center/data/eqmarket.sqlite",
       }),
+    })
+    return
+  }
+
+  if (url.pathname === "/api/settings/status") {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(buildSettingsStatus(server)),
     })
     return
   }
@@ -947,6 +990,28 @@ function buildEmptyDashboardSummary(server: string) {
     },
     top_seen_items: [],
     top_discounts: [],
+  }
+}
+
+function buildSettingsStatus(server: string) {
+  return {
+    status: "ok",
+    db_path: "C:/Dev/Projects/eq-command-center/data/eqmarket.sqlite",
+    default_server: "frostreaver",
+    active_server: server,
+    latest_tlp_import: {
+      import_run_id: 10,
+      source_name: "tlp_auctions_prices",
+      source_url: `server=${server};mode=history;history_days=3`,
+      status: "completed",
+      items_seen: 50,
+      items_inserted: 2,
+      items_updated: 12,
+      error: null,
+      started_at: "2026-06-16T09:59:00",
+      finished_at: "2026-06-16T10:00:00",
+    },
+    import_runs_error: null,
   }
 }
 

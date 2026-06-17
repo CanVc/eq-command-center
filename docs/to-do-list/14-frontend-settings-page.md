@@ -1,6 +1,6 @@
 # Story — Page Settings locale
 
-- **Statut** : À faire
+- **Statut** : Terminé
 - **Date de création** : 2026-06-16
 - **Spec liée** : [docs/UI-spec/UI-spec.md](../UI-spec/UI-spec.md)
 
@@ -18,16 +18,16 @@ Afficher des infos simples retournées par l'API ou calculées côté frontend.
 
 ## Tâches
 
-- [ ] Créer `SettingsPage`.
-- [ ] Afficher chemin DB utilisé par l'API.
-- [ ] Afficher serveur par défaut / serveur actif.
-- [ ] Afficher statut Magelo loaded / not loaded.
-- [ ] Afficher dernier import TLP Auctions depuis `import_runs`.
-- [ ] Afficher statut API health.
-- [ ] Garder la page read-only en v1.
+- [x] Créer `SettingsPage`.
+- [x] Afficher chemin DB utilisé par l'API.
+- [x] Afficher serveur par défaut / serveur actif.
+- [x] Afficher statut Magelo loaded / not loaded.
+- [x] Afficher dernier import TLP Auctions depuis `import_runs`.
+- [x] Afficher statut API health.
+- [x] Garder la page read-only en v1.
 
 ## Critères d'acceptation
 
-- [ ] L'utilisateur peut confirmer quelle DB est utilisée.
-- [ ] Le statut Magelo est visible.
-- [ ] Le dernier import TLP Auctions est visible si présent.
+- [x] L'utilisateur peut confirmer quelle DB est utilisée.
+- [x] Le statut Magelo est visible.
+- [x] Le dernier import TLP Auctions est visible si présent.

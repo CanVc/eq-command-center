@@ -22,6 +22,7 @@ class ApiContractTests(unittest.TestCase):
 
             with TestClient(app) as client:
                 health = client.get("/api/health")
+                settings = client.get("/api/settings/status", params={"server": "frostreaver"})
                 dashboard = client.get("/api/dashboard/summary", params={"server": "frostreaver"})
                 krono = client.get("/api/krono/latest", params={"server": "frostreaver"})
                 deals = client.get("/api/deals", params={"server": "frostreaver"})
@@ -32,10 +33,33 @@ class ApiContractTests(unittest.TestCase):
                 item_listings = client.get("/api/items/101/listings", params={"server": "frostreaver"})
                 tooltip = client.get("/api/items/101/tooltip", params={"server": "frostreaver"})
 
-            for response in [health, dashboard, krono, deals, listings, search, item, prices, item_listings, tooltip]:
+            for response in [
+                health,
+                settings,
+                dashboard,
+                krono,
+                deals,
+                listings,
+                search,
+                item,
+                prices,
+                item_listings,
+                tooltip,
+            ]:
                 self.assertEqual(response.status_code, 200, response.text)
 
             self.assertEqual(set(health.json()), {"status", "db_path"})
+            self.assertEqual(
+                set(settings.json()),
+                {
+                    "status",
+                    "db_path",
+                    "default_server",
+                    "active_server",
+                    "latest_tlp_import",
+                    "import_runs_error",
+                },
+            )
             self.assertTrue(
                 {
                     "server",

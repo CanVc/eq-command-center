@@ -10,7 +10,7 @@ import {
   fetchItemSearchPreview,
   fetchListingsPreview,
   fetchMarketListings,
-  fetchSettingsHealth,
+  fetchSettingsStatus,
 } from "./api"
 
 describe("fetchHealth", () => {
@@ -108,7 +108,7 @@ describe("page API helpers", () => {
     })
   })
 
-  it("fetches dashboard and settings with the active server", async () => {
+  it("fetches dashboard and settings status with the active server", async () => {
     const dashboardPayload = {
       server: "frostreaver",
       recent_window_hours: 24,
@@ -125,7 +125,25 @@ describe("page API helpers", () => {
       top_seen_items: [],
       top_discounts: [],
     }
-    const healthPayload = { status: "ok", db_path: "C:/tmp/eqmarket.sqlite" }
+    const settingsPayload = {
+      status: "ok",
+      db_path: "C:/tmp/eqmarket.sqlite",
+      default_server: "frostreaver",
+      active_server: "frostreaver",
+      latest_tlp_import: {
+        import_run_id: 10,
+        source_name: "tlp_auctions_prices",
+        source_url: "server=frostreaver;mode=history;history_days=3",
+        status: "completed",
+        items_seen: 50,
+        items_inserted: 2,
+        items_updated: 12,
+        error: null,
+        started_at: "2026-06-16T09:59:00",
+        finished_at: "2026-06-16T10:00:00",
+      },
+      import_runs_error: null,
+    }
     const fetcher = vi
       .fn()
       .mockResolvedValueOnce(
@@ -135,21 +153,21 @@ describe("page API helpers", () => {
         })
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify(healthPayload), {
+        new Response(JSON.stringify(settingsPayload), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         })
       )
 
     await expect(fetchDashboardSummary("frostreaver", fetcher)).resolves.toEqual(dashboardPayload)
-    await expect(fetchSettingsHealth("frostreaver", fetcher)).resolves.toEqual(healthPayload)
+    await expect(fetchSettingsStatus("frostreaver", fetcher)).resolves.toEqual(settingsPayload)
 
     expect(fetcher).toHaveBeenNthCalledWith(1, "/api/dashboard/summary?server=frostreaver&top_limit=5", {
       headers: {
         Accept: "application/json",
       },
     })
-    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/health?server=frostreaver", {
+    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/settings/status?server=frostreaver", {
       headers: {
         Accept: "application/json",
       },

@@ -3,6 +3,28 @@ export type HealthResponse = {
   db_path: string
 }
 
+export type LatestTlpImport = {
+  import_run_id: number
+  source_name: string
+  source_url: string | null
+  status: string
+  items_seen: number
+  items_inserted: number
+  items_updated: number
+  error: string | null
+  started_at: string
+  finished_at: string | null
+}
+
+export type SettingsStatusResponse = {
+  status: string
+  db_path: string
+  default_server: string
+  active_server: string
+  latest_tlp_import: LatestTlpImport | null
+  import_runs_error: string | null
+}
+
 export type DashboardSummary = {
   server: string
   recent_window_hours: number
@@ -463,12 +485,12 @@ export async function fetchItemTooltip(
   )
 }
 
-export async function fetchSettingsHealth(
+export async function fetchSettingsStatus(
   server: string,
   fetcher: Fetcher = fetch
-): Promise<HealthResponse> {
-  return fetchJson<HealthResponse>(
-    buildApiPath(HEALTH_PATH, {
+): Promise<SettingsStatusResponse> {
+  return fetchJson<SettingsStatusResponse>(
+    buildApiPath("/api/settings/status", {
       server,
     }),
     fetcher
