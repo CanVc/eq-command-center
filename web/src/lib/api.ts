@@ -118,6 +118,59 @@ export type KronoLatest = {
   last_refresh_at: string | null
 }
 
+export type KronoRefreshResult = {
+  server: string
+  krono_updated: boolean
+  krono_price_pp: number | null
+  krono_listings_converted: number
+}
+
+export type TlpPriceRefreshResult = {
+  server: string
+  target_item_ids: number[]
+  target_count: number
+  limit: number
+  max_age_hours: number | null
+  history_days: number
+  catalog_items_seen: number
+  items_upserted: number
+  listings_linked: number
+  catalog_prices_upserted: number
+  history_items_checked: number
+  history_prices_upserted: number
+  no_price_data: number
+  price_refresh_failed: number
+  krono_updated: boolean
+  krono_price_pp: number | null
+  krono_listings_converted: number
+}
+
+export type TlpPriceRefreshOptions = {
+  limit?: number
+  maxAgeHours?: number
+  historyDays?: number
+}
+
+export type TlpPriceRefreshJobStatus = {
+  job_id: string
+  server: string
+  status: "queued" | "running" | "completed" | "failed"
+  phase: string
+  completed: number
+  total: number | null
+  current_item_id: number | null
+  target_item_ids: number[]
+  target_count: number
+  limit: number
+  max_age_hours: number
+  history_days: number
+  stats: TlpPriceRefreshResult | null
+  error: string | null
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+}
+
 export type MarketListingFilters = {
   query: string
   limit: number
@@ -356,6 +409,76 @@ export async function fetchKronoLatest(
   )
 }
 
+export async function refreshKronoPrice(
+  server: string,
+  fetcher: Fetcher = fetch
+): Promise<KronoRefreshResult> {
+  return fetchJson<KronoRefreshResult>(
+    buildApiPath("/api/krono/refresh", {
+      server,
+    }),
+    fetcher,
+    { method: "POST" }
+  )
+}
+
+export async function refreshTlpPrices(
+  server: string,
+  options: TlpPriceRefreshOptions = {},
+  fetcher: Fetcher = fetch
+): Promise<TlpPriceRefreshResult> {
+  return fetchJson<TlpPriceRefreshResult>(
+    buildApiPath("/api/tlp-prices/refresh", {
+      server,
+      limit: options.limit,
+      max_age_hours: options.maxAgeHours,
+      history_days: options.historyDays,
+    }),
+    fetcher,
+    { method: "POST" }
+  )
+}
+
+export async function startTlpPriceRefreshJob(
+  server: string,
+  options: TlpPriceRefreshOptions = {},
+  fetcher: Fetcher = fetch
+): Promise<TlpPriceRefreshJobStatus> {
+  return fetchJson<TlpPriceRefreshJobStatus>(
+    buildApiPath("/api/tlp-prices/refresh-jobs", {
+      server,
+      limit: options.limit,
+      max_age_hours: options.maxAgeHours,
+      history_days: options.historyDays,
+    }),
+    fetcher,
+    { method: "POST" }
+  )
+}
+
+export async function fetchTlpPriceRefreshJob(
+  jobId: string,
+  fetcher: Fetcher = fetch
+): Promise<TlpPriceRefreshJobStatus> {
+  return fetchJson<TlpPriceRefreshJobStatus>(`/api/tlp-prices/refresh-jobs/${jobId}`, fetcher)
+}
+
+export async function refreshTlpItemPrice(
+  itemId: number,
+  server: string,
+  options: Pick<TlpPriceRefreshOptions, "historyDays"> = {},
+  fetcher: Fetcher = fetch
+): Promise<TlpPriceRefreshResult> {
+  return fetchJson<TlpPriceRefreshResult>(
+    buildApiPath(`/api/tlp-prices/items/${itemId}/refresh`, {
+      server,
+      history_days: options.historyDays,
+    }),
+    fetcher,
+    { method: "POST" }
+  )
+}
+
 export async function fetchDealsPreview(
   server: string,
   fetcher: Fetcher = fetch
@@ -461,6 +584,12 @@ export async function fetchItemDetailPageData(
   server: string,
   fetcher: Fetcher = fetch
 ): Promise<ItemDetailPageData> {
+  try {
+    await refreshTlpItemPrice(itemId, server, {}, fetcher)
+  } catch (error) {
+    console.warn("Unable to refresh TLP item price before loading item detail", error)
+  }
+
   const [item, price, listings, kronoLatest] = await Promise.all([
     fetchItemDetail(itemId, fetcher),
     fetchItemPrices(itemId, server, fetcher),

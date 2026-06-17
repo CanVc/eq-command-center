@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import argparse
-import sqlite3
 from pathlib import Path
 
 from eqmarket.db import init_db
 from eqmarket.enrichment import enrich_pending_items
 from eqmarket.local_settings import get_configured_log_path
 from eqmarket.log_importer import import_log_file, parse_log_file
-from eqmarket.price_importer import import_tlp_prices
+from eqmarket.price_importer import import_tlp_prices, load_recent_listing_item_ids
 from eqmarket.scoring.deals import format_deal_score, score_market_listings
 
 
@@ -267,38 +266,7 @@ def _recent_listing_item_ids(
     *,
     max_age_hours: float | None = None,
 ) -> list[int]:
-    db_server = server.strip().lower()
-    params: list[object] = [db_server]
-    freshness_filter = ""
-    if max_age_hours is not None:
-        freshness_filter = """
-              AND (
-                    mp.item_id IS NULL
-                    OR mp.last_refresh_at IS NULL
-                    OR datetime(mp.last_refresh_at) <= datetime('now', ?)
-                  )
-        """
-        params.append(f"-{max_age_hours:g} hours")
-    params.append(limit)
-
-    with sqlite3.connect(db_path) as connection:
-        rows = connection.execute(
-            f"""
-            SELECT ml.item_id
-            FROM market_listings ml
-            LEFT JOIN market_prices mp
-                ON mp.item_id = ml.item_id AND lower(mp.server) = lower(ml.server)
-            WHERE lower(ml.server) = ?
-              AND ml.item_id IS NOT NULL
-              AND ml.price_pp IS NOT NULL
-{freshness_filter}
-            GROUP BY ml.item_id
-            ORDER BY max(ml.timestamp) DESC, max(ml.listing_id) DESC
-            LIMIT ?
-            """,
-            params,
-        ).fetchall()
-    return [int(row[0]) for row in rows]
+    return load_recent_listing_item_ids(db_path, server, limit, max_age_hours=max_age_hours)
 
 
 def _validate_loopback_host(host: str, parser: argparse.ArgumentParser) -> None:

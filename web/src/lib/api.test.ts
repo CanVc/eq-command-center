@@ -12,6 +12,10 @@ import {
   fetchListingsPreview,
   fetchMarketListings,
   fetchSettingsStatus,
+  refreshKronoPrice,
+  refreshTlpPrices,
+  startTlpPriceRefreshJob,
+  fetchTlpPriceRefreshJob,
   updateEqLogPath,
 } from "./api"
 
@@ -174,6 +178,88 @@ describe("page API helpers", () => {
       },
     })
     expect(fetcher).toHaveBeenNthCalledWith(2, "/api/settings/status?server=frostreaver", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
+  })
+
+  it("posts manual TLP refresh requests", async () => {
+    const kronoPayload = {
+      server: "frostreaver",
+      krono_updated: true,
+      krono_price_pp: 17463,
+      krono_listings_converted: 3,
+    }
+    const jobPayload = {
+      job_id: "abc123",
+      server: "frostreaver",
+      status: "running",
+      phase: "history",
+      completed: 5,
+      total: 10,
+      current_item_id: 123,
+      target_item_ids: [1, 2],
+      target_count: 2,
+      limit: 500,
+      max_age_hours: 6,
+      history_days: 3,
+      stats: null,
+      error: null,
+      created_at: "2026-06-16T09:59:00Z",
+      started_at: "2026-06-16T10:00:00Z",
+      finished_at: null,
+    }
+    const pricePayload = {
+      server: "frostreaver",
+      target_item_ids: [1, 2],
+      target_count: 2,
+      limit: 500,
+      max_age_hours: 6,
+      history_days: 3,
+      catalog_items_seen: 10,
+      items_upserted: 0,
+      listings_linked: 1,
+      catalog_prices_upserted: 0,
+      history_items_checked: 2,
+      history_prices_upserted: 2,
+      no_price_data: 0,
+      price_refresh_failed: 0,
+      krono_updated: true,
+      krono_price_pp: 17463,
+      krono_listings_converted: 3,
+    }
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(kronoPayload))
+      .mockResolvedValueOnce(jsonResponse(jobPayload))
+      .mockResolvedValueOnce(jsonResponse(jobPayload))
+      .mockResolvedValueOnce(jsonResponse(pricePayload))
+
+    await expect(refreshKronoPrice("frostreaver", fetcher)).resolves.toEqual(kronoPayload)
+    await expect(startTlpPriceRefreshJob("frostreaver", { maxAgeHours: 6 }, fetcher)).resolves.toEqual(jobPayload)
+    await expect(fetchTlpPriceRefreshJob("abc123", fetcher)).resolves.toEqual(jobPayload)
+    await expect(refreshTlpPrices("frostreaver", { maxAgeHours: 6 }, fetcher)).resolves.toEqual(pricePayload)
+
+    expect(fetcher).toHaveBeenNthCalledWith(1, "/api/krono/refresh?server=frostreaver", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/tlp-prices/refresh-jobs?server=frostreaver&max_age_hours=6", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(3, "/api/tlp-prices/refresh-jobs/abc123", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(4, "/api/tlp-prices/refresh?server=frostreaver&max_age_hours=6", {
+      method: "POST",
       headers: {
         Accept: "application/json",
       },
@@ -415,6 +501,28 @@ describe("page API helpers", () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input), "http://frontend.test")
 
+      if (url.pathname === "/api/tlp-prices/items/1/refresh") {
+        return jsonResponse({
+          server: "mischief",
+          target_item_ids: [1],
+          target_count: 1,
+          limit: 1,
+          max_age_hours: null,
+          history_days: 3,
+          catalog_items_seen: 1,
+          items_upserted: 0,
+          listings_linked: 0,
+          catalog_prices_upserted: 0,
+          history_items_checked: 1,
+          history_prices_upserted: 1,
+          no_price_data: 0,
+          price_refresh_failed: 0,
+          krono_updated: true,
+          krono_price_pp: 16000,
+          krono_listings_converted: 0,
+        })
+      }
+
       if (url.pathname === "/api/items/1") {
         return jsonResponse(itemPayload)
       }
@@ -441,22 +549,28 @@ describe("page API helpers", () => {
       kronoLatest: kronoPayload,
     })
 
-    expect(fetcher).toHaveBeenNthCalledWith(1, "/api/items/1", {
+    expect(fetcher).toHaveBeenNthCalledWith(1, "/api/tlp-prices/items/1/refresh?server=mischief", {
+      method: "POST",
       headers: {
         Accept: "application/json",
       },
     })
-    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/items/1/prices?server=mischief", {
+    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/items/1", {
       headers: {
         Accept: "application/json",
       },
     })
-    expect(fetcher).toHaveBeenNthCalledWith(3, "/api/items/1/listings?server=mischief&limit=100", {
+    expect(fetcher).toHaveBeenNthCalledWith(3, "/api/items/1/prices?server=mischief", {
       headers: {
         Accept: "application/json",
       },
     })
-    expect(fetcher).toHaveBeenNthCalledWith(4, "/api/krono/latest?server=mischief", {
+    expect(fetcher).toHaveBeenNthCalledWith(4, "/api/items/1/listings?server=mischief&limit=100", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(5, "/api/krono/latest?server=mischief", {
       headers: {
         Accept: "application/json",
       },

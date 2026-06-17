@@ -552,6 +552,50 @@ async function fulfillApi(route: Route) {
     return
   }
 
+  if (url.pathname === "/api/krono/refresh" && route.request().method() === "POST") {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(buildKronoRefresh(server)),
+    })
+    return
+  }
+
+  if (url.pathname === "/api/tlp-prices/refresh-jobs" && route.request().method() === "POST") {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(buildTlpPriceRefreshJob(server, "running")),
+    })
+    return
+  }
+
+  const refreshJobId = tlpRefreshJobIdFromPath(url.pathname)
+
+  if (refreshJobId !== null) {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(buildTlpPriceRefreshJob(server, "completed", refreshJobId)),
+    })
+    return
+  }
+
+  if (url.pathname === "/api/tlp-prices/refresh" && route.request().method() === "POST") {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(buildTlpPriceRefresh(server)),
+    })
+    return
+  }
+
+  const refreshItemId = tlpRefreshItemIdFromPath(url.pathname)
+
+  if (refreshItemId !== null && route.request().method() === "POST") {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(buildTlpPriceRefresh(server, [refreshItemId])),
+    })
+    return
+  }
+
   if (url.pathname === "/api/dashboard/summary") {
     await route.fulfill({
       contentType: "application/json",
@@ -679,6 +723,16 @@ function isTooltipPath(pathname: string): boolean {
 function itemTooltipIdFromPath(pathname: string): number | null {
   const match = pathname.match(/^\/api\/items\/(\d+)\/tooltip$/)
   return match ? Number(match[1]) : null
+}
+
+function tlpRefreshItemIdFromPath(pathname: string): number | null {
+  const match = pathname.match(/^\/api\/tlp-prices\/items\/(\d+)\/refresh$/)
+  return match ? Number(match[1]) : null
+}
+
+function tlpRefreshJobIdFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/api\/tlp-prices\/refresh-jobs\/([A-Za-z0-9_-]+)$/)
+  return match ? match[1] : null
 }
 
 function itemDetailIdFromPath(pathname: string): number | null {
@@ -996,6 +1050,65 @@ function buildKronoLatest(server: string) {
     source: "fixture",
     confidence: "high",
     last_refresh_at: "2026-06-16T10:00:00",
+  }
+}
+
+function buildKronoRefresh(server: string) {
+  return {
+    server,
+    krono_updated: true,
+    krono_price_pp: 16000,
+    krono_listings_converted: 1,
+  }
+}
+
+function buildTlpPriceRefreshJob(
+  server: string,
+  status: "running" | "completed",
+  jobId = "fixture-job"
+) {
+  const completed = status === "completed" ? 1 : 0
+
+  return {
+    job_id: jobId,
+    server,
+    status,
+    phase: status === "completed" ? "completed" : "history",
+    completed,
+    total: 1,
+    current_item_id: status === "completed" ? null : 1,
+    target_item_ids: [1],
+    target_count: 1,
+    limit: 500,
+    max_age_hours: 6,
+    history_days: 3,
+    stats: status === "completed" ? buildTlpPriceRefresh(server) : null,
+    error: null,
+    created_at: "2026-06-16T10:00:00Z",
+    started_at: "2026-06-16T10:00:00Z",
+    finished_at: status === "completed" ? "2026-06-16T10:03:00Z" : null,
+  }
+}
+
+function buildTlpPriceRefresh(server: string, targetItemIds: number[] = [1]) {
+  return {
+    server,
+    target_item_ids: targetItemIds,
+    target_count: targetItemIds.length,
+    limit: targetItemIds.length || 500,
+    max_age_hours: 6,
+    history_days: 3,
+    catalog_items_seen: 1,
+    items_upserted: 0,
+    listings_linked: 0,
+    catalog_prices_upserted: 0,
+    history_items_checked: targetItemIds.length,
+    history_prices_upserted: targetItemIds.length,
+    no_price_data: 0,
+    price_refresh_failed: 0,
+    krono_updated: true,
+    krono_price_pp: 16000,
+    krono_listings_converted: 1,
   }
 }
 

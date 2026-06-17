@@ -6,9 +6,18 @@ type MagelobarApi = {
   scan?: () => void
 }
 
+type MageloTooltipApi = {
+  dismiss?: () => void
+}
+
+type MageloApi = {
+  ToolTip?: MageloTooltipApi
+}
+
 declare global {
   interface Window {
     Magelobar?: MagelobarApi
+    Magelo?: MageloApi
     __eqCommandCenterMageloStatus?: MageloStatus
   }
 }
@@ -82,6 +91,27 @@ export function scanMageloItems(): boolean {
   } catch {
     setMageloStatus("unavailable")
     return false
+  }
+}
+
+export function hideMageloTooltip(): void {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return
+  }
+
+  try {
+    window.Magelo?.ToolTip?.dismiss?.()
+  } catch {
+    // Best effort only; stale tooltip DOM is cleaned up below.
+  }
+
+  for (const tooltip of document.querySelectorAll<HTMLElement>(".m-tooltip")) {
+    const wrapper = tooltip.parentElement
+    if (wrapper?.parentElement === document.body) {
+      wrapper.style.visibility = "hidden"
+    } else {
+      tooltip.style.visibility = "hidden"
+    }
   }
 }
 

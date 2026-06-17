@@ -22,6 +22,9 @@ import {
   fetchItemSearchPreview,
   fetchMarketListings,
   fetchSettingsStatus,
+  fetchTlpPriceRefreshJob,
+  refreshKronoPrice,
+  startTlpPriceRefreshJob,
   type DashboardSummary,
   type DealFilters,
   type DealPreview,
@@ -30,10 +33,12 @@ import {
   type ListingPreview,
   type MarketListingFilters,
   type SettingsStatusResponse,
+  type TlpPriceRefreshJobStatus,
 } from "@/lib/api"
 import {
   ensureMageloScript,
   getMageloStatus,
+  hideMageloTooltip,
   scanMageloItems,
   subscribeMageloStatus,
   type MageloStatus,
@@ -76,14 +81,18 @@ function App() {
     DEFAULT_MARKET_LISTING_FILTERS
   )
   const [refreshKey, setRefreshKey] = useState(0)
+  const [tlpRefreshJob, setTlpRefreshJob] = useState<TlpPriceRefreshJobStatus | null>(null)
+  const [progressNow, setProgressNow] = useState(() => Date.now())
   const [mageloStatus, setMageloStatus] = useState<MageloStatus>(() => getMageloStatus())
   const [pageState, setPageState] = useState<PageState>({ status: "loading" })
 
   const activePage = activePageIdFromRoute(activeRoute)
   const pageDefinition = pageDefinitionForRoute(activeRoute)
+  const isTlpRefreshing = isRunningTlpJob(tlpRefreshJob)
 
   useEffect(() => {
     const handlePopState = () => {
+      hideMageloTooltip()
       setPageState({ status: "loading" })
       setActiveRoute(routeFromPath(window.location.pathname))
     }
@@ -101,6 +110,24 @@ function App() {
 
     return unsubscribe
   }, [])
+
+  useEffect(() => {
+    hideMageloTooltip()
+  }, [activeRoute])
+
+  useEffect(() => {
+    if (!isTlpRefreshing) {
+      return undefined
+    }
+
+    const timer = window.setInterval(() => {
+      setProgressNow(Date.now())
+    }, 1000)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [isTlpRefreshing])
 
   useEffect(() => {
     if (pageState.status !== "ready" || mageloStatus !== "loaded") {
@@ -149,6 +176,8 @@ function App() {
       return
     }
 
+    hideMageloTooltip()
+
     if (window.location.pathname !== nextPath) {
       window.history.pushState(null, "", nextPath)
     }
@@ -170,8 +199,72 @@ function App() {
 
   const refresh = useCallback(() => {
     setPageState({ status: "loading" })
-    setRefreshKey((current) => current + 1)
-  }, [])
+
+    async function runRefresh() {
+      if (activeRoute.kind === "page" && activeRoute.pageId === "dashboard") {
+        try {
+          await refreshKronoPrice(server)
+        } catch (error) {
+          setPageState({
+            status: "error",
+            message: error instanceof Error ? error.message : "Unknown TLP Auctions error",
+          })
+          return
+        }
+      }
+
+      setRefreshKey((current) => current + 1)
+    }
+
+    void runRefresh()
+  }, [activeRoute, server])
+
+  const refreshTlpMarketPrices = useCallback(() => {
+    if (isRunningTlpJob(tlpRefreshJob)) {
+      return
+    }
+
+    async function runTlpRefresh() {
+      try {
+        let job = await startTlpPriceRefreshJob(server, { maxAgeHours: 6 })
+        setTlpRefreshJob(job)
+        setProgressNow(Date.now())
+
+        while (isRunningTlpJob(job)) {
+          await wait(1000)
+          job = await fetchTlpPriceRefreshJob(job.job_id)
+          setTlpRefreshJob(job)
+          setProgressNow(Date.now())
+        }
+
+        if (job.status === "completed") {
+          setRefreshKey((current) => current + 1)
+        }
+      } catch (error) {
+        setTlpRefreshJob({
+          job_id: "local-error",
+          server,
+          status: "failed",
+          phase: "failed",
+          completed: 0,
+          total: null,
+          current_item_id: null,
+          target_item_ids: [],
+          target_count: 0,
+          limit: 0,
+          max_age_hours: 6,
+          history_days: 3,
+          stats: null,
+          error: error instanceof Error ? error.message : "Unknown TLP Auctions error",
+          created_at: new Date().toISOString(),
+          started_at: null,
+          finished_at: new Date().toISOString(),
+        })
+      }
+    }
+
+    void runTlpRefresh()
+  }, [server, tlpRefreshJob])
 
   const changeDealFilters = useCallback((nextFilters: DealFilters) => {
     setPageState({ status: "loading" })
@@ -189,9 +282,11 @@ function App() {
       pageTitle={pageDefinition.title}
       server={server}
       isRefreshing={pageState.status === "loading"}
+      isTlpRefreshing={isTlpRefreshing}
       onNavigate={navigateTo}
       onServerChange={changeServer}
       onRefresh={refresh}
+      onTlpRefresh={refreshTlpMarketPrices}
     >
       <section className="mx-auto flex w-full max-w-6xl flex-col gap-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -200,6 +295,8 @@ function App() {
           </div>
           <StatusLine pageState={pageState} />
         </div>
+
+        <TlpRefreshProgress job={tlpRefreshJob} nowMs={progressNow} />
 
         {pageState.status === "loading" ? (
           <LoadingState title={pageDefinition.title} />
@@ -286,6 +383,98 @@ function StatusLine({ pageState }: { pageState: PageState }) {
       Updated {formatTime(pageState.loadedAt)}
     </Badge>
   )
+}
+
+function TlpRefreshProgress({
+  job,
+  nowMs,
+}: {
+  job: TlpPriceRefreshJobStatus | null
+  nowMs: number
+}) {
+  if (job === null) {
+    return null
+  }
+
+  const running = isRunningTlpJob(job)
+  const total = job.total ?? job.target_count
+  const hasTotal = total > 0
+  const percent = hasTotal ? Math.min(100, Math.round((job.completed * 100) / total)) : job.status === "completed" ? 100 : 0
+  const elapsed = formatElapsed(job.started_at ?? job.created_at, nowMs)
+  const label = job.status === "failed" ? job.error ?? "TLP Auctions refresh failed" : formatTlpPhase(job.phase)
+
+  return (
+    <div className="rounded-lg border bg-card p-3 text-sm shadow-sm" role="status" aria-live="polite">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="font-medium">TLP Auctions price refresh</p>
+          <p className="text-muted-foreground">
+            {label} · {hasTotal ? `${job.completed}/${total} items` : `${job.completed} items`} · {elapsed}
+          </p>
+        </div>
+        <Badge variant={job.status === "failed" ? "destructive" : running ? "secondary" : "outline"}>
+          {job.status === "failed" ? "Failed" : running ? `${percent}%` : "Done"}
+        </Badge>
+      </div>
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-primary transition-all"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function isRunningTlpJob(job: TlpPriceRefreshJobStatus | null): boolean {
+  return job?.status === "queued" || job?.status === "running"
+}
+
+function formatTlpPhase(phase: string): string {
+  switch (phase) {
+    case "queued":
+      return "Waiting to start"
+    case "selecting":
+      return "Selecting stale items"
+    case "selected":
+      return "Items selected"
+    case "krono":
+      return "Refreshing Krono price"
+    case "catalog":
+      return "Loading TLP catalog"
+    case "history":
+      return "Refreshing item histories"
+    case "catalog_prices":
+      return "Refreshing catalog prices"
+    case "completed":
+      return "Refresh complete"
+    case "failed":
+      return "Refresh failed"
+    default:
+      return phase
+  }
+}
+
+function formatElapsed(startedAt: string | null, nowMs: number): string {
+  if (!startedAt) {
+    return "0s"
+  }
+
+  const elapsedMs = nowMs - Date.parse(startedAt)
+  if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) {
+    return "0s"
+  }
+
+  const elapsedSeconds = Math.floor(elapsedMs / 1000)
+  const minutes = Math.floor(elapsedSeconds / 60)
+  const seconds = elapsedSeconds % 60
+  return minutes > 0 ? `${minutes}m ${seconds.toString().padStart(2, "0")}s` : `${seconds}s`
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, milliseconds)
+  })
 }
 
 function PageContent({

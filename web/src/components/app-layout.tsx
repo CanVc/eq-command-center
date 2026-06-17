@@ -28,10 +28,12 @@ type AppLayoutProps = {
   pageTitle?: string
   server: string
   isRefreshing: boolean
+  isTlpRefreshing: boolean
   children: ReactNode
   onNavigate: (pageId: AppPageId) => void
   onServerChange: (server: string) => void
   onRefresh: () => void
+  onTlpRefresh: () => void
 }
 
 const SERVER_OPTIONS = [
@@ -58,10 +60,12 @@ export function AppLayout({
   pageTitle,
   server,
   isRefreshing,
+  isTlpRefreshing,
   children,
   onNavigate,
   onServerChange,
   onRefresh,
+  onTlpRefresh,
 }: AppLayoutProps) {
   const activePageDefinition = APP_PAGES.find((page) => page.id === activePage) ?? APP_PAGES[0]
   const title = pageTitle ?? activePageDefinition.title
@@ -127,8 +131,19 @@ export function AppLayout({
 
                 <ThemeToggle theme={theme} onToggle={toggleTheme} />
 
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onTlpRefresh}
+                  disabled={isRefreshing || isTlpRefreshing}
+                  title="Refresh stale item prices from TLP Auctions"
+                >
+                  <RefreshCw className={cn(isTlpRefreshing && "animate-spin")} />
+                  TLP prices
+                </Button>
+
                 <Button type="button" onClick={onRefresh} disabled={isRefreshing}>
-                  <RefreshCw className={cn(isRefreshing && "animate-spin")} />
+                  <RefreshCw className={cn(isRefreshing && !isTlpRefreshing && "animate-spin")} />
                   Refresh
                 </Button>
               </div>

@@ -48,6 +48,13 @@ class KronoPrice:
 
 
 @dataclass(frozen=True)
+class KronoPriceWindow:
+    days: int
+    average_price: float
+    sample_size: int
+
+
+@dataclass(frozen=True)
 class PricePoint:
     datetime: str
     plat_price: float
@@ -99,8 +106,13 @@ class TlpAuctionsClient:
         return catalog
 
     def get_krono_price(self, server_name: str) -> KronoPrice | None:
+        api_server = api_server_name(server_name)
+        window_price = self._get_krono_price_window(api_server, preferred_days=1)
+        if window_price is not None:
+            return window_price
+
         try:
-            payload = self._get_json(f"/api/krono-prices/{api_server_name(server_name)}")
+            payload = self._get_json(f"/api/krono-prices/{api_server}")
         except TlpAuctionsNotFoundError:
             return None
         if not payload:
@@ -109,11 +121,50 @@ class TlpAuctionsClient:
         if price is None or price <= 0:
             return None
         return KronoPrice(
-            server_name=str(payload.get("serverName") or api_server_name(server_name)),
+            server_name=str(payload.get("serverName") or api_server),
             average_price=price,
             sample_size=_as_int(payload.get("sampleSize")) or 0,
             last_updated=payload.get("lastUpdated"),
         )
+
+    def get_krono_price_windows(self, server_name: str) -> list[KronoPriceWindow]:
+        payload = self._get_json(f"/api/krono-prices/{api_server_name(server_name)}/windows")
+        windows = payload.get("windows") or []
+        result: list[KronoPriceWindow] = []
+        for window in windows:
+            days = _as_int(window.get("days"))
+            price = _as_float(window.get("averagePrice"))
+            if days is None or price is None or price <= 0:
+                continue
+            result.append(
+                KronoPriceWindow(
+                    days=days,
+                    average_price=price,
+                    sample_size=_as_int(window.get("sampleSize")) or 0,
+                )
+            )
+        return result
+
+    def _get_krono_price_window(self, api_server: str, preferred_days: int) -> KronoPrice | None:
+        try:
+            payload = self._get_json(f"/api/krono-prices/{api_server}/windows")
+        except TlpAuctionsNotFoundError:
+            return None
+        except TlpAuctionsError:
+            return None
+
+        for window in payload.get("windows") or []:
+            days = _as_int(window.get("days"))
+            price = _as_float(window.get("averagePrice"))
+            if days != preferred_days or price is None or price <= 0:
+                continue
+            return KronoPrice(
+                server_name=str(payload.get("serverName") or api_server),
+                average_price=price,
+                sample_size=_as_int(window.get("sampleSize")) or 0,
+                last_updated=payload.get("lastUpdated"),
+            )
+        return None
 
     def get_item_history(self, item_id: int, server_name: str) -> list[PricePoint]:
         try:

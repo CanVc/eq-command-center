@@ -1,5 +1,6 @@
 import type { MouseEvent } from "react"
 
+import { hideMageloTooltip } from "@/lib/magelo"
 import { navigateToPath, pathForItemDetail } from "@/lib/navigation"
 import { cn } from "@/lib/utils"
 
@@ -26,6 +27,8 @@ export function ItemLink({ itemId, name, className }: ItemLinkProps) {
       rel={hasItemId ? `eq:item:${itemId}` : undefined}
       onClick={(event) => {
         if (hasItemId) {
+          hideMageloTooltip()
+
           if (shouldHandleClientNavigation(event)) {
             event.preventDefault()
             navigateToPath(href)

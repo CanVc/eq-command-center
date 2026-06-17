@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, Iterable
 
 from eqmarket.db import init_db
 from eqmarket.log_parser import normalize_item_name
@@ -31,15 +33,82 @@ class TlpPriceImportStats:
     krono_listings_converted: int = 0
 
 
+PriceImportProgressCallback = Callable[[dict[str, object]], None]
+
+
+def refresh_krono_price(db_path: Path, server: str) -> TlpPriceImportStats:
+    """Refresh only the cached Krono price for a server from TLP Auctions."""
+    init_db(db_path)
+    stats = TlpPriceImportStats()
+    client = TlpAuctionsClient()
+    api_server = server
+    db_server = db_server_name(server)
+
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        krono = client.get_krono_price(api_server)
+        if krono is not None:
+            stats.krono_price_pp = round(krono.average_price)
+            _upsert_krono_price(connection, db_server, stats.krono_price_pp, krono.sample_size, krono.last_updated)
+            stats.krono_updated = True
+            stats.krono_listings_converted = _convert_krono_listings(connection, db_server, stats.krono_price_pp)
+        connection.commit()
+
+    return stats
+
+
+def load_recent_listing_item_ids(
+    db_path: Path,
+    server: str,
+    limit: int,
+    *,
+    max_age_hours: float | None = None,
+) -> list[int]:
+    """Return recent listing item ids, optionally only missing/stale TLP prices."""
+    db_server = db_server_name(server)
+    params: list[object] = [db_server]
+    freshness_filter = ""
+    if max_age_hours is not None:
+        freshness_filter = """
+              AND (
+                    mp.item_id IS NULL
+                    OR mp.last_refresh_at IS NULL
+                    OR datetime(mp.last_refresh_at) <= datetime('now', ?)
+                  )
+        """
+        params.append(f"-{max_age_hours:g} hours")
+    params.append(limit)
+
+    with closing(sqlite3.connect(db_path)) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT ml.item_id
+            FROM market_listings ml
+            LEFT JOIN market_prices mp
+                ON mp.item_id = ml.item_id AND lower(mp.server) = lower(ml.server)
+            WHERE lower(ml.server) = ?
+              AND ml.item_id IS NOT NULL
+              AND ml.price_pp IS NOT NULL
+{freshness_filter}
+            GROUP BY ml.item_id
+            ORDER BY max(ml.timestamp) DESC, max(ml.listing_id) DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+    return [int(row[0]) for row in rows]
+
+
 def import_tlp_prices(
     db_path: Path,
     server: str,
     *,
     limit: int | None = None,
-    item_ids: list[int] | None = None,
+    item_ids: Iterable[int] | None = None,
     all_catalog: bool = False,
     fetch_history: bool = True,
     history_days: int | None = 3,
+    progress_callback: PriceImportProgressCallback | None = None,
 ) -> TlpPriceImportStats:
     """Import TLP Auctions reference prices into market_prices.
 
@@ -52,10 +121,12 @@ def import_tlp_prices(
     client = TlpAuctionsClient()
     api_server = server
     db_server = db_server_name(server)
+    item_id_list = list(item_ids) if item_ids is not None else None
 
-    with sqlite3.connect(db_path) as connection:
+    with closing(sqlite3.connect(db_path)) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
 
+        _notify_price_import_progress(progress_callback, phase="krono", completed=0, total=None)
         krono = client.get_krono_price(api_server)
         if krono is not None:
             stats.krono_price_pp = round(krono.average_price)
@@ -63,12 +134,13 @@ def import_tlp_prices(
             stats.krono_updated = True
             stats.krono_listings_converted = _convert_krono_listings(connection, db_server, stats.krono_price_pp)
 
+        _notify_price_import_progress(progress_callback, phase="catalog", completed=0, total=None)
         catalog = client.get_catalog(api_server)
         stats.catalog_items_seen = len(catalog)
         catalog_by_id = {item.item_id: item for item in catalog}
 
         wanted_normalized_names = _load_wanted_normalized_names(connection, db_server)
-        explicit_item_ids = set(item_ids or [])
+        explicit_item_ids = set(item_id_list or [])
         matched_catalog = [
             item
             for item in catalog
@@ -82,14 +154,23 @@ def import_tlp_prices(
                 stats.items_upserted += 1
             stats.listings_linked += _link_listings_by_name(connection, db_server, item)
 
-        target_item_ids = _load_target_item_ids(connection, db_server, item_ids)
+        target_item_ids = _load_target_item_ids(connection, db_server, item_id_list)
         if all_catalog:
             target_item_ids.update(item.item_id for item in catalog)
         target_item_ids = {item_id for item_id in target_item_ids if _item_exists(connection, item_id)}
         if limit is not None:
             target_item_ids = set(sorted(target_item_ids)[:limit])
 
-        for item_id in sorted(target_item_ids):
+        sorted_target_item_ids = sorted(target_item_ids)
+        progress_phase = "history" if fetch_history else "catalog_prices"
+        _notify_price_import_progress(
+            progress_callback,
+            phase=progress_phase,
+            completed=0,
+            total=len(sorted_target_item_ids),
+        )
+
+        for completed, item_id in enumerate(sorted_target_item_ids, start=1):
             item = catalog_by_id.get(item_id)
             if not fetch_history:
                 if item is not None and item.price is not None and item.price > 0:
@@ -97,6 +178,13 @@ def import_tlp_prices(
                     stats.catalog_prices_upserted += 1
                 else:
                     stats.no_price_data += 1
+                _notify_price_import_progress(
+                    progress_callback,
+                    phase=progress_phase,
+                    completed=completed,
+                    total=len(sorted_target_item_ids),
+                    item_id=item_id,
+                )
                 continue
 
             stats.history_items_checked += 1
@@ -106,19 +194,55 @@ def import_tlp_prices(
                 stats.price_refresh_failed += 1
                 _record_price_refresh_failure(connection, db_server, item_id, exc)
                 _upsert_price_refresh_marker(connection, db_server, item_id, "failed", str(exc)[:1000])
+                _notify_price_import_progress(
+                    progress_callback,
+                    phase=progress_phase,
+                    completed=completed,
+                    total=len(sorted_target_item_ids),
+                    item_id=item_id,
+                )
                 continue
 
             price_stats = compute_price_stats(points, stats.krono_price_pp, max_age_days=history_days)
             if price_stats is None:
                 _upsert_price_refresh_marker(connection, db_server, item_id, "no_data", None)
                 stats.no_price_data += 1
+                _notify_price_import_progress(
+                    progress_callback,
+                    phase=progress_phase,
+                    completed=completed,
+                    total=len(sorted_target_item_ids),
+                    item_id=item_id,
+                )
                 continue
             _upsert_history_price(connection, db_server, item_id, price_stats)
             stats.history_prices_upserted += 1
+            _notify_price_import_progress(
+                progress_callback,
+                phase=progress_phase,
+                completed=completed,
+                total=len(sorted_target_item_ids),
+                item_id=item_id,
+            )
 
         _record_tlp_price_import_run(connection, db_server, stats, fetch_history, history_days)
+        connection.commit()
 
     return stats
+
+
+def _notify_price_import_progress(
+    progress_callback: PriceImportProgressCallback | None,
+    **payload: object,
+) -> None:
+    if progress_callback is None:
+        return
+
+    try:
+        progress_callback(payload)
+    except Exception:
+        # Progress reporting must not make the import fail.
+        return
 
 
 def _upsert_minimal_item(connection: sqlite3.Connection, item: CatalogItem) -> bool:
