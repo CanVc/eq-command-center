@@ -2,6 +2,7 @@ import { Ban, ListPlus, RotateCcw, Search, ScrollText, X } from "lucide-react"
 import { Fragment, useState } from "react"
 import type { FormEvent } from "react"
 
+import { ItemPreferenceActions, ItemPreferenceBadge } from "@/components/item-preference-actions"
 import { ItemLink } from "@/components/item-link"
 import { RawSalePanel } from "@/components/raw-sale-panel"
 import { Badge } from "@/components/ui/badge"
@@ -14,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import type { ListingPreview, ListingReviewStatusFilter, MarketListingFilters } from "@/lib/api"
+import type { ItemInterestFilter, ItemPreferenceStatusUpdate, ListingPreview, ListingReviewStatusFilter, MarketListingFilters } from "@/lib/api"
 import { formatDateTime, formatPrice } from "@/lib/format"
 import {
   canLoadMoreListings,
@@ -32,6 +33,7 @@ type MarketListingsPageProps = {
   onRestoreListing: (listingId: number) => Promise<void>
   onDiscardSimilarListings: (listingId: number, reasonCode?: string) => Promise<void>
   onRestoreSimilarListings: (listingId: number) => Promise<void>
+  onUpdateListingItemPreference: (listingId: number, status: ItemPreferenceStatusUpdate) => Promise<void>
 }
 
 const searchInputClassName =
@@ -46,23 +48,29 @@ export function MarketListingsPage({
   onRestoreListing,
   onDiscardSimilarListings,
   onRestoreSimilarListings,
+  onUpdateListingItemPreference,
 }: MarketListingsPageProps) {
   const [draftQuery, setDraftQuery] = useState(filters.query)
   const [reviewingListingId, setReviewingListingId] = useState<number | null>(null)
+  const [preferringListingId, setPreferringListingId] = useState<number | null>(null)
   const canLoadMore = canLoadMoreListings(listings.length, filters.limit)
 
   const applySearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    onFiltersChange(resetMarketListingSearch(draftQuery, filters.reviewStatus))
+    onFiltersChange(resetMarketListingSearch(draftQuery, filters.reviewStatus, filters.interestStatus))
   }
 
   const clearSearch = () => {
     setDraftQuery("")
-    onFiltersChange(resetMarketListingSearch("", filters.reviewStatus))
+    onFiltersChange(resetMarketListingSearch("", filters.reviewStatus, filters.interestStatus))
   }
 
   const changeReviewStatus = (reviewStatus: ListingReviewStatusFilter) => {
-    onFiltersChange(resetMarketListingSearch(draftQuery, reviewStatus))
+    onFiltersChange(resetMarketListingSearch(draftQuery, reviewStatus, filters.interestStatus))
+  }
+
+  const changeInterestStatus = (interestStatus: ItemInterestFilter) => {
+    onFiltersChange(resetMarketListingSearch(draftQuery, filters.reviewStatus, interestStatus))
   }
 
   const discardListing = async (listingId: number, similar = false) => {
@@ -91,6 +99,15 @@ export function MarketListingsPage({
     }
   }
 
+  const updateListingItemPreference = async (listingId: number, status: ItemPreferenceStatusUpdate) => {
+    setPreferringListingId(listingId)
+    try {
+      await onUpdateListingItemPreference(listingId, status)
+    } finally {
+      setPreferringListingId(null)
+    }
+  }
+
   return (
     <section className="flex flex-col gap-4">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
@@ -106,7 +123,7 @@ export function MarketListingsPage({
       <form
         aria-label="Listing search"
         onSubmit={applySearch}
-        className="grid gap-3 rounded-lg border bg-card p-3 md:grid-cols-[minmax(0,1fr)_12rem_auto]"
+        className="grid gap-3 rounded-lg border bg-card p-3 md:grid-cols-[minmax(0,1fr)_12rem_12rem_auto]"
       >
         <label className="grid gap-1.5 text-sm">
           <span className="text-xs font-medium text-muted-foreground">Search</span>
@@ -117,6 +134,21 @@ export function MarketListingsPage({
             placeholder="Item or seller"
             onChange={(event) => setDraftQuery(event.target.value)}
           />
+        </label>
+
+        <label className="grid gap-1.5 text-sm">
+          <span className="text-xs font-medium text-muted-foreground">Interest</span>
+          <select
+            aria-label="Item interest"
+            className={searchInputClassName}
+            value={filters.interestStatus}
+            onChange={(event) => changeInterestStatus(event.target.value as ItemInterestFilter)}
+          >
+            <option value="tracked">Tracked</option>
+            <option value="wanted">Wanted</option>
+            <option value="ignored">Ignored</option>
+            <option value="all">All</option>
+          </select>
         </label>
 
         <label className="grid gap-1.5 text-sm">
@@ -153,11 +185,13 @@ export function MarketListingsPage({
           listings={listings}
           server={server}
           reviewingListingId={reviewingListingId}
+          preferringListingId={preferringListingId}
           onDiscardListing={discardListing}
           onRestoreListing={restoreListing}
+          onUpdateItemPreference={updateListingItemPreference}
         />
       ) : (
-        <EmptyState filtered={!!filters.query || filters.reviewStatus !== "active"} />
+        <EmptyState filtered={!!filters.query || filters.reviewStatus !== "active" || filters.interestStatus !== "tracked"} />
       )}
 
       {canLoadMore ? (
@@ -180,14 +214,18 @@ function ListingsTable({
   listings,
   server,
   reviewingListingId,
+  preferringListingId,
   onDiscardListing,
   onRestoreListing,
+  onUpdateItemPreference,
 }: {
   listings: ListingPreview[]
   server: string
   reviewingListingId: number | null
+  preferringListingId: number | null
   onDiscardListing: (listingId: number, similar?: boolean) => void
   onRestoreListing: (listingId: number, similar?: boolean) => void
+  onUpdateItemPreference: (listingId: number, status: ItemPreferenceStatusUpdate) => void
 }) {
   const [rawListingId, setRawListingId] = useState<number | null>(null)
 
@@ -233,6 +271,9 @@ function ListingsTable({
                         { label: "Seen", value: formatDateTime(listing.timestamp) },
                       ]}
                     />
+                    <div className="mt-1">
+                      <ItemPreferenceBadge status={listing.item_preference} />
+                    </div>
                   </TableCell>
                   <TableCell>{listing.price_raw ?? "n/a"}</TableCell>
                   <TableCell>{formatPrice(listing.price_pp)}</TableCell>
@@ -252,10 +293,12 @@ function ListingsTable({
                     <ListingActions
                       listing={listing}
                       disabled={reviewingListingId === listing.listing_id}
+                      preferenceDisabled={preferringListingId === listing.listing_id}
                       rawOpen={isRawOpen}
                       onToggleRaw={() => setRawListingId(isRawOpen ? null : listing.listing_id)}
                       onDiscardListing={onDiscardListing}
                       onRestoreListing={onRestoreListing}
+                      onUpdateItemPreference={onUpdateItemPreference}
                     />
                   </TableCell>
                 </TableRow>
@@ -278,17 +321,21 @@ function ListingsTable({
 function ListingActions({
   listing,
   disabled,
+  preferenceDisabled,
   rawOpen,
   onToggleRaw,
   onDiscardListing,
   onRestoreListing,
+  onUpdateItemPreference,
 }: {
   listing: ListingPreview
   disabled: boolean
+  preferenceDisabled: boolean
   rawOpen: boolean
   onToggleRaw: () => void
   onDiscardListing: (listingId: number, similar?: boolean) => void
   onRestoreListing: (listingId: number, similar?: boolean) => void
+  onUpdateItemPreference: (listingId: number, status: ItemPreferenceStatusUpdate) => void
 }) {
   if (listing.review_status === "discarded") {
     return (
@@ -326,6 +373,12 @@ function ListingActions({
             Similar
           </Button>
         ) : null}
+        <ItemPreferenceActions
+          status={listing.item_preference}
+          itemName={listing.item_name}
+          disabled={preferenceDisabled}
+          onChange={(status) => void onUpdateItemPreference(listing.listing_id, status)}
+        />
       </div>
     )
   }
@@ -377,6 +430,12 @@ function ListingActions({
           Keep
         </Button>
       ) : null}
+      <ItemPreferenceActions
+        status={listing.item_preference}
+        itemName={listing.item_name}
+        disabled={preferenceDisabled}
+        onChange={(status) => void onUpdateItemPreference(listing.listing_id, status)}
+      />
     </div>
   )
 }

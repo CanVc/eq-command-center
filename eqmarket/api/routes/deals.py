@@ -17,6 +17,7 @@ LISTING_SCORE_PROFILE = "market_deals"
 
 DealSortBy = Literal["item", "seen_price", "market_price", "discount", "seller", "date", "score"]
 DealSortDirection = Literal["asc", "desc"]
+ItemInterestFilter = Literal["tracked", "wanted", "ignored", "all"]
 
 
 router = APIRouter()
@@ -34,6 +35,7 @@ def list_deals(
     seller: str | None = Query(None),
     item: str | None = Query(None),
     date_from: str | None = Query(None),
+    interest_status: ItemInterestFilter = Query("tracked"),
     sort_by: DealSortBy = Query("discount"),
     sort_dir: DealSortDirection = Query("desc"),
 ) -> list[dict[str, Any]]:
@@ -53,6 +55,7 @@ def list_deals(
             seller=seller_filter,
             item=item_filter,
             date_from=normalized_date_from,
+            interest_status=interest_status,
             sort_by=sort_by,
             sort_dir=sort_dir,
             limit=limit,
@@ -71,6 +74,7 @@ def _fetch_deals(
     seller: str | None = None,
     item: str | None = None,
     date_from: str | None = None,
+    interest_status: ItemInterestFilter = "tracked",
     sort_by: DealSortBy = "discount",
     sort_dir: DealSortDirection = "desc",
 ) -> list[dict[str, Any]]:
@@ -99,6 +103,7 @@ def _fetch_deals(
     params.extend([min_price_pp, 1 if include_suspect else 0, min_discount, limit])
     base_filter_sql = "".join(base_filters)
     order_by_sql = _deal_order_by_clause(sort_by, sort_dir)
+    interest_filter_sql = _item_interest_filter_clause("item_preference", interest_status)
 
     rows = connection.execute(
         f"""
@@ -126,6 +131,29 @@ def _fetch_deals(
                 mlr.status AS explicit_review_status,
                 mlr.reason_code AS explicit_review_reason_code,
                 mlr.note AS explicit_review_note,
+                COALESCE(
+                    (
+                        SELECT ip.status
+                        FROM item_preferences ip
+                        WHERE ip.server = lower(ml.server)
+                          AND ip.preference_key_kind = 'item_id'
+                          AND ip.preference_key = CAST(ml.item_id AS TEXT)
+                    ),
+                    (
+                        SELECT ip.status
+                        FROM item_preferences ip
+                        WHERE ip.server = lower(ml.server)
+                          AND ip.preference_key_kind = 'name'
+                          AND ip.preference_key = i.normalized_name
+                    ),
+                    (
+                        SELECT ip.status
+                        FROM item_preferences ip
+                        WHERE ip.server = lower(ml.server)
+                          AND ip.preference_key_kind = 'name'
+                          AND ip.preference_key = ml.normalized_item_name
+                    )
+                ) AS item_preference,
                 kp.price_pp AS krono_price_pp
             FROM market_listings ml
             JOIN market_prices mp
@@ -199,6 +227,7 @@ def _fetch_deals(
           AND listing_price_pp >= ?
           AND review_status != 'discarded'
           AND (? = 1 OR review_status != 'suspect')
+          {interest_filter_sql}
           AND ((market_price_pp - listing_price_pp) * 100.0 / market_price_pp) >= ?
         ORDER BY {order_by_sql}
         LIMIT ?
@@ -239,6 +268,7 @@ def _deal_payload(row: sqlite3.Row) -> dict[str, Any]:
         "review_status": row["review_status"],
         "review_reason_code": row["review_reason_code"],
         "review_note": row["review_note"],
+        "item_preference": row["item_preference"],
     }
 
 
@@ -305,6 +335,16 @@ def _deal_order_by_clause(sort_by: DealSortBy, sort_dir: DealSortDirection) -> s
     }
     expression = expression_by_sort[sort_by]
     return f"{expression} {direction}, discount_pct DESC, potential_profit_pp DESC, datetime(timestamp) DESC, listing_id DESC"
+
+
+def _item_interest_filter_clause(column_name: str, interest_status: ItemInterestFilter) -> str:
+    if interest_status == "all":
+        return ""
+    if interest_status == "wanted":
+        return f"AND {column_name} = 'wanted'"
+    if interest_status == "ignored":
+        return f"AND {column_name} = 'ignored'"
+    return f"AND COALESCE({column_name}, 'neutral') != 'ignored'"
 
 
 def _connect_or_503(db_path: str | Path) -> sqlite3.Connection:

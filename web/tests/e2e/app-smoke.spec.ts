@@ -455,7 +455,7 @@ test("opens item detail from item links and renders prices, history, chart, and 
     "https://www.tlp-auctions.com/search/frostreaver/Stave%20of%20Shielding"
   )
 
-  expect(requestedPaths).toContain("/api/items/1")
+  expect(requestedPaths).toContain("/api/items/1?server=frostreaver")
   expect(requestedPaths).toContain("/api/items/1/prices?server=frostreaver")
   expect(requestedPaths).toContain("/api/items/1/listings?server=frostreaver&limit=100")
   expect(requestedPaths).toContain("/api/items/1/tlp-history?server=frostreaver")

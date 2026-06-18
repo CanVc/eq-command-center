@@ -139,6 +139,7 @@ function buildListing(overrides: Partial<ItemListing>): ItemListing {
     review_status: "active",
     review_reason_code: null,
     review_note: null,
+    item_preference: null,
     ...overrides,
   }
 }
@@ -195,6 +196,7 @@ function buildItem(overrides: Partial<ItemDetail>): ItemDetail {
     effects: [],
     source_primary: null,
     last_imported_at: null,
+    item_preference: null,
     ...overrides,
   }
 }

@@ -148,10 +148,28 @@ export type DashboardDealPreview = {
   discount_pct: number
   sample_size: number | null
   confidence: string | null
+  item_preference: ItemPreferenceStatus | null
 }
 
 export type ListingReviewStatus = "active" | "discarded" | "suspect"
 export type ListingReviewStatusFilter = ListingReviewStatus | "all"
+export type ItemPreferenceStatus = "wanted" | "ignored"
+export type ItemPreferenceStatusUpdate = ItemPreferenceStatus | "neutral"
+export type ItemInterestFilter = "tracked" | "wanted" | "ignored" | "all"
+
+export type ItemPreference = {
+  preference_id: number | null
+  server: string
+  preference_key_kind: "item_id" | "name"
+  preference_key: string
+  item_id: number | null
+  item_name: string
+  normalized_item_name: string
+  status: ItemPreferenceStatus | "neutral"
+  notes: string | null
+  created_at: string | null
+  updated_at: string | null
+}
 
 export type ListingReview = {
   listing_id: number
@@ -210,6 +228,7 @@ export type DealPreview = DashboardDealPreview & {
   review_status: ListingReviewStatus
   review_reason_code: string | null
   review_note: string | null
+  item_preference: ItemPreferenceStatus | null
 }
 
 export type DealSortBy = "item" | "seen_price" | "market_price" | "discount" | "seller" | "date" | "score"
@@ -226,6 +245,7 @@ export type DealFilters = {
   dateFrom: string
   sortBy: DealSortBy
   sortDir: DealSortDirection
+  interestStatus: ItemInterestFilter
 }
 
 export const DEFAULT_DEAL_FILTERS: DealFilters = {
@@ -239,6 +259,7 @@ export const DEFAULT_DEAL_FILTERS: DealFilters = {
   dateFrom: "",
   sortBy: "discount",
   sortDir: "desc",
+  interestStatus: "tracked",
 }
 
 export type ListingPreview = {
@@ -256,6 +277,7 @@ export type ListingPreview = {
   review_status: ListingReviewStatus
   review_reason_code: string | null
   review_note: string | null
+  item_preference: ItemPreferenceStatus | null
 }
 
 export type KronoLatest = {
@@ -329,6 +351,7 @@ export type TlpPriceRefreshJobStatus = {
 export type MarketListingFilters = {
   query: string
   reviewStatus: ListingReviewStatusFilter
+  interestStatus: ItemInterestFilter
   limit: number
 }
 
@@ -337,6 +360,7 @@ export const MARKET_LISTING_PAGE_SIZE = 25
 export const DEFAULT_MARKET_LISTING_FILTERS: MarketListingFilters = {
   query: "",
   reviewStatus: "active",
+  interestStatus: "tracked",
   limit: MARKET_LISTING_PAGE_SIZE,
 }
 
@@ -347,6 +371,7 @@ export type ItemSearchResult = {
   slot: string | null
   classes: string | null
   flags: string | null
+  item_preference: ItemPreferenceStatus | null
 }
 
 export type ItemTooltipEffect = {
@@ -425,6 +450,7 @@ export type ItemDetail = {
   effects: ItemTooltipEffect[]
   source_primary: string | null
   last_imported_at: string | null
+  item_preference: ItemPreferenceStatus | null
 }
 
 export type ItemMarketPrice = {
@@ -526,6 +552,7 @@ export type ItemTooltip = {
   last_seen_seller: string | null
   last_seen_price_raw: string | null
   effects: ItemTooltipEffect[]
+  item_preference: ItemPreferenceStatus | null
 }
 
 export type Fetcher = (
@@ -679,6 +706,7 @@ export async function fetchDeals(
   filters: DealFilters = DEFAULT_DEAL_FILTERS,
   fetcher: Fetcher = fetch
 ): Promise<DealPreview[]> {
+  const interestStatus = filters.interestStatus ?? DEFAULT_DEAL_FILTERS.interestStatus
   const usesDefaultSort = filters.sortBy === DEFAULT_DEAL_FILTERS.sortBy && filters.sortDir === DEFAULT_DEAL_FILTERS.sortDir
 
   return fetchJson<DealPreview[]>(
@@ -692,6 +720,7 @@ export async function fetchDeals(
       seller: filters.seller?.trim() || undefined,
       item: filters.item?.trim() || undefined,
       date_from: filters.dateFrom?.trim() || undefined,
+      interest_status: interestStatus === DEFAULT_DEAL_FILTERS.interestStatus ? undefined : interestStatus,
       sort_by: usesDefaultSort ? undefined : filters.sortBy,
       sort_dir: usesDefaultSort ? undefined : filters.sortDir,
     }),
@@ -717,11 +746,14 @@ export async function fetchMarketListings(
   filters: MarketListingFilters = DEFAULT_MARKET_LISTING_FILTERS,
   fetcher: Fetcher = fetch
 ): Promise<ListingPreview[]> {
+  const interestStatus = filters.interestStatus ?? DEFAULT_MARKET_LISTING_FILTERS.interestStatus
+
   return fetchJson<ListingPreview[]>(
     buildApiPath("/api/listings/recent", {
       server,
       q: filters.query.trim() || undefined,
       review_status: filters.reviewStatus,
+      interest_status: interestStatus === DEFAULT_MARKET_LISTING_FILTERS.interestStatus ? undefined : interestStatus,
       limit: filters.limit,
     }),
     fetcher
@@ -744,9 +776,15 @@ export async function fetchItemSearchPreview(
 
 export async function fetchItemDetail(
   itemId: number,
+  server: string,
   fetcher: Fetcher = fetch
 ): Promise<ItemDetail> {
-  return fetchJson<ItemDetail>(`/api/items/${itemId}`, fetcher)
+  return fetchJson<ItemDetail>(
+    buildApiPath(`/api/items/${itemId}`, {
+      server,
+    }),
+    fetcher
+  )
 }
 
 export async function fetchItemPrices(
@@ -801,7 +839,7 @@ export async function fetchItemDetailPageData(
   }
 
   const [item, price, listings, tlpHistory, kronoLatest] = await Promise.all([
-    fetchItemDetail(itemId, fetcher),
+    fetchItemDetail(itemId, server, fetcher),
     fetchItemPrices(itemId, server, fetcher),
     fetchItemListings(itemId, server, fetcher),
     fetchTlpItemHistory(itemId, server, fetcher).catch((error) => {
@@ -841,6 +879,61 @@ export async function fetchItemTooltip(
       name,
     }),
     fetcher
+  )
+}
+
+export async function fetchItemPreferences(
+  server: string,
+  status?: ItemPreferenceStatus,
+  fetcher: Fetcher = fetch
+): Promise<ItemPreference[]> {
+  return fetchJson<ItemPreference[]>(
+    buildApiPath("/api/items/preferences", {
+      server,
+      status,
+    }),
+    fetcher
+  )
+}
+
+export async function updateItemPreference(
+  itemId: number,
+  server: string,
+  status: ItemPreferenceStatusUpdate,
+  notes: string | null = null,
+  fetcher: Fetcher = fetch
+): Promise<ItemPreference> {
+  return fetchJson<ItemPreference>(
+    buildApiPath(`/api/items/${itemId}/preference`, {
+      server,
+    }),
+    fetcher,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ status, notes }),
+    }
+  )
+}
+
+export async function updateListingItemPreference(
+  listingId: number,
+  status: ItemPreferenceStatusUpdate,
+  notes: string | null = null,
+  fetcher: Fetcher = fetch
+): Promise<ItemPreference> {
+  return fetchJson<ItemPreference>(
+    `/api/listings/${listingId}/item-preference`,
+    fetcher,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ status, notes }),
+    }
   )
 }
 

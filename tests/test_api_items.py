@@ -32,6 +32,45 @@ class ApiItemsTests(unittest.TestCase):
             self.assertEqual(payload[0]["name"], "Stave of Shielding")
             self.assertIsNone(payload[0]["icon_url"])
 
+    def test_item_preference_can_be_set_listed_and_cleared(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            _seed_items_fixture(db_path)
+            app = create_app(db_path)
+
+            with TestClient(app) as client:
+                wanted_response = client.put(
+                    "/api/items/101/preference",
+                    params={"server": "Frostreaver"},
+                    json={"status": "wanted", "notes": "monk upgrade"},
+                )
+                detail_response = client.get("/api/items/101", params={"server": "frostreaver"})
+                list_response = client.get("/api/items/preferences", params={"server": "frostreaver"})
+                neutral_response = client.put(
+                    "/api/items/101/preference",
+                    params={"server": "frostreaver"},
+                    json={"status": "neutral"},
+                )
+                cleared_response = client.get("/api/items/preferences", params={"server": "frostreaver"})
+
+            self.assertEqual(wanted_response.status_code, 200, wanted_response.text)
+            wanted_payload = wanted_response.json()
+            self.assertEqual(wanted_payload["status"], "wanted")
+            self.assertEqual(wanted_payload["preference_key_kind"], "item_id")
+            self.assertEqual(wanted_payload["preference_key"], "101")
+            self.assertEqual(wanted_payload["notes"], "monk upgrade")
+
+            self.assertEqual(detail_response.status_code, 200, detail_response.text)
+            self.assertEqual(detail_response.json()["item_preference"], "wanted")
+
+            self.assertEqual(list_response.status_code, 200, list_response.text)
+            self.assertEqual([preference["item_id"] for preference in list_response.json()], [101])
+
+            self.assertEqual(neutral_response.status_code, 200, neutral_response.text)
+            self.assertEqual(neutral_response.json()["status"], "neutral")
+            self.assertEqual(cleared_response.json(), [])
+
     def test_item_detail_returns_stats_and_effects(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "eqmarket.sqlite"

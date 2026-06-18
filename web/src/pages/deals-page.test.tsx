@@ -42,6 +42,7 @@ describe("DealsPage helpers", () => {
         dateFrom: "2026-06-18",
         sortBy: "seller",
         sortDir: "asc",
+        interestStatus: "wanted",
       })
     ).toEqual({
       minDiscount: 100,
@@ -54,6 +55,7 @@ describe("DealsPage helpers", () => {
       dateFrom: "2026-06-18",
       sortBy: "seller",
       sortDir: "asc",
+      interestStatus: "wanted",
     })
 
     expect(
@@ -68,6 +70,7 @@ describe("DealsPage helpers", () => {
         dateFrom: "",
         sortBy: "discount",
         sortDir: "desc",
+        interestStatus: "tracked",
       })
     ).toEqual({
       minDiscount: 30,
@@ -80,6 +83,7 @@ describe("DealsPage helpers", () => {
       dateFrom: "",
       sortBy: "discount",
       sortDir: "desc",
+      interestStatus: "tracked",
     })
   })
 

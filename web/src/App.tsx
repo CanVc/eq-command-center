@@ -32,11 +32,14 @@ import {
   restoreListing,
   restoreSimilarListings,
   startTlpPriceRefreshJob,
+  updateItemPreference,
+  updateListingItemPreference,
   type DashboardSummary,
   type DealFilters,
   type DealPreview,
   type InterfacePageData,
   type ItemDetailPageData,
+  type ItemPreferenceStatusUpdate,
   type ItemSearchResult,
   type ListingPreview,
   type MarketListingFilters,
@@ -420,6 +423,30 @@ function App() {
     }
   }, [])
 
+  const changeListingItemPreference = useCallback(async (listingId: number, status: ItemPreferenceStatusUpdate) => {
+    try {
+      await updateListingItemPreference(listingId, status)
+      setRefreshKey((current) => current + 1)
+    } catch (error) {
+      setPageState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Unable to update item preference",
+      })
+    }
+  }, [])
+
+  const changeItemPreference = useCallback(async (itemId: number, status: ItemPreferenceStatusUpdate) => {
+    try {
+      await updateItemPreference(itemId, server, status)
+      setRefreshKey((current) => current + 1)
+    } catch (error) {
+      setPageState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Unable to update item preference",
+      })
+    }
+  }, [server])
+
   return (
     <AppLayout
       activePage={activePage}
@@ -471,6 +498,8 @@ function App() {
             onRestoreListing={restoreMarketListing}
             onDiscardSimilarListings={discardSimilarMarketListings}
             onRestoreSimilarListings={restoreSimilarMarketListings}
+            onUpdateListingItemPreference={changeListingItemPreference}
+            onUpdateItemPreference={changeItemPreference}
           />
         )}
       </section>
@@ -670,6 +699,8 @@ function PageContent({
   onRestoreListing,
   onDiscardSimilarListings,
   onRestoreSimilarListings,
+  onUpdateListingItemPreference,
+  onUpdateItemPreference,
 }: {
   data: PageData
   server: string
@@ -691,6 +722,8 @@ function PageContent({
   onRestoreListing: (listingId: number) => Promise<void>
   onDiscardSimilarListings: (listingId: number, reasonCode?: string) => Promise<void>
   onRestoreSimilarListings: (listingId: number) => Promise<void>
+  onUpdateListingItemPreference: (listingId: number, status: ItemPreferenceStatusUpdate) => Promise<void>
+  onUpdateItemPreference: (itemId: number, status: ItemPreferenceStatusUpdate) => Promise<void>
 }) {
   switch (data.page) {
     case "dashboard":
@@ -706,6 +739,7 @@ function PageContent({
           onRestoreListing={onRestoreListing}
           onDiscardSimilarListings={onDiscardSimilarListings}
           onRestoreSimilarListings={onRestoreSimilarListings}
+          onUpdateListingItemPreference={onUpdateListingItemPreference}
         />
       )
     case "market":
@@ -719,6 +753,7 @@ function PageContent({
           onRestoreListing={onRestoreListing}
           onDiscardSimilarListings={onDiscardSimilarListings}
           onRestoreSimilarListings={onRestoreSimilarListings}
+          onUpdateListingItemPreference={onUpdateListingItemPreference}
         />
       )
     case "items":
@@ -740,7 +775,7 @@ function PageContent({
         />
       )
     case "item-detail":
-      return <ItemDetailPage data={data.payload} server={server} />
+      return <ItemDetailPage data={data.payload} server={server} onUpdateItemPreference={onUpdateItemPreference} />
     case "settings":
       return <SettingsPage settings={data.payload} mageloStatus={mageloStatus} />
   }

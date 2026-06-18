@@ -16,6 +16,32 @@ from eqmarket.sources.tlp_auctions import TlpAuctionsError, db_server_name
 DEFAULT_SERVER = "frostreaver"
 DEFAULT_STALE_PRICE_MINUTES = 6 * 60
 
+LISTING_ITEM_PREFERENCE_EXPRESSION = """
+COALESCE(
+    (
+        SELECT ip.status
+        FROM item_preferences ip
+        WHERE ip.server = lower(ml.server)
+          AND ip.preference_key_kind = 'item_id'
+          AND ip.preference_key = CAST(ml.item_id AS TEXT)
+    ),
+    (
+        SELECT ip.status
+        FROM item_preferences ip
+        WHERE ip.server = lower(ml.server)
+          AND ip.preference_key_kind = 'name'
+          AND ip.preference_key = i.normalized_name
+    ),
+    (
+        SELECT ip.status
+        FROM item_preferences ip
+        WHERE ip.server = lower(ml.server)
+          AND ip.preference_key_kind = 'name'
+          AND ip.preference_key = ml.normalized_item_name
+    )
+)
+"""
+
 router = APIRouter()
 
 
@@ -125,7 +151,7 @@ def _fetch_stale_tlp_items(
     max_age_hours: float,
 ) -> dict[int, dict[str, Any]]:
     rows = connection.execute(
-        """
+        f"""
         SELECT
             ml.item_id,
             COALESCE(i.name, max(ml.item_name)) AS item_name,
@@ -142,6 +168,7 @@ def _fetch_stale_tlp_items(
         WHERE lower(ml.server) = lower(?)
           AND ml.item_id IS NOT NULL
           AND ml.price_pp IS NOT NULL
+          AND COALESCE({LISTING_ITEM_PREFERENCE_EXPRESSION}, 'neutral') != 'ignored'
           AND (
                 mp.item_id IS NULL
                 OR mp.confidence = 'failed'

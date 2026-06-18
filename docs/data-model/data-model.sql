@@ -28,6 +28,9 @@ VALUES (3, 'Add market listing review/discard status');
 INSERT OR IGNORE INTO schema_version (version, description)
 VALUES (4, 'Add persistent market listing discard rules');
 
+INSERT OR IGNORE INTO schema_version (version, description)
+VALUES (5, 'Add per-server item interest preferences');
+
 -- -----------------------------------------------------------------------------
 -- Items
 -- -----------------------------------------------------------------------------
@@ -415,6 +418,43 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_watchlist_items_server_name
 
 CREATE INDEX IF NOT EXISTS idx_watchlist_items_enabled
     ON watchlist_items(enabled);
+
+-- Per-server item interest preferences. These are user intent signals, not
+-- listing reviews: wanted items can be highlighted, ignored items are hidden
+-- from tracking queues by default while raw listings remain stored.
+CREATE TABLE IF NOT EXISTS item_preferences (
+    preference_id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    server TEXT NOT NULL,
+    preference_key_kind TEXT NOT NULL CHECK (preference_key_kind IN ('item_id', 'name')),
+    preference_key TEXT NOT NULL,
+
+    item_id INTEGER,
+    item_name TEXT NOT NULL,
+    normalized_item_name TEXT NOT NULL,
+
+    status TEXT NOT NULL CHECK (status IN ('wanted', 'ignored')),
+    notes TEXT,
+
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE (server, preference_key_kind, preference_key),
+    CHECK (
+        (preference_key_kind = 'item_id' AND item_id IS NOT NULL)
+        OR preference_key_kind = 'name'
+    ),
+    FOREIGN KEY (item_id) REFERENCES items(item_id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_item_preferences_server_status
+    ON item_preferences(server, status);
+
+CREATE INDEX IF NOT EXISTS idx_item_preferences_item_id
+    ON item_preferences(item_id);
+
+CREATE INDEX IF NOT EXISTS idx_item_preferences_name
+    ON item_preferences(server, normalized_item_name);
 
 -- -----------------------------------------------------------------------------
 -- Characters and gear finder

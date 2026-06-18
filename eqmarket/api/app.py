@@ -14,6 +14,7 @@ from eqmarket.api.routes.deals import router as deals_router
 from eqmarket.api.routes.interface import router as interface_router
 from eqmarket.api.routes.items import router as items_router
 from eqmarket.api.routes.listings import router as listings_router
+from eqmarket.api.routes.preferences import router as preferences_router
 from eqmarket.api.routes.prices import router as prices_router
 from eqmarket.api.routes.runtime import router as runtime_router
 from eqmarket.api.routes.settings import router as settings_router
@@ -67,6 +68,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     app.include_router(dashboard_router)
     app.include_router(deals_router)
     app.include_router(interface_router)
+    app.include_router(preferences_router)
     app.include_router(items_router)
     app.include_router(listings_router)
     app.include_router(prices_router)

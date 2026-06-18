@@ -1,6 +1,7 @@
 import {
   DEFAULT_MARKET_LISTING_FILTERS,
   MARKET_LISTING_PAGE_SIZE,
+  type ItemInterestFilter,
   type ListingReviewStatusFilter,
   type MarketListingFilters,
 } from "@/lib/api"
@@ -9,12 +10,14 @@ const MAX_MARKET_LISTING_LIMIT = 500
 
 export function resetMarketListingSearch(
   query: string,
-  reviewStatus: ListingReviewStatusFilter = DEFAULT_MARKET_LISTING_FILTERS.reviewStatus
+  reviewStatus: ListingReviewStatusFilter = DEFAULT_MARKET_LISTING_FILTERS.reviewStatus,
+  interestStatus: ItemInterestFilter = DEFAULT_MARKET_LISTING_FILTERS.interestStatus
 ): MarketListingFilters {
   return {
     ...DEFAULT_MARKET_LISTING_FILTERS,
     query: normalizeListingQuery(query),
     reviewStatus: normalizeReviewStatus(reviewStatus),
+    interestStatus: normalizeInterestStatus(interestStatus),
   }
 }
 
@@ -29,6 +32,7 @@ export function normalizeMarketListingFilters(filters: MarketListingFilters): Ma
   return {
     query: normalizeListingQuery(filters.query),
     reviewStatus: normalizeReviewStatus(filters.reviewStatus),
+    interestStatus: normalizeInterestStatus(filters.interestStatus),
     limit: clampLimit(filters.limit),
   }
 }
@@ -38,7 +42,7 @@ export function canLoadMoreListings(rowCount: number, limit: number): boolean {
 }
 
 export function marketListingFiltersKey(filters: MarketListingFilters): string {
-  return `${filters.query}\u0000${filters.reviewStatus}\u0000${filters.limit}`
+  return `${filters.query}\u0000${filters.reviewStatus}\u0000${filters.interestStatus}\u0000${filters.limit}`
 }
 
 function normalizeListingQuery(query: string): string {
@@ -47,6 +51,10 @@ function normalizeListingQuery(query: string): string {
 
 function normalizeReviewStatus(status: ListingReviewStatusFilter): ListingReviewStatusFilter {
   return ["active", "suspect", "discarded", "all"].includes(status) ? status : DEFAULT_MARKET_LISTING_FILTERS.reviewStatus
+}
+
+function normalizeInterestStatus(status: ItemInterestFilter): ItemInterestFilter {
+  return ["tracked", "wanted", "ignored", "all"].includes(status) ? status : DEFAULT_MARKET_LISTING_FILTERS.interestStatus
 }
 
 function clampLimit(limit: number): number {

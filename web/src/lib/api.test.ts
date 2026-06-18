@@ -7,6 +7,7 @@ import {
   fetchDashboardSummary,
   fetchHealth,
   fetchInterfacePageData,
+  fetchItemPreferences,
   fetchItemDetailPageData,
   fetchItemTooltip,
   fetchItemSearchPreview,
@@ -23,6 +24,8 @@ import {
   fetchTlpPriceRefreshJob,
   restoreSimilarListings,
   updateEqLogPath,
+  updateItemPreference,
+  updateListingItemPreference,
 } from "./api"
 
 describe("fetchHealth", () => {
@@ -89,17 +92,22 @@ describe("page API helpers", () => {
         dateFrom: "2026-06-18",
         sortBy: "seller",
         sortDir: "asc",
+        interestStatus: "wanted",
       },
       fetcher
     )
     await fetchListingsPreview("mischief", fetcher)
-    await fetchMarketListings("mischief", { query: " crown ", reviewStatus: "discarded", limit: 50 }, fetcher)
+    await fetchMarketListings(
+      "mischief",
+      { query: " crown ", reviewStatus: "discarded", interestStatus: "ignored", limit: 50 },
+      fetcher
+    )
     await fetchItemSearchPreview("mischief", fetcher)
     await fetchRuntimeStatus("mischief", 90, fetcher)
 
     expect(fetcher).toHaveBeenNthCalledWith(
       1,
-      "/api/deals?server=mischief&min_discount=45&min_price_pp=5000&limit=25&resolved_only=false&include_suspect=true&seller=BigSeller&item=crown&date_from=2026-06-18&sort_by=seller&sort_dir=asc",
+      "/api/deals?server=mischief&min_discount=45&min_price_pp=5000&limit=25&resolved_only=false&include_suspect=true&seller=BigSeller&item=crown&date_from=2026-06-18&interest_status=wanted&sort_by=seller&sort_dir=asc",
       {
         headers: {
           Accept: "application/json",
@@ -113,7 +121,7 @@ describe("page API helpers", () => {
     })
     expect(fetcher).toHaveBeenNthCalledWith(
       3,
-      "/api/listings/recent?server=mischief&q=crown&review_status=discarded&limit=50",
+      "/api/listings/recent?server=mischief&q=crown&review_status=discarded&interest_status=ignored&limit=50",
       {
         headers: {
           Accept: "application/json",
@@ -297,6 +305,56 @@ describe("page API helpers", () => {
     })
     expect(fetcher).toHaveBeenNthCalledWith(2, "/api/listings/42/restore-similar", {
       method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    })
+  })
+
+  it("updates item preference markers", async () => {
+    const payload = {
+      preference_id: 7,
+      server: "frostreaver",
+      preference_key_kind: "item_id",
+      preference_key: "101",
+      item_id: 101,
+      item_name: "Stave of Shielding",
+      normalized_item_name: "stave of shielding",
+      status: "wanted",
+      notes: null,
+      created_at: "2026-06-18 12:00:00",
+      updated_at: "2026-06-18 12:00:00",
+    }
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(payload))
+      .mockResolvedValueOnce(jsonResponse({ ...payload, status: "ignored" }))
+      .mockResolvedValueOnce(jsonResponse([payload]))
+
+    await expect(updateItemPreference(101, "frostreaver", "wanted", null, fetcher)).resolves.toEqual(payload)
+    await expect(updateListingItemPreference(42, "ignored", null, fetcher)).resolves.toEqual({
+      ...payload,
+      status: "ignored",
+    })
+    await expect(fetchItemPreferences("frostreaver", "wanted", fetcher)).resolves.toEqual([payload])
+
+    expect(fetcher).toHaveBeenNthCalledWith(1, "/api/items/101/preference?server=frostreaver", {
+      method: "PUT",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ status: "wanted", notes: null }),
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/listings/42/item-preference", {
+      method: "PUT",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ status: "ignored", notes: null }),
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(3, "/api/items/preferences?server=frostreaver&status=wanted", {
       headers: {
         Accept: "application/json",
       },
@@ -710,7 +768,7 @@ describe("page API helpers", () => {
         Accept: "application/json",
       },
     })
-    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/items/1", {
+    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/items/1?server=mischief", {
       headers: {
         Accept: "application/json",
       },

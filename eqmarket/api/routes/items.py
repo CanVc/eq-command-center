@@ -18,6 +18,7 @@ DEFAULT_LISTINGS_LIMIT = 100
 ITEM_COLUMNS = """
     item_id,
     name,
+    normalized_name,
     item_type,
     slot,
     classes,
@@ -68,27 +69,52 @@ router = APIRouter()
 def search_items(
     request: Request,
     q: str = Query(..., min_length=1),
+    server: str = Query("frostreaver", min_length=1),
     limit: int = Query(DEFAULT_SEARCH_LIMIT, gt=0, le=100),
 ) -> list[dict[str, Any]]:
+    db_server = _normalize_server(server)
     search_text = _normalize_required_text(q, "q")
 
     with closing(_connect_or_503(request.app.state.db_path)) as connection:
         rows = connection.execute(
             """
-            SELECT item_id, name, slot, classes, flags
-            FROM items
-            WHERE normalized_name LIKE ? ESCAPE '\\'
-               OR lower(name) LIKE ? ESCAPE '\\'
+            SELECT
+                i.item_id,
+                i.name,
+                i.slot,
+                i.classes,
+                i.flags,
+                COALESCE(
+                    (
+                        SELECT ip.status
+                        FROM item_preferences ip
+                        WHERE ip.server = ?
+                          AND ip.preference_key_kind = 'item_id'
+                          AND ip.preference_key = CAST(i.item_id AS TEXT)
+                    ),
+                    (
+                        SELECT ip.status
+                        FROM item_preferences ip
+                        WHERE ip.server = ?
+                          AND ip.preference_key_kind = 'name'
+                          AND ip.preference_key = i.normalized_name
+                    )
+                ) AS item_preference
+            FROM items i
+            WHERE i.normalized_name LIKE ? ESCAPE '\\'
+               OR lower(i.name) LIKE ? ESCAPE '\\'
             ORDER BY
                 CASE
-                    WHEN normalized_name = ? THEN 0
-                    WHEN normalized_name LIKE ? ESCAPE '\\' THEN 1
+                    WHEN i.normalized_name = ? THEN 0
+                    WHEN i.normalized_name LIKE ? ESCAPE '\\' THEN 1
                     ELSE 2
                 END,
-                name COLLATE NOCASE
+                i.name COLLATE NOCASE
             LIMIT ?
             """,
             (
+                db_server,
+                db_server,
                 _like_pattern(search_text),
                 _like_pattern(search_text),
                 search_text,
@@ -105,6 +131,7 @@ def search_items(
             "slot": row["slot"],
             "classes": row["classes"],
             "flags": row["flags"],
+            "item_preference": row["item_preference"],
         }
         for row in rows
     ]
@@ -127,12 +154,19 @@ def item_tooltip_by_name(
 
 
 @router.get("/api/items/{item_id}")
-def item_detail(request: Request, item_id: int) -> dict[str, Any]:
+def item_detail(
+    request: Request,
+    item_id: int,
+    server: str = Query("frostreaver", min_length=1),
+) -> dict[str, Any]:
+    db_server = _normalize_server(server)
+
     with closing(_connect_or_503(request.app.state.db_path)) as connection:
         item = _fetch_item_or_404(connection, item_id)
         effects = _fetch_item_effects(connection, item_id)
+        item_preference = _fetch_item_preference_status(connection, item, db_server)
 
-    return _item_detail_payload(item, effects)
+    return _item_detail_payload(item, effects, item_preference)
 
 
 @router.get("/api/items/{item_id}/prices")
@@ -376,6 +410,31 @@ def _fetch_latest_krono_price(connection: sqlite3.Connection, db_server: str) ->
     return _optional_int(row["price_pp"]) if row else None
 
 
+def _fetch_item_preference_status(connection: sqlite3.Connection, item: sqlite3.Row, db_server: str) -> str | None:
+    row = connection.execute(
+        """
+        SELECT COALESCE(
+            (
+                SELECT ip.status
+                FROM item_preferences ip
+                WHERE ip.server = ?
+                  AND ip.preference_key_kind = 'item_id'
+                  AND ip.preference_key = CAST(? AS TEXT)
+            ),
+            (
+                SELECT ip.status
+                FROM item_preferences ip
+                WHERE ip.server = ?
+                  AND ip.preference_key_kind = 'name'
+                  AND ip.preference_key = ?
+            )
+        ) AS item_preference
+        """,
+        (db_server, int(item["item_id"]), db_server, item["normalized_name"]),
+    ).fetchone()
+    return row["item_preference"] if row is not None else None
+
+
 def _tlp_history_point_payload(point: PricePoint, krono_price_pp: int | None) -> dict[str, Any] | None:
     if point.is_buy:
         return None
@@ -421,6 +480,29 @@ def _fetch_item_listings(
             ml.raw_line,
             ml.source,
             ml.confidence,
+            COALESCE(
+                (
+                    SELECT ip.status
+                    FROM item_preferences ip
+                    WHERE ip.server = lower(ml.server)
+                      AND ip.preference_key_kind = 'item_id'
+                      AND ip.preference_key = CAST(ml.item_id AS TEXT)
+                ),
+                (
+                    SELECT ip.status
+                    FROM item_preferences ip
+                    WHERE ip.server = lower(ml.server)
+                      AND ip.preference_key_kind = 'name'
+                      AND ip.preference_key = ?
+                ),
+                (
+                    SELECT ip.status
+                    FROM item_preferences ip
+                    WHERE ip.server = lower(ml.server)
+                      AND ip.preference_key_kind = 'name'
+                      AND ip.preference_key = ml.normalized_item_name
+                )
+            ) AS item_preference,
             COALESCE(mlr.status, 'active') AS review_status,
             mlr.reason_code AS review_reason_code,
             mlr.note AS review_note
@@ -432,13 +514,17 @@ def _fetch_item_listings(
         ORDER BY datetime(ml.timestamp) DESC, ml.timestamp DESC, ml.listing_id DESC
         LIMIT ?
         """,
-        (int(item["item_id"]), db_server, limit),
+        (item["normalized_name"], int(item["item_id"]), db_server, limit),
     ).fetchall()
 
     return [_listing_payload(row, item["name"]) for row in rows]
 
 
-def _item_detail_payload(item: sqlite3.Row, effects: list[dict[str, Any]]) -> dict[str, Any]:
+def _item_detail_payload(
+    item: sqlite3.Row,
+    effects: list[dict[str, Any]],
+    item_preference: str | None,
+) -> dict[str, Any]:
     return {
         "item_id": int(item["item_id"]),
         "name": item["name"],
@@ -455,6 +541,7 @@ def _item_detail_payload(item: sqlite3.Row, effects: list[dict[str, Any]]) -> di
         "effects": effects,
         "source_primary": item["source_primary"],
         "last_imported_at": item["last_imported_at"],
+        "item_preference": item_preference,
     }
 
 
@@ -462,6 +549,7 @@ def _tooltip_payload(connection: sqlite3.Connection, item: sqlite3.Row, db_serve
     price = _fetch_price_payload(connection, int(item["item_id"]), db_server)
     last_seen = _fetch_last_seen_payload(connection, int(item["item_id"]), db_server)
     effects = _fetch_item_effects(connection, int(item["item_id"]))
+    item_preference = _fetch_item_preference_status(connection, item, db_server)
     stats = _stats_payload(item)
     combat = _combat_payload(item)
     levels = _levels_payload(item)
@@ -490,6 +578,7 @@ def _tooltip_payload(connection: sqlite3.Connection, item: sqlite3.Row, db_serve
         "last_refresh_at": price["last_refresh_at"],
         **last_seen,
         "effects": effects,
+        "item_preference": item_preference,
     }
 
 
@@ -584,6 +673,7 @@ def _listing_payload(row: sqlite3.Row, canonical_item_name: str) -> dict[str, An
         "review_status": row["review_status"],
         "review_reason_code": row["review_reason_code"],
         "review_note": row["review_note"],
+        "item_preference": row["item_preference"],
     }
 
 

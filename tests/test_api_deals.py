@@ -106,6 +106,39 @@ class ApiDealsTests(unittest.TestCase):
             self.assertNotIn(listing_ids["larger_gain"], recent_ids)
             self.assertIn(listing_ids["median"], recent_ids)
 
+    def test_deals_hide_ignored_items_by_default_and_filter_interest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            listing_ids = _seed_deals_fixture(db_path)
+            _prefer_item(db_path, 101, "Stave of Shielding", "stave of shielding", "wanted")
+            _prefer_item(db_path, 106, "Runed Crown", "runed crown", "ignored")
+            app = create_app(db_path)
+
+            with TestClient(app) as client:
+                default_response = client.get("/api/deals", params={"server": "frostreaver", "min_discount": 30})
+                wanted_response = client.get(
+                    "/api/deals",
+                    params={"server": "frostreaver", "min_discount": 30, "interest_status": "wanted"},
+                )
+                ignored_response = client.get(
+                    "/api/deals",
+                    params={"server": "frostreaver", "min_discount": 30, "interest_status": "ignored"},
+                )
+
+            self.assertEqual(default_response.status_code, 200, default_response.text)
+            self.assertEqual(wanted_response.status_code, 200, wanted_response.text)
+            self.assertEqual(ignored_response.status_code, 200, ignored_response.text)
+
+            default_ids = {deal["listing_id"] for deal in default_response.json()}
+            self.assertNotIn(listing_ids["larger_gain"], default_ids)
+            self.assertIn(listing_ids["median"], default_ids)
+
+            self.assertEqual([deal["listing_id"] for deal in wanted_response.json()], [listing_ids["median"]])
+            self.assertEqual([deal["listing_id"] for deal in ignored_response.json()], [listing_ids["larger_gain"]])
+            self.assertEqual(wanted_response.json()[0]["item_preference"], "wanted")
+            self.assertEqual(ignored_response.json()[0]["item_preference"], "ignored")
+
     def test_deals_can_be_sorted_by_supported_columns(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "eqmarket.sqlite"
@@ -217,6 +250,20 @@ def _review_listing(db_path: Path, listing_id: int, status: str, reason_code: st
             VALUES (?, ?, ?)
             """,
             (listing_id, status, reason_code),
+        )
+        connection.commit()
+
+
+def _prefer_item(db_path: Path, item_id: int, item_name: str, normalized_name: str, status: str) -> None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute(
+            """
+            INSERT INTO item_preferences (
+                server, preference_key_kind, preference_key, item_id,
+                item_name, normalized_item_name, status
+            ) VALUES ('frostreaver', 'item_id', ?, ?, ?, ?, ?)
+            """,
+            (str(item_id), item_id, item_name, normalized_name, status),
         )
         connection.commit()
 

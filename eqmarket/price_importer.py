@@ -61,6 +61,51 @@ TLP_MARKET_PRICE_SOURCES = (
     "tlp_auctions_history_failed",
 )
 
+LISTING_ITEM_PREFERENCE_EXPRESSION = """
+COALESCE(
+    (
+        SELECT ip.status
+        FROM item_preferences ip
+        WHERE ip.server = lower(ml.server)
+          AND ip.preference_key_kind = 'item_id'
+          AND ip.preference_key = CAST(ml.item_id AS TEXT)
+    ),
+    (
+        SELECT ip.status
+        FROM item_preferences ip
+        WHERE ip.server = lower(ml.server)
+          AND ip.preference_key_kind = 'name'
+          AND ip.preference_key = i.normalized_name
+    ),
+    (
+        SELECT ip.status
+        FROM item_preferences ip
+        WHERE ip.server = lower(ml.server)
+          AND ip.preference_key_kind = 'name'
+          AND ip.preference_key = ml.normalized_item_name
+    )
+)
+"""
+
+WATCHLIST_ITEM_PREFERENCE_EXPRESSION = """
+COALESCE(
+    (
+        SELECT ip.status
+        FROM item_preferences ip
+        WHERE ip.server = lower(wi.server)
+          AND ip.preference_key_kind = 'item_id'
+          AND ip.preference_key = CAST(wi.item_id AS TEXT)
+    ),
+    (
+        SELECT ip.status
+        FROM item_preferences ip
+        WHERE ip.server = lower(wi.server)
+          AND ip.preference_key_kind = 'name'
+          AND ip.preference_key = wi.normalized_item_name
+    )
+)
+"""
+
 
 def refresh_krono_price(db_path: Path, server: str) -> TlpPriceImportStats:
     """Refresh only the cached Krono price for a server from TLP Auctions."""
@@ -101,11 +146,14 @@ def load_recent_listing_item_ids(
             f"""
             SELECT ml.item_id
             FROM market_listings ml
+            LEFT JOIN items i
+                ON i.item_id = ml.item_id
             LEFT JOIN market_prices mp
                 ON mp.item_id = ml.item_id AND lower(mp.server) = lower(ml.server)
             WHERE lower(ml.server) = ?
               AND ml.item_id IS NOT NULL
               AND ml.price_pp IS NOT NULL
+              AND COALESCE({LISTING_ITEM_PREFERENCE_EXPRESSION}, 'neutral') != 'ignored'
 {freshness_filter}
             GROUP BY ml.item_id
             ORDER BY max(ml.timestamp) DESC, max(ml.listing_id) DESC
@@ -146,23 +194,27 @@ def count_unresolved_priced_listing_names(db_path: Path, server: str) -> int:
     db_server = db_server_name(server)
     with closing(sqlite3.connect(db_path)) as connection:
         row = connection.execute(
-            """
+            f"""
             SELECT count(*)
             FROM (
                 SELECT normalized_item_name
-                FROM market_listings
-                WHERE lower(server) = ?
-                  AND item_id IS NULL
-                  AND normalized_item_name IS NOT NULL
-                  AND price_pp IS NOT NULL
+                FROM market_listings ml
+                LEFT JOIN items i
+                    ON i.item_id = ml.item_id
+                WHERE lower(ml.server) = ?
+                  AND ml.item_id IS NULL
+                  AND ml.normalized_item_name IS NOT NULL
+                  AND ml.price_pp IS NOT NULL
+                  AND COALESCE({LISTING_ITEM_PREFERENCE_EXPRESSION}, 'neutral') != 'ignored'
                 GROUP BY normalized_item_name
                 UNION
                 SELECT normalized_item_name
-                FROM watchlist_items
-                WHERE lower(server) = ?
-                  AND item_id IS NULL
-                  AND normalized_item_name IS NOT NULL
-                  AND enabled = 1
+                FROM watchlist_items wi
+                WHERE lower(wi.server) = ?
+                  AND wi.item_id IS NULL
+                  AND wi.normalized_item_name IS NOT NULL
+                  AND wi.enabled = 1
+                  AND COALESCE({WATCHLIST_ITEM_PREFERENCE_EXPRESSION}, 'neutral') != 'ignored'
                 GROUP BY normalized_item_name
             ) unresolved_names
             """,
@@ -189,11 +241,14 @@ def count_stale_listing_item_ids(
             FROM (
                 SELECT ml.item_id
                 FROM market_listings ml
+                LEFT JOIN items i
+                    ON i.item_id = ml.item_id
                 LEFT JOIN market_prices mp
                     ON mp.item_id = ml.item_id AND lower(mp.server) = lower(ml.server)
                 WHERE lower(ml.server) = ?
                   AND ml.item_id IS NOT NULL
                   AND ml.price_pp IS NOT NULL
+                  AND COALESCE({LISTING_ITEM_PREFERENCE_EXPRESSION}, 'neutral') != 'ignored'
 {freshness_filter}
                 GROUP BY ml.item_id
             ) stale_items
@@ -788,14 +843,22 @@ def _upsert_history_price(
 
 def _load_wanted_normalized_names(connection: sqlite3.Connection, db_server: str) -> set[str]:
     rows = connection.execute(
-        """
+        f"""
         SELECT normalized_item_name
-        FROM market_listings
-        WHERE lower(server) = ? AND item_id IS NULL AND normalized_item_name IS NOT NULL
+        FROM market_listings ml
+        LEFT JOIN items i
+            ON i.item_id = ml.item_id
+        WHERE lower(ml.server) = ?
+          AND ml.item_id IS NULL
+          AND ml.normalized_item_name IS NOT NULL
+          AND COALESCE({LISTING_ITEM_PREFERENCE_EXPRESSION}, 'neutral') != 'ignored'
         UNION
         SELECT normalized_item_name
-        FROM watchlist_items
-        WHERE lower(server) = ? AND item_id IS NULL AND normalized_item_name IS NOT NULL
+        FROM watchlist_items wi
+        WHERE lower(wi.server) = ?
+          AND wi.item_id IS NULL
+          AND wi.normalized_item_name IS NOT NULL
+          AND COALESCE({WATCHLIST_ITEM_PREFERENCE_EXPRESSION}, 'neutral') != 'ignored'
         """,
         (db_server, db_server),
     ).fetchall()
@@ -806,14 +869,20 @@ def _load_target_item_ids(connection: sqlite3.Connection, db_server: str, item_i
     if item_ids is not None:
         return set(item_ids)
     rows = connection.execute(
-        """
-        SELECT item_id
-        FROM market_listings
-        WHERE lower(server) = ? AND item_id IS NOT NULL
+        f"""
+        SELECT ml.item_id
+        FROM market_listings ml
+        LEFT JOIN items i
+            ON i.item_id = ml.item_id
+        WHERE lower(ml.server) = ?
+          AND ml.item_id IS NOT NULL
+          AND COALESCE({LISTING_ITEM_PREFERENCE_EXPRESSION}, 'neutral') != 'ignored'
         UNION
-        SELECT item_id
-        FROM watchlist_items
-        WHERE lower(server) = ? AND item_id IS NOT NULL
+        SELECT wi.item_id
+        FROM watchlist_items wi
+        WHERE lower(wi.server) = ?
+          AND wi.item_id IS NOT NULL
+          AND COALESCE({WATCHLIST_ITEM_PREFERENCE_EXPRESSION}, 'neutral') != 'ignored'
         """,
         (db_server, db_server),
     ).fetchall()

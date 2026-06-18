@@ -14,6 +14,32 @@ DEFAULT_RECENT_HOURS = 24
 DEFAULT_TOP_LIMIT = 5
 DEFAULT_MIN_DISCOUNT = 30.0
 
+LISTING_ITEM_PREFERENCE_EXPRESSION = """
+COALESCE(
+    (
+        SELECT ip.status
+        FROM item_preferences ip
+        WHERE ip.server = lower(ml.server)
+          AND ip.preference_key_kind = 'item_id'
+          AND ip.preference_key = CAST(ml.item_id AS TEXT)
+    ),
+    (
+        SELECT ip.status
+        FROM item_preferences ip
+        WHERE ip.server = lower(ml.server)
+          AND ip.preference_key_kind = 'name'
+          AND ip.preference_key = i.normalized_name
+    ),
+    (
+        SELECT ip.status
+        FROM item_preferences ip
+        WHERE ip.server = lower(ml.server)
+          AND ip.preference_key_kind = 'name'
+          AND ip.preference_key = ml.normalized_item_name
+    )
+)
+"""
+
 
 router = APIRouter()
 
@@ -77,7 +103,7 @@ def _connect_or_503(db_path: str | Path) -> sqlite3.Connection:
 
 def _fetch_listing_count(connection: sqlite3.Connection, db_server: str, window_modifier: str) -> int:
     row = connection.execute(
-        """
+        f"""
         SELECT COUNT(*) AS count
         FROM market_listings
         WHERE lower(server) = ?
@@ -95,17 +121,20 @@ def _fetch_deal_count(
     min_discount: float,
 ) -> int:
     row = connection.execute(
-        """
+        f"""
         WITH priced_listings AS (
             SELECT
                 ml.price_raw,
                 ml.price_amount,
                 ml.price_pp AS listing_price_pp,
                 COALESCE(NULLIF(mp.median_pp, 0), NULLIF(mp.avg_pp, 0), NULLIF(mp.p25_pp, 0)) AS market_price_pp,
-                mlr.status AS review_status
+                mlr.status AS review_status,
+                {LISTING_ITEM_PREFERENCE_EXPRESSION} AS item_preference
             FROM market_listings ml
             JOIN market_prices mp
                 ON mp.item_id = ml.item_id AND lower(mp.server) = lower(ml.server)
+            LEFT JOIN items i
+                ON i.item_id = ml.item_id
             LEFT JOIN market_listing_reviews mlr
                 ON mlr.listing_id = ml.listing_id
             WHERE lower(ml.server) = ?
@@ -116,6 +145,7 @@ def _fetch_deal_count(
         WHERE listing_price_pp > 0
           AND market_price_pp > 0
           AND COALESCE(review_status, 'active') = 'active'
+          AND COALESCE(item_preference, 'neutral') != 'ignored'
           AND NOT (
                 review_status IS NULL
                 AND price_raw IS NOT NULL
@@ -139,7 +169,7 @@ def _fetch_top_seen_items(
     limit: int,
 ) -> list[dict[str, Any]]:
     rows = connection.execute(
-        """
+        f"""
         SELECT
             MAX(ml.item_id) AS item_id,
             COALESCE(MAX(i.name), MIN(ml.item_name)) AS item_name,
@@ -150,6 +180,7 @@ def _fetch_top_seen_items(
             ON i.item_id = ml.item_id
         WHERE lower(ml.server) = ?
           AND datetime(ml.timestamp) >= datetime('now', ?)
+          AND COALESCE({LISTING_ITEM_PREFERENCE_EXPRESSION}, 'neutral') != 'ignored'
         GROUP BY
             CASE
                 WHEN ml.item_id IS NOT NULL THEN 'item:' || ml.item_id
@@ -180,7 +211,7 @@ def _fetch_top_discounts(
     limit: int,
 ) -> list[dict[str, Any]]:
     rows = connection.execute(
-        """
+        f"""
         WITH priced_listings AS (
             SELECT
                 ml.listing_id,
@@ -202,6 +233,7 @@ def _fetch_top_discounts(
                 mp.sample_size,
                 mp.confidence,
                 mlr.status AS review_status,
+                {LISTING_ITEM_PREFERENCE_EXPRESSION} AS item_preference,
                 ((COALESCE(NULLIF(mp.median_pp, 0), NULLIF(mp.avg_pp, 0), NULLIF(mp.p25_pp, 0)) - ml.price_pp) * 100.0
                     / COALESCE(NULLIF(mp.median_pp, 0), NULLIF(mp.avg_pp, 0), NULLIF(mp.p25_pp, 0))) AS discount_pct
             FROM market_listings ml
@@ -216,6 +248,7 @@ def _fetch_top_discounts(
               AND ml.price_pp > 0
               AND COALESCE(NULLIF(mp.median_pp, 0), NULLIF(mp.avg_pp, 0), NULLIF(mp.p25_pp, 0)) > 0
               AND COALESCE(mlr.status, 'active') = 'active'
+              AND COALESCE({LISTING_ITEM_PREFERENCE_EXPRESSION}, 'neutral') != 'ignored'
               AND NOT (
                     mlr.status IS NULL
                     AND ml.price_raw IS NOT NULL

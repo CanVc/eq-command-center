@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from "react"
 import type { FormEvent, ReactNode } from "react"
 import { Ban, Check, Copy, ScrollText, SlidersHorizontal } from "lucide-react"
 
+import { ItemPreferenceActions, ItemPreferenceBadge } from "@/components/item-preference-actions"
 import { ItemLink } from "@/components/item-link"
 import { RawSalePanel } from "@/components/raw-sale-panel"
 import { Button } from "@/components/ui/button"
@@ -14,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import type { DealFilters, DealPreview, DealSortBy, DealSortDirection } from "@/lib/api"
+import type { DealFilters, DealPreview, DealSortBy, DealSortDirection, ItemPreferenceStatusUpdate } from "@/lib/api"
 import {
   buildTellMessage,
   dealFiltersKey,
@@ -37,6 +38,7 @@ type DealsPageProps = {
   onRestoreListing: (listingId: number) => Promise<void>
   onDiscardSimilarListings: (listingId: number, reasonCode?: string) => Promise<void>
   onRestoreSimilarListings: (listingId: number) => Promise<void>
+  onUpdateListingItemPreference: (listingId: number, status: ItemPreferenceStatusUpdate) => Promise<void>
 }
 
 const inputClassName =
@@ -61,9 +63,11 @@ export function DealsPage({
   onRestoreListing,
   onDiscardSimilarListings,
   onRestoreSimilarListings,
+  onUpdateListingItemPreference,
 }: DealsPageProps) {
   const [copiedListingId, setCopiedListingId] = useState<number | null>(null)
   const [reviewingListingId, setReviewingListingId] = useState<number | null>(null)
+  const [preferringListingId, setPreferringListingId] = useState<number | null>(null)
 
   useEffect(() => {
     if (copiedListingId === null) {
@@ -110,6 +114,15 @@ export function DealsPage({
     }
   }
 
+  const updateDealItemPreference = async (deal: DealPreview, status: ItemPreferenceStatusUpdate) => {
+    setPreferringListingId(deal.listing_id)
+    try {
+      await onUpdateListingItemPreference(deal.listing_id, status)
+    } finally {
+      setPreferringListingId(null)
+    }
+  }
+
   return (
     <section className="flex flex-col gap-4">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
@@ -134,11 +147,13 @@ export function DealsPage({
           server={server}
           copiedListingId={copiedListingId}
           reviewingListingId={reviewingListingId}
+          preferringListingId={preferringListingId}
           filters={filters}
           onFiltersChange={onFiltersChange}
           onCopyTell={copyTell}
           onDiscardDeal={discardDeal}
           onTrustDeal={trustDeal}
+          onUpdateItemPreference={updateDealItemPreference}
         />
       ) : (
         <EmptyState />
@@ -173,7 +188,7 @@ function DealFiltersForm({
     <form
       aria-label="Deal filters"
       onSubmit={applyFilters}
-      className="grid gap-3 rounded-lg border bg-card p-3 md:grid-cols-2 xl:grid-cols-[repeat(6,minmax(0,1fr))_auto]"
+      className="grid gap-3 rounded-lg border bg-card p-3 md:grid-cols-2 xl:grid-cols-[repeat(7,minmax(0,1fr))_auto]"
     >
       <label className="grid gap-1.5 text-sm">
         <span className="text-xs font-medium text-muted-foreground">Item</span>
@@ -286,6 +301,21 @@ function DealFiltersForm({
         <span>Show suspect</span>
       </label>
 
+      <label className="grid gap-1.5 text-sm">
+        <span className="text-xs font-medium text-muted-foreground">Interest</span>
+        <select
+          aria-label="Item interest"
+          className={inputClassName}
+          value={draftFilters.interestStatus}
+          onChange={(event) => updateDraftFilter("interestStatus", event.target.value)}
+        >
+          <option value="tracked">Tracked</option>
+          <option value="wanted">Wanted</option>
+          <option value="ignored">Ignored</option>
+          <option value="all">All</option>
+        </select>
+      </label>
+
       <div className="flex items-end">
         <Button type="submit" className="w-full md:w-auto">
           <SlidersHorizontal aria-hidden="true" />
@@ -301,21 +331,25 @@ function DealsTable({
   server,
   copiedListingId,
   reviewingListingId,
+  preferringListingId,
   filters,
   onFiltersChange,
   onCopyTell,
   onDiscardDeal,
   onTrustDeal,
+  onUpdateItemPreference,
 }: {
   deals: DealPreview[]
   server: string
   copiedListingId: number | null
   reviewingListingId: number | null
+  preferringListingId: number | null
   filters: DealFilters
   onFiltersChange: (filters: DealFilters) => void
   onCopyTell: (deal: DealPreview) => void
   onDiscardDeal: (deal: DealPreview, similar?: boolean) => void
   onTrustDeal: (deal: DealPreview, similar?: boolean) => void
+  onUpdateItemPreference: (deal: DealPreview, status: ItemPreferenceStatusUpdate) => void
 }) {
   const [rawListingId, setRawListingId] = useState<number | null>(null)
 
@@ -367,6 +401,7 @@ function DealsTable({
                           Suspect · {formatReviewReason(deal.review_reason_code)}
                         </Badge>
                       ) : null}
+                      <ItemPreferenceBadge status={deal.item_preference} />
                     </div>
                   </TableCell>
                   <TableCell>{deal.price_raw ?? formatPrice(deal.listing_price_pp)}</TableCell>
@@ -442,6 +477,12 @@ function DealsTable({
                         <Ban aria-hidden="true" />
                         Similar
                       </Button>
+                      <ItemPreferenceActions
+                        status={deal.item_preference}
+                        itemName={deal.item_name}
+                        disabled={preferringListingId === deal.listing_id}
+                        onChange={(status) => void onUpdateItemPreference(deal, status)}
+                      />
                     </div>
                   </TableCell>
                 </TableRow>
@@ -533,4 +574,3 @@ function EmptyState() {
 function formatScore(value: number): string {
   return Number.isInteger(value) ? formatNumber(value) : value.toFixed(1)
 }
-

@@ -19,6 +19,7 @@ import {
   YAxis,
 } from "recharts"
 
+import { ItemPreferenceActions, ItemPreferenceBadge } from "@/components/item-preference-actions"
 import { ItemLink } from "@/components/item-link"
 import { RawSalePanel } from "@/components/raw-sale-panel"
 import { Badge } from "@/components/ui/badge"
@@ -45,6 +46,7 @@ import type {
   ItemDetailPageData,
   ItemListing,
   ItemMarketPrice,
+  ItemPreferenceStatusUpdate,
   ItemStats,
   KronoLatest,
 } from "@/lib/api"
@@ -59,14 +61,37 @@ import {
 } from "@/lib/item-detail"
 import { cn } from "@/lib/utils"
 
-export function ItemDetailPage({ data, server }: { data: ItemDetailPageData; server: string }) {
+export function ItemDetailPage({
+  data,
+  server,
+  onUpdateItemPreference,
+}: {
+  data: ItemDetailPageData
+  server: string
+  onUpdateItemPreference: (itemId: number, status: ItemPreferenceStatusUpdate) => Promise<void>
+}) {
   const hasTlpHistory = data.tlpHistory.length > 0
   const history = hasTlpHistory ? buildTlpPriceHistory(data.tlpHistory) : buildPriceHistory(data.listings)
   const latestListing = latestPricedListing(data.listings)
+  const [preferenceSaving, setPreferenceSaving] = useState(false)
+
+  const updatePreference = async (status: ItemPreferenceStatusUpdate) => {
+    setPreferenceSaving(true)
+    try {
+      await onUpdateItemPreference(data.item.item_id, status)
+    } finally {
+      setPreferenceSaving(false)
+    }
+  }
 
   return (
     <section className="flex flex-col gap-4">
-      <ItemSummary item={data.item} server={server} />
+      <ItemSummary
+        item={data.item}
+        server={server}
+        preferenceSaving={preferenceSaving}
+        onUpdateItemPreference={updatePreference}
+      />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
@@ -114,7 +139,17 @@ export function ItemDetailPage({ data, server }: { data: ItemDetailPageData; ser
   )
 }
 
-function ItemSummary({ item, server }: { item: ItemDetail; server: string }) {
+function ItemSummary({
+  item,
+  server,
+  preferenceSaving,
+  onUpdateItemPreference,
+}: {
+  item: ItemDetail
+  server: string
+  preferenceSaving: boolean
+  onUpdateItemPreference: (status: ItemPreferenceStatusUpdate) => void
+}) {
   return (
     <Card>
       <CardHeader className="border-b">
@@ -137,7 +172,16 @@ function ItemSummary({ item, server }: { item: ItemDetail; server: string }) {
               <p className="text-sm font-normal text-muted-foreground">
                 Item ID {item.item_id} on {server}
               </p>
+              <div className="mt-2">
+                <ItemPreferenceBadge status={item.item_preference} />
+              </div>
             </div>
+            <ItemPreferenceActions
+              status={item.item_preference}
+              itemName={item.name}
+              disabled={preferenceSaving}
+              onChange={onUpdateItemPreference}
+            />
           </div>
         </CardTitle>
         <CardDescription>Local item record, market reference, and recent auction history.</CardDescription>

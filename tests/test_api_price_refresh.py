@@ -134,6 +134,34 @@ class ApiPriceRefreshTests(unittest.TestCase):
             self.assertEqual(importer.call_args.kwargs["concurrency"], 10)
             self.assertEqual(payload["concurrency"], 10)
 
+    def test_tlp_refresh_skips_ignored_items(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            _seed_stale_price_fixture(db_path)
+            _prefer_item(db_path, 101, "Stale Item", "stale item", "ignored")
+            app = create_app(db_path)
+            stats = TlpPriceImportStats(history_items_checked=1, history_prices_upserted=1)
+
+            with patch("eqmarket.api.routes.prices.import_tlp_prices", return_value=stats) as importer:
+                with TestClient(app) as client:
+                    refresh_response = client.post(
+                        "/api/tlp-prices/refresh",
+                        params={"server": "frostreaver", "max_age_hours": 6, "limit": 10},
+                    )
+                    runtime_response = client.get(
+                        "/api/runtime/status",
+                        params={"server": "frostreaver", "max_age_minutes": 360},
+                    )
+
+            self.assertEqual(refresh_response.status_code, 200, refresh_response.text)
+            self.assertEqual(refresh_response.json()["target_item_ids"], [103])
+            self.assertEqual(refresh_response.json()["target_count"], 1)
+            self.assertEqual(importer.call_args.kwargs["item_ids"], [103])
+
+            self.assertEqual(runtime_response.status_code, 200, runtime_response.text)
+            self.assertEqual(runtime_response.json()["stale_item_count"], 1)
+
     def test_runtime_status_reports_stale_items_and_latest_log_sale(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "eqmarket.sqlite"
@@ -865,6 +893,20 @@ def _seed_stale_price_fixture(db_path: Path) -> None:
                 ("-2 hours", "FreshSeller", "Fresh Item", "fresh item", 102),
                 ("-30 minutes", "MissingSeller", "Missing Price Item", "missing price item", 103),
             ],
+        )
+        connection.commit()
+
+
+def _prefer_item(db_path: Path, item_id: int, item_name: str, normalized_name: str, status: str) -> None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute(
+            """
+            INSERT INTO item_preferences (
+                server, preference_key_kind, preference_key, item_id,
+                item_name, normalized_item_name, status
+            ) VALUES ('frostreaver', 'item_id', ?, ?, ?, ?, ?)
+            """,
+            (str(item_id), item_id, item_name, normalized_name, status),
         )
         connection.commit()
 

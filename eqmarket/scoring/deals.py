@@ -11,6 +11,32 @@ from eqmarket.db import init_db
 
 DEFAULT_PROFILE_NAME = "market_deals"
 
+LISTING_ITEM_PREFERENCE_EXPRESSION = """
+COALESCE(
+    (
+        SELECT ip.status
+        FROM item_preferences ip
+        WHERE ip.server = lower(ml.server)
+          AND ip.preference_key_kind = 'item_id'
+          AND ip.preference_key = CAST(ml.item_id AS TEXT)
+    ),
+    (
+        SELECT ip.status
+        FROM item_preferences ip
+        WHERE ip.server = lower(ml.server)
+          AND ip.preference_key_kind = 'name'
+          AND ip.preference_key = i.normalized_name
+    ),
+    (
+        SELECT ip.status
+        FROM item_preferences ip
+        WHERE ip.server = lower(ml.server)
+          AND ip.preference_key_kind = 'name'
+          AND ip.preference_key = ml.normalized_item_name
+    )
+)
+"""
+
 
 @dataclass(frozen=True)
 class DealScore:
@@ -61,7 +87,7 @@ def score_market_listings(
         _ensure_default_profile(connection, min_discount_pct)
 
         rows = connection.execute(
-            """
+            f"""
             SELECT
                 ml.listing_id,
                 ml.timestamp,
@@ -85,6 +111,8 @@ def score_market_listings(
                 wi.min_deal_score,
                 mlr.status AS review_status
             FROM market_listings ml
+            LEFT JOIN items i
+                ON i.item_id = ml.item_id
             LEFT JOIN market_prices mp
                 ON mp.item_id = ml.item_id AND lower(mp.server) = lower(ml.server)
             LEFT JOIN market_prices_override mpo
@@ -99,6 +127,7 @@ def score_market_listings(
               AND ml.item_id IS NOT NULL
               AND ml.price_pp IS NOT NULL
               AND COALESCE(mlr.status, 'active') = 'active'
+              AND COALESCE({LISTING_ITEM_PREFERENCE_EXPRESSION}, 'neutral') != 'ignored'
               AND (
                     mp.median_pp IS NOT NULL
                     OR mpo.item_id IS NOT NULL

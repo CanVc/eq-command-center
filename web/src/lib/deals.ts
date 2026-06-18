@@ -1,4 +1,4 @@
-import type { DealFilters, DealPreview, DealSortBy, DealSortDirection } from "@/lib/api"
+import type { DealFilters, DealPreview, DealSortBy, DealSortDirection, ItemInterestFilter } from "@/lib/api"
 import { DEFAULT_DEAL_FILTERS } from "@/lib/api"
 import { formatPrice } from "@/lib/format"
 
@@ -13,6 +13,7 @@ export type DraftDealFilters = {
   dateFrom: string
   sortBy: DealSortBy
   sortDir: DealSortDirection
+  interestStatus: ItemInterestFilter
 }
 
 const DEAL_SORT_BY_VALUES: DealSortBy[] = ["item", "seen_price", "market_price", "discount", "seller", "date", "score"]
@@ -37,6 +38,9 @@ export function normalizeDealFilters(filters: DraftDealFilters): DealFilters {
     dateFrom: filters.dateFrom.trim(),
     sortBy: isDealSortBy(filters.sortBy) ? filters.sortBy : DEFAULT_DEAL_FILTERS.sortBy,
     sortDir: isDealSortDirection(filters.sortDir) ? filters.sortDir : DEFAULT_DEAL_FILTERS.sortDir,
+    interestStatus: isItemInterestFilter(filters.interestStatus)
+      ? filters.interestStatus
+      : DEFAULT_DEAL_FILTERS.interestStatus,
   }
 }
 
@@ -52,6 +56,7 @@ export function dealFiltersToDraft(filters: DealFilters): DraftDealFilters {
     dateFrom: filters.dateFrom,
     sortBy: filters.sortBy,
     sortDir: filters.sortDir,
+    interestStatus: filters.interestStatus,
   }
 }
 
@@ -65,6 +70,7 @@ export function dealFiltersKey(filters: DealFilters): string {
     filters.seller,
     filters.item,
     filters.dateFrom,
+    filters.interestStatus,
   ].join(":")
 }
 
@@ -93,6 +99,10 @@ function isDealSortBy(value: string): value is DealSortBy {
 
 function isDealSortDirection(value: string): value is DealSortDirection {
   return value === "asc" || value === "desc"
+}
+
+function isItemInterestFilter(value: string): value is ItemInterestFilter {
+  return ["tracked", "wanted", "ignored", "all"].includes(value)
 }
 
 function clampNumber(value: string, fallback: number, min: number, max: number): number {

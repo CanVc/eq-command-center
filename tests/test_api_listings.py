@@ -114,6 +114,39 @@ class ApiListingsTests(unittest.TestCase):
             self.assertIsNone(restore_response.json()["reason_code"])
             self.assertEqual(missing_response.status_code, 404)
 
+    def test_listing_item_preference_can_ignore_unresolved_names(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            listing_ids = _seed_listings_fixture(db_path)
+            app = create_app(db_path)
+
+            with TestClient(app) as client:
+                ignore_response = client.put(
+                    f"/api/listings/{listing_ids['unresolved']}/item-preference",
+                    json={"status": "ignored"},
+                )
+                default_response = client.get(
+                    "/api/listings/recent",
+                    params={"server": "frostreaver", "q": "mystery"},
+                )
+                ignored_response = client.get(
+                    "/api/listings/recent",
+                    params={"server": "frostreaver", "q": "mystery", "interest_status": "ignored"},
+                )
+
+            self.assertEqual(ignore_response.status_code, 200, ignore_response.text)
+            self.assertEqual(ignore_response.json()["status"], "ignored")
+            self.assertEqual(ignore_response.json()["preference_key_kind"], "name")
+            self.assertEqual(ignore_response.json()["preference_key"], "mystery blade")
+
+            self.assertEqual(default_response.status_code, 200, default_response.text)
+            self.assertEqual(default_response.json(), [])
+
+            self.assertEqual(ignored_response.status_code, 200, ignored_response.text)
+            self.assertEqual([listing["listing_id"] for listing in ignored_response.json()], [listing_ids["unresolved"]])
+            self.assertEqual(ignored_response.json()[0]["item_preference"], "ignored")
+
     def test_recent_listings_can_filter_by_review_status(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "eqmarket.sqlite"

@@ -27,6 +27,33 @@ DEFAULT_DISCARD_REASON = "manual"
 
 ListingReviewStatus = Literal["active", "discarded", "suspect"]
 ListingReviewStatusFilter = Literal["active", "discarded", "suspect", "all"]
+ItemInterestFilter = Literal["tracked", "wanted", "ignored", "all"]
+
+LISTING_ITEM_PREFERENCE_EXPRESSION = """
+COALESCE(
+    (
+        SELECT ip.status
+        FROM item_preferences ip
+        WHERE ip.server = lower(ml.server)
+          AND ip.preference_key_kind = 'item_id'
+          AND ip.preference_key = CAST(ml.item_id AS TEXT)
+    ),
+    (
+        SELECT ip.status
+        FROM item_preferences ip
+        WHERE ip.server = lower(ml.server)
+          AND ip.preference_key_kind = 'name'
+          AND ip.preference_key = i.normalized_name
+    ),
+    (
+        SELECT ip.status
+        FROM item_preferences ip
+        WHERE ip.server = lower(ml.server)
+          AND ip.preference_key_kind = 'name'
+          AND ip.preference_key = ml.normalized_item_name
+    )
+)
+"""
 
 
 class ListingReviewUpdate(BaseModel):
@@ -186,6 +213,7 @@ def recent_listings(
     limit: int = Query(DEFAULT_LIMIT, gt=0, le=500),
     offset: int = Query(0, ge=0),
     review_status: ListingReviewStatusFilter = Query("all"),
+    interest_status: ItemInterestFilter = Query("tracked"),
 ) -> list[dict[str, Any]]:
     db_server = _normalize_server(server)
     search_text = _normalize_search(q)
@@ -196,6 +224,7 @@ def recent_listings(
             db_server,
             search_text=search_text,
             review_status=review_status,
+            interest_status=interest_status,
             limit=limit,
             offset=offset,
         )
@@ -207,11 +236,13 @@ def _fetch_recent_listings(
     *,
     search_text: str | None,
     review_status: ListingReviewStatusFilter,
+    interest_status: ItemInterestFilter,
     limit: int,
     offset: int,
 ) -> list[dict[str, Any]]:
     search_filter = ""
     status_filter = ""
+    interest_filter = _item_interest_filter_clause(LISTING_ITEM_PREFERENCE_EXPRESSION, interest_status)
     params: list[Any] = [db_server]
 
     if search_text is not None:
@@ -244,6 +275,7 @@ def _fetch_recent_listings(
             ml.raw_line,
             ml.source,
             ml.confidence,
+            {LISTING_ITEM_PREFERENCE_EXPRESSION} AS item_preference,
             COALESCE(mlr.status, 'active') AS review_status,
             mlr.reason_code AS review_reason_code,
             mlr.note AS review_note
@@ -255,6 +287,7 @@ def _fetch_recent_listings(
         WHERE lower(ml.server) = ?
 {search_filter}
           {status_filter}
+          {interest_filter}
         ORDER BY datetime(ml.timestamp) DESC, ml.timestamp DESC, ml.listing_id DESC
         LIMIT ? OFFSET ?
         """,
@@ -286,6 +319,7 @@ def _listing_payload(row: sqlite3.Row) -> dict[str, Any]:
         "review_status": row["review_status"],
         "review_reason_code": row["review_reason_code"],
         "review_note": row["review_note"],
+        "item_preference": row["item_preference"],
     }
 
 
@@ -376,6 +410,16 @@ def _discard_rule_payload(rule: DiscardRule) -> dict[str, Any]:
         "updated_at": rule.updated_at,
         "disabled_at": rule.disabled_at,
     }
+
+
+def _item_interest_filter_clause(expression: str, interest_status: ItemInterestFilter) -> str:
+    if interest_status == "all":
+        return ""
+    if interest_status == "wanted":
+        return f"AND {expression} = 'wanted'"
+    if interest_status == "ignored":
+        return f"AND {expression} = 'ignored'"
+    return f"AND COALESCE({expression}, 'neutral') != 'ignored'"
 
 
 def _normalize_server(server: str) -> str:
