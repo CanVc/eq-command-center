@@ -18,21 +18,25 @@ import {
   DEFAULT_MARKET_LISTING_FILTERS,
   fetchDashboardSummary,
   fetchDeals,
+  fetchInterfacePageData,
   fetchItemDetailPageData,
   fetchItemSearchPreview,
   fetchMarketListings,
   fetchRuntimeStatus,
   fetchSettingsStatus,
   fetchTlpPriceRefreshJob,
+  markTlpPricesStale,
   refreshKronoPrice,
   startTlpPriceRefreshJob,
   type DashboardSummary,
   type DealFilters,
   type DealPreview,
+  type InterfacePageData,
   type ItemDetailPageData,
   type ItemSearchResult,
   type ListingPreview,
   type MarketListingFilters,
+  type MarkTlpPricesStaleResult,
   type RuntimeStatus,
   type SettingsStatusResponse,
   type TlpPriceRefreshJobStatus,
@@ -56,16 +60,18 @@ import {
 } from "@/lib/navigation"
 import { readPreferredServer, savePreferredServer } from "@/lib/server-preference"
 import {
-  TLP_AUTO_REFRESH_INTERVAL_MS,
-  formatTlpMaxAgeHours,
+  formatTlpMaxAgeMinutes,
   readTlpAutoRefreshEnabled,
-  readTlpMaxAgeHours,
+  readTlpAutoRefreshIntervalMinutes,
+  readTlpMaxAgeMinutes,
   saveTlpAutoRefreshEnabled,
-  saveTlpMaxAgeHours,
+  saveTlpAutoRefreshIntervalMinutes,
+  saveTlpMaxAgeMinutes,
 } from "@/lib/tlp-refresh-preference"
 import { formatTime } from "@/lib/format"
 import { DashboardPage } from "@/pages/dashboard-page"
 import { DealsPage } from "@/pages/deals-page"
+import { InterfacePage } from "@/pages/interface-page"
 import { ItemDetailPage } from "@/pages/item-detail-page"
 import { MarketListingsPage } from "@/pages/market-listings-page"
 import { SettingsPage } from "@/pages/settings-page"
@@ -75,6 +81,7 @@ type PageData =
   | { page: "deals"; payload: DealPreview[] }
   | { page: "market"; payload: ListingPreview[] }
   | { page: "items"; payload: ItemSearchResult[] }
+  | { page: "interface"; payload: InterfacePageData }
   | { page: "item-detail"; payload: ItemDetailPageData }
   | { page: "settings"; payload: SettingsStatusResponse }
 
@@ -86,8 +93,9 @@ type PageState =
 function App() {
   const [activeRoute, setActiveRoute] = useState<AppRoute>(() => getInitialRoute())
   const [server, setServer] = useState(() => readPreferredServer())
-  const [tlpMaxAgeHours, setTlpMaxAgeHours] = useState(() => readTlpMaxAgeHours())
+  const [tlpMaxAgeMinutes, setTlpMaxAgeMinutes] = useState(() => readTlpMaxAgeMinutes())
   const [tlpAutoRefreshEnabled, setTlpAutoRefreshEnabled] = useState(() => readTlpAutoRefreshEnabled())
+  const [tlpAutoRefreshIntervalMinutes, setTlpAutoRefreshIntervalMinutes] = useState(() => readTlpAutoRefreshIntervalMinutes())
   const [dealFilters, setDealFilters] = useState<DealFilters>(DEFAULT_DEAL_FILTERS)
   const [marketListingFilters, setMarketListingFilters] = useState<MarketListingFilters>(
     DEFAULT_MARKET_LISTING_FILTERS
@@ -161,7 +169,7 @@ function App() {
 
     async function loadRuntimeStatus() {
       try {
-        const status = await fetchRuntimeStatus(server, tlpMaxAgeHours)
+        const status = await fetchRuntimeStatus(server, tlpMaxAgeMinutes)
         if (isActive) {
           setRuntimeStatus(status)
         }
@@ -179,14 +187,14 @@ function App() {
       isActive = false
       window.clearInterval(timer)
     }
-  }, [refreshKey, server, tlpMaxAgeHours])
+  }, [refreshKey, server, tlpMaxAgeMinutes])
 
   useEffect(() => {
     let isActive = true
 
     async function loadPage() {
       try {
-        const data = await fetchPageData(activeRoute, server, tlpMaxAgeHours, dealFilters, marketListingFilters)
+        const data = await fetchPageData(activeRoute, server, tlpMaxAgeMinutes, dealFilters, marketListingFilters)
         if (isActive) {
           setPageState({ status: "ready", data, loadedAt: new Date() })
         }
@@ -205,7 +213,7 @@ function App() {
     return () => {
       isActive = false
     }
-  }, [activeRoute, dealFilters, marketListingFilters, refreshKey, server, tlpMaxAgeHours])
+  }, [activeRoute, dealFilters, marketListingFilters, refreshKey, server, tlpMaxAgeMinutes])
 
   const navigateTo = useCallback((pageId: AppPageId) => {
     const nextPath = pathForPage(pageId)
@@ -257,18 +265,18 @@ function App() {
     void runRefresh()
   }, [activeRoute, server])
 
-  const refreshTlpMarketPrices = useCallback((options: { refreshKronoWhenEmpty?: boolean } = {}) => {
+  const refreshTlpMarketPrices = useCallback((options: { maxAgeMinutes?: number; refreshKronoWhenEmpty?: boolean } = {}) => {
     if (isRunningTlpJob(tlpRefreshJob)) {
       return
     }
 
-    const refreshMaxAgeHours = tlpMaxAgeHours
+    const refreshMaxAgeMinutes = options.maxAgeMinutes ?? tlpMaxAgeMinutes
     const refreshKronoWhenEmpty = options.refreshKronoWhenEmpty ?? true
 
     async function runTlpRefresh() {
       try {
         let job = await startTlpPriceRefreshJob(server, {
-          maxAgeHours: refreshMaxAgeHours,
+          maxAgeMinutes: refreshMaxAgeMinutes,
           refreshKronoWhenEmpty,
         })
         setTlpRefreshJob(job)
@@ -296,7 +304,8 @@ function App() {
           target_item_ids: [],
           target_count: 0,
           limit: 0,
-          max_age_hours: refreshMaxAgeHours,
+          max_age_hours: refreshMaxAgeMinutes / 60,
+          max_age_minutes: refreshMaxAgeMinutes,
           history_days: 3,
           concurrency: 10,
           stats: null,
@@ -309,7 +318,7 @@ function App() {
     }
 
     void runTlpRefresh()
-  }, [server, tlpMaxAgeHours, tlpRefreshJob])
+  }, [server, tlpMaxAgeMinutes, tlpRefreshJob])
 
   useEffect(() => {
     if (!tlpAutoRefreshEnabled) {
@@ -318,17 +327,17 @@ function App() {
 
     const timer = window.setInterval(() => {
       refreshTlpMarketPrices({ refreshKronoWhenEmpty: false })
-    }, TLP_AUTO_REFRESH_INTERVAL_MS)
+    }, Math.max(1, tlpAutoRefreshIntervalMinutes) * 60 * 1000)
 
     return () => {
       window.clearInterval(timer)
     }
-  }, [refreshTlpMarketPrices, tlpAutoRefreshEnabled])
+  }, [refreshTlpMarketPrices, tlpAutoRefreshEnabled, tlpAutoRefreshIntervalMinutes])
 
-  const changeTlpMaxAgeHours = useCallback((nextMaxAgeHours: number) => {
-    const savedMaxAgeHours = saveTlpMaxAgeHours(nextMaxAgeHours)
-    setTlpMaxAgeHours(savedMaxAgeHours)
-    return savedMaxAgeHours
+  const changeTlpMaxAgeMinutes = useCallback((nextMaxAgeMinutes: number) => {
+    const savedMaxAgeMinutes = saveTlpMaxAgeMinutes(nextMaxAgeMinutes)
+    setTlpMaxAgeMinutes(savedMaxAgeMinutes)
+    return savedMaxAgeMinutes
   }, [])
 
   const changeTlpAutoRefreshEnabled = useCallback((enabled: boolean) => {
@@ -336,6 +345,18 @@ function App() {
     setTlpAutoRefreshEnabled(savedEnabled)
     return savedEnabled
   }, [])
+
+  const changeTlpAutoRefreshIntervalMinutes = useCallback((nextIntervalMinutes: number) => {
+    const savedIntervalMinutes = saveTlpAutoRefreshIntervalMinutes(nextIntervalMinutes)
+    setTlpAutoRefreshIntervalMinutes(savedIntervalMinutes)
+    return savedIntervalMinutes
+  }, [])
+
+  const fullTlpRescan = useCallback(async (): Promise<MarkTlpPricesStaleResult> => {
+    const result = await markTlpPricesStale(server)
+    setRefreshKey((current) => current + 1)
+    return result
+  }, [server])
 
   const changeDealFilters = useCallback((nextFilters: DealFilters) => {
     setPageState({ status: "loading" })
@@ -354,15 +375,11 @@ function App() {
       server={server}
       isRefreshing={pageState.status === "loading"}
       isTlpRefreshing={isTlpRefreshing}
-      tlpMaxAgeHours={tlpMaxAgeHours}
-      tlpAutoRefreshEnabled={tlpAutoRefreshEnabled}
       staleItemCount={runtimeStatus?.stale_item_count ?? null}
       latestLogSaleAt={runtimeStatus?.latest_log_sale_at ?? null}
       logWatcherError={runtimeStatus?.log_watcher?.error ?? null}
       onNavigate={navigateTo}
       onServerChange={changeServer}
-      onTlpMaxAgeHoursChange={changeTlpMaxAgeHours}
-      onTlpAutoRefreshEnabledChange={changeTlpAutoRefreshEnabled}
       onRefresh={refresh}
       onTlpRefresh={refreshTlpMarketPrices}
     >
@@ -389,6 +406,15 @@ function App() {
             onDealFiltersChange={changeDealFilters}
             marketListingFilters={marketListingFilters}
             onMarketListingFiltersChange={changeMarketListingFilters}
+            tlpMaxAgeMinutes={tlpMaxAgeMinutes}
+            tlpAutoRefreshEnabled={tlpAutoRefreshEnabled}
+            tlpAutoRefreshIntervalMinutes={tlpAutoRefreshIntervalMinutes}
+            isTlpRefreshing={isTlpRefreshing}
+            onTlpMaxAgeMinutesChange={changeTlpMaxAgeMinutes}
+            onTlpAutoRefreshEnabledChange={changeTlpAutoRefreshEnabled}
+            onTlpAutoRefreshIntervalMinutesChange={changeTlpAutoRefreshIntervalMinutes}
+            onTlpRefresh={refreshTlpMarketPrices}
+            onFullTlpRescan={fullTlpRescan}
           />
         )}
       </section>
@@ -399,7 +425,7 @@ function App() {
 async function fetchPageData(
   route: AppRoute,
   server: string,
-  tlpMaxAgeHours: number,
+  tlpMaxAgeMinutes: number,
   dealFilters: DealFilters,
   marketListingFilters: MarketListingFilters
 ): Promise<PageData> {
@@ -421,8 +447,10 @@ async function fetchPageData(
       return { page, payload: await fetchMarketListings(server, marketListingFilters) }
     case "items":
       return { page, payload: await fetchItemSearchPreview(server) }
+    case "interface":
+      return { page, payload: await fetchInterfacePageData(server, tlpMaxAgeMinutes) }
     case "settings":
-      return { page, payload: await fetchSettingsStatus(server, tlpMaxAgeHours) }
+      return { page, payload: await fetchSettingsStatus(server) }
   }
 }
 
@@ -540,7 +568,7 @@ function formatRefreshAge(maxAgeHours: number): string {
     return "refresh all"
   }
 
-  return `stale > ${formatTlpMaxAgeHours(maxAgeHours)}h`
+  return `stale > ${formatTlpMaxAgeMinutes(maxAgeHours * 60)}m`
 }
 
 function formatElapsed(startedAt: string | null, nowMs: number): string {
@@ -573,6 +601,15 @@ function PageContent({
   onDealFiltersChange,
   marketListingFilters,
   onMarketListingFiltersChange,
+  tlpMaxAgeMinutes,
+  tlpAutoRefreshEnabled,
+  tlpAutoRefreshIntervalMinutes,
+  isTlpRefreshing,
+  onTlpMaxAgeMinutesChange,
+  onTlpAutoRefreshEnabledChange,
+  onTlpAutoRefreshIntervalMinutesChange,
+  onTlpRefresh,
+  onFullTlpRescan,
 }: {
   data: PageData
   server: string
@@ -581,6 +618,15 @@ function PageContent({
   onDealFiltersChange: (filters: DealFilters) => void
   marketListingFilters: MarketListingFilters
   onMarketListingFiltersChange: (filters: MarketListingFilters) => void
+  tlpMaxAgeMinutes: number
+  tlpAutoRefreshEnabled: boolean
+  tlpAutoRefreshIntervalMinutes: number
+  isTlpRefreshing: boolean
+  onTlpMaxAgeMinutesChange: (maxAgeMinutes: number) => number
+  onTlpAutoRefreshEnabledChange: (enabled: boolean) => boolean
+  onTlpAutoRefreshIntervalMinutesChange: (intervalMinutes: number) => number
+  onTlpRefresh: (options?: { maxAgeMinutes?: number; refreshKronoWhenEmpty?: boolean }) => void
+  onFullTlpRescan: () => Promise<MarkTlpPricesStaleResult>
 }) {
   switch (data.page) {
     case "dashboard":
@@ -605,6 +651,22 @@ function PageContent({
       )
     case "items":
       return <ItemsPage items={data.payload} server={server} />
+    case "interface":
+      return (
+        <InterfacePage
+          data={data.payload}
+          server={server}
+          tlpMaxAgeMinutes={tlpMaxAgeMinutes}
+          tlpAutoRefreshEnabled={tlpAutoRefreshEnabled}
+          tlpAutoRefreshIntervalMinutes={tlpAutoRefreshIntervalMinutes}
+          isTlpRefreshing={isTlpRefreshing}
+          onTlpMaxAgeMinutesChange={onTlpMaxAgeMinutesChange}
+          onTlpAutoRefreshEnabledChange={onTlpAutoRefreshEnabledChange}
+          onTlpAutoRefreshIntervalMinutesChange={onTlpAutoRefreshIntervalMinutesChange}
+          onTlpRefresh={onTlpRefresh}
+          onFullRescan={onFullTlpRescan}
+        />
+      )
     case "item-detail":
       return <ItemDetailPage data={data.payload} server={server} />
     case "settings":

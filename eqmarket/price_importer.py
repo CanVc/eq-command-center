@@ -44,6 +44,14 @@ class _HistoryPriceRefreshResult:
 
 PriceImportProgressCallback = Callable[[dict[str, object]], None]
 
+TLP_MARKET_PRICE_SOURCES = (
+    "tlp_auctions",
+    "tlp_auctions_catalog",
+    "tlp_auctions_history",
+    "tlp_auctions_history_no_data",
+    "tlp_auctions_history_failed",
+)
+
 
 def refresh_krono_price(db_path: Path, server: str) -> TlpPriceImportStats:
     """Refresh only the cached Krono price for a server from TLP Auctions."""
@@ -96,6 +104,31 @@ def load_recent_listing_item_ids(
             params,
         ).fetchall()
     return [int(row[0]) for row in rows]
+
+
+def mark_tlp_prices_stale(db_path: Path, server: str) -> int:
+    """Invalidate cached TLP market_prices for one server without touching manual overrides."""
+    init_db(db_path)
+    db_server = db_server_name(server)
+
+    with closing(sqlite3.connect(db_path)) as connection:
+        source_placeholders = ", ".join("?" for _ in TLP_MARKET_PRICE_SOURCES)
+        cursor = connection.execute(
+            f"""
+            UPDATE market_prices
+            SET last_refresh_at = NULL
+            WHERE lower(server) = ?
+              AND (
+                    source IN ({source_placeholders})
+                    OR source LIKE 'tlp_auctions_%'
+                    OR raw_payload LIKE '%tlp_auctions%'
+                  )
+            """,
+            [db_server, *TLP_MARKET_PRICE_SOURCES],
+        )
+        affected_count = cursor.rowcount
+        connection.commit()
+    return affected_count
 
 
 def count_stale_listing_item_ids(

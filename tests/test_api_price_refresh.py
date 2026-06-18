@@ -125,15 +125,60 @@ class ApiPriceRefreshTests(unittest.TestCase):
             with TestClient(app) as client:
                 response = client.get(
                     "/api/runtime/status",
-                    params={"server": "frostreaver", "max_age_hours": 6},
+                    params={"server": "frostreaver", "max_age_minutes": 360},
                 )
 
             self.assertEqual(response.status_code, 200, response.text)
             payload = response.json()
             self.assertEqual(payload["server"], "frostreaver")
+            self.assertEqual(payload["max_age_minutes"], 360)
             self.assertEqual(payload["stale_item_count"], 2)
             self.assertIsNotNone(payload["latest_log_sale_at"])
             self.assertIsNotNone(payload["log_watcher"])
+
+    def test_interface_tlp_errors_returns_active_stale_errors_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            _seed_interface_tlp_error_fixture(db_path)
+            app = create_app(db_path)
+
+            with TestClient(app) as client:
+                response = client.get(
+                    "/api/interface/tlp-errors",
+                    params={"server": "mischief", "max_age_minutes": 360},
+                )
+
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            self.assertEqual(payload["server"], "mischief")
+            self.assertEqual(payload["active_error_count"], 1)
+            self.assertEqual(payload["active_errors"][0]["item_id"], 401)
+            self.assertEqual(payload["active_errors"][0]["error"], "temporary upstream error")
+            self.assertEqual(payload["active_errors"][0]["origin"], "import_run")
+            self.assertEqual(payload["latest_tlp_import"]["source_name"], "tlp_auctions_prices")
+
+    def test_mark_tlp_prices_stale_invalidates_only_tlp_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            _seed_mark_stale_fixture(db_path)
+            app = create_app(db_path)
+
+            with TestClient(app) as client:
+                response = client.post(
+                    "/api/interface/tlp-prices/mark-stale",
+                    params={"server": "frostreaver"},
+                )
+
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()["affected_count"], 2)
+            with closing(sqlite3.connect(db_path)) as connection:
+                rows = connection.execute(
+                    "SELECT item_id, last_refresh_at FROM market_prices ORDER BY item_id"
+                ).fetchall()
+
+            self.assertEqual(rows, [(501, None), (502, None), (503, "2026-06-16 10:00:00")])
 
     def test_tlp_refresh_job_reports_progress_until_completion(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -460,6 +505,103 @@ def _seed_parallel_item_fixture(db_path: Path) -> None:
         connection.executemany(
             "INSERT INTO items (item_id, name, normalized_name) VALUES (?, ?, ?)",
             [(item_id, f"Parallel Item {item_id}", f"parallel item {item_id}") for item_id in range(201, 205)],
+        )
+        connection.commit()
+
+
+def _seed_interface_tlp_error_fixture(db_path: Path) -> None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.executemany(
+            "INSERT INTO items (item_id, name, normalized_name) VALUES (?, ?, ?)",
+            [
+                (401, "Errored Item", "errored item"),
+                (402, "Recovered Item", "recovered item"),
+            ],
+        )
+        connection.executemany(
+            """
+            INSERT INTO market_listings (
+                server, timestamp, seller, item_name, normalized_item_name, item_id,
+                price_raw, price_pp, source, confidence
+            ) VALUES ('mischief', CURRENT_TIMESTAMP, 'Seller', ?, ?, ?, '1k', 1000, 'eq_log', 'parsed')
+            """,
+            [
+                ("Errored Item", "errored item", 401),
+                ("Recovered Item", "recovered item", 402),
+            ],
+        )
+        connection.execute(
+            """
+            INSERT INTO market_prices (
+                item_id, server, sample_size, confidence, last_refresh_at, source
+            ) VALUES (401, 'mischief', 0, 'failed', CURRENT_TIMESTAMP, 'tlp_auctions_history_failed')
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO market_prices (
+                item_id, server, median_pp, sample_size, confidence, last_refresh_at, source
+            ) VALUES (402, 'mischief', 1000, 3, 'low', CURRENT_TIMESTAMP, 'tlp_auctions_history')
+            """
+        )
+        connection.executemany(
+            """
+            INSERT INTO import_runs (
+                source_name, source_url, status, error, started_at, finished_at
+            ) VALUES ('tlp_auctions_history', ?, 'failed', ?, ?, ?)
+            """,
+            [
+                (
+                    "item_id=401;server=mischief",
+                    "temporary upstream error",
+                    "2026-06-16 09:30:00",
+                    "2026-06-16 09:30:10",
+                ),
+                (
+                    "item_id=402;server=mischief",
+                    "old recovered error",
+                    "2026-06-16 09:31:00",
+                    "2026-06-16 09:31:10",
+                ),
+            ],
+        )
+        connection.execute(
+            """
+            INSERT INTO import_runs (
+                source_name, source_url, status, items_seen, items_inserted,
+                items_updated, started_at, finished_at
+            ) VALUES (
+                'tlp_auctions_prices', 'server=mischief;mode=history;history_days=3',
+                'completed_with_errors', 42, 5, 11, '2026-06-16 09:59:00', '2026-06-16 10:00:00'
+            )
+            """
+        )
+        connection.commit()
+
+
+def _seed_mark_stale_fixture(db_path: Path) -> None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.executemany(
+            "INSERT INTO items (item_id, name, normalized_name) VALUES (?, ?, ?)",
+            [
+                (501, "History Price", "history price"),
+                (502, "Catalog Price", "catalog price"),
+                (503, "Manual Fixture", "manual fixture"),
+            ],
+        )
+        connection.executemany(
+            """
+            INSERT INTO market_prices (
+                item_id, server, median_pp, sample_size, confidence, last_refresh_at, source
+            ) VALUES (?, 'frostreaver', 1000, 1, 'low', '2026-06-16 10:00:00', ?)
+            """,
+            [
+                (501, "tlp_auctions_history"),
+                (502, "tlp_auctions_catalog"),
+                (503, "fixture"),
+            ],
         )
         connection.commit()
 

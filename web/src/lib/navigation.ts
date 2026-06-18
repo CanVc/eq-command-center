@@ -1,4 +1,4 @@
-export type AppPageId = "dashboard" | "deals" | "market" | "items" | "settings"
+export type AppPageId = "dashboard" | "deals" | "market" | "items" | "interface" | "settings"
 
 export type AppRoute =
   | { kind: "page"; pageId: AppPageId }
@@ -42,11 +42,18 @@ export const APP_PAGES: AppPageDefinition[] = [
     description: "Known item records from the local database.",
   },
   {
+    id: "interface",
+    label: "Interface",
+    path: "/interface",
+    title: "Interface",
+    description: "TLP Auctions and EQ log parser controls.",
+  },
+  {
     id: "settings",
     label: "Settings",
     path: "/settings",
     title: "Settings",
-    description: "Local API and interface preferences.",
+    description: "Local API and application settings.",
   },
 ]
 

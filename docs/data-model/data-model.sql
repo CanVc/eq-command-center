@@ -519,4 +519,34 @@ CREATE TABLE IF NOT EXISTS log_import_state (
     PRIMARY KEY (log_path, server)
 );
 
+-- Parser/interface diagnostics for auction log lines that could not become a
+-- fully usable market listing. Repeated sightings upsert by raw line + reason
+-- to keep the interface actionable without unbounded duplicate rows.
+CREATE TABLE IF NOT EXISTS log_parse_issues (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    server TEXT NOT NULL,
+    log_path TEXT,
+
+    timestamp TEXT,
+    timestamp_raw TEXT,
+    seller TEXT,
+
+    raw_line TEXT NOT NULL,
+    reason_code TEXT NOT NULL,
+    reason TEXT NOT NULL,
+
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    seen_count INTEGER NOT NULL DEFAULT 1,
+
+    UNIQUE(server, log_path, raw_line, reason_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_log_parse_issues_server_seen
+    ON log_parse_issues(server, last_seen_at);
+
+CREATE INDEX IF NOT EXISTS idx_log_parse_issues_reason
+    ON log_parse_issues(reason_code);
+
 COMMIT;

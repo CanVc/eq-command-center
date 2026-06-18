@@ -37,9 +37,60 @@ export type SettingsStatusResponse = EqLogSettings & {
   db_path: string
   default_server: string
   active_server: string
+}
+
+export type TlpInterfaceError = Omit<LatestTlpImport, "import_run_id"> & {
+  import_run_id: number | null
+  item_id: number
+  item_name: string | null
+  price_confidence: string | null
+  price_source: string | null
+  last_refresh_at: string | null
+  latest_listing_at: string | null
+  active: boolean
+  origin: "import_run" | "market_price_marker"
+}
+
+export type TlpInterfaceErrorsResponse = {
+  server: string
+  max_age_minutes: number
+  max_age_hours: number
+  stale_item_count: number
   latest_tlp_import: LatestTlpImport | null
-  recent_tlp_errors: LatestTlpImport[]
-  import_runs_error: string | null
+  active_errors: TlpInterfaceError[]
+  active_error_count: number
+}
+
+export type LogParseIssue = {
+  id: number
+  server: string
+  log_path: string | null
+  timestamp: string | null
+  timestamp_raw: string | null
+  seller: string | null
+  raw_line: string
+  reason_code: string
+  reason: string
+  created_at: string
+  last_seen_at: string
+  seen_count: number
+}
+
+export type LogParseIssuesResponse = {
+  server: string
+  issues: LogParseIssue[]
+  issue_count: number
+  limit: number
+}
+
+export type InterfacePageData = {
+  tlpErrors: TlpInterfaceErrorsResponse
+  logParseIssues: LogParseIssuesResponse
+}
+
+export type MarkTlpPricesStaleResult = {
+  server: string
+  affected_count: number
 }
 
 export type LogWatcherStatus = {
@@ -61,6 +112,7 @@ export type LogWatcherStatus = {
 export type RuntimeStatus = {
   server: string
   max_age_hours: number
+  max_age_minutes: number
   stale_item_count: number
   latest_log_sale_at: string | null
   log_watcher: LogWatcherStatus | null
@@ -156,6 +208,7 @@ export type TlpPriceRefreshResult = {
   target_count: number
   limit: number
   max_age_hours: number | null
+  max_age_minutes: number | null
   history_days: number
   concurrency: number
   catalog_items_seen: number
@@ -174,6 +227,7 @@ export type TlpPriceRefreshResult = {
 export type TlpPriceRefreshOptions = {
   limit?: number
   maxAgeHours?: number
+  maxAgeMinutes?: number
   historyDays?: number
   concurrency?: number
   refreshKronoWhenEmpty?: boolean
@@ -191,6 +245,7 @@ export type TlpPriceRefreshJobStatus = {
   target_count: number
   limit: number
   max_age_hours: number
+  max_age_minutes: number
   history_days: number
   concurrency: number
   stats: TlpPriceRefreshResult | null
@@ -426,13 +481,13 @@ export async function fetchHealth(fetcher: Fetcher = fetch): Promise<HealthRespo
 
 export async function fetchRuntimeStatus(
   server: string,
-  maxAgeHours: number,
+  maxAgeMinutes: number,
   fetcher: Fetcher = fetch
 ): Promise<RuntimeStatus> {
   return fetchJson<RuntimeStatus>(
     buildApiPath("/api/runtime/status", {
       server,
-      max_age_hours: maxAgeHours,
+      max_age_minutes: maxAgeMinutes,
     }),
     fetcher
   )
@@ -486,6 +541,7 @@ export async function refreshTlpPrices(
       server,
       limit: options.limit,
       max_age_hours: options.maxAgeHours,
+      max_age_minutes: options.maxAgeMinutes,
       history_days: options.historyDays,
       concurrency: options.concurrency,
       refresh_krono_when_empty: options.refreshKronoWhenEmpty,
@@ -505,6 +561,7 @@ export async function startTlpPriceRefreshJob(
       server,
       limit: options.limit,
       max_age_hours: options.maxAgeHours,
+      max_age_minutes: options.maxAgeMinutes,
       history_days: options.historyDays,
       concurrency: options.concurrency,
       refresh_krono_when_empty: options.refreshKronoWhenEmpty,
@@ -707,18 +764,65 @@ export async function fetchItemTooltip(
 
 export async function fetchSettingsStatus(
   server: string,
-  maxAgeHoursOrFetcher?: number | Fetcher,
   fetcher: Fetcher = fetch
 ): Promise<SettingsStatusResponse> {
-  const maxAgeHours = typeof maxAgeHoursOrFetcher === "number" ? maxAgeHoursOrFetcher : undefined
-  const resolvedFetcher = typeof maxAgeHoursOrFetcher === "function" ? maxAgeHoursOrFetcher : fetcher
-
   return fetchJson<SettingsStatusResponse>(
     buildApiPath("/api/settings/status", {
       server,
-      max_age_hours: maxAgeHours,
     }),
-    resolvedFetcher
+    fetcher
+  )
+}
+
+export async function fetchTlpInterfaceErrors(
+  server: string,
+  maxAgeMinutes: number,
+  fetcher: Fetcher = fetch
+): Promise<TlpInterfaceErrorsResponse> {
+  return fetchJson<TlpInterfaceErrorsResponse>(
+    buildApiPath("/api/interface/tlp-errors", {
+      server,
+      max_age_minutes: maxAgeMinutes,
+    }),
+    fetcher
+  )
+}
+
+export async function fetchLogParseIssues(
+  server: string,
+  fetcher: Fetcher = fetch
+): Promise<LogParseIssuesResponse> {
+  return fetchJson<LogParseIssuesResponse>(
+    buildApiPath("/api/interface/log-parse-issues", {
+      server,
+    }),
+    fetcher
+  )
+}
+
+export async function fetchInterfacePageData(
+  server: string,
+  maxAgeMinutes: number,
+  fetcher: Fetcher = fetch
+): Promise<InterfacePageData> {
+  const [tlpErrors, logParseIssues] = await Promise.all([
+    fetchTlpInterfaceErrors(server, maxAgeMinutes, fetcher),
+    fetchLogParseIssues(server, fetcher),
+  ])
+
+  return { tlpErrors, logParseIssues }
+}
+
+export async function markTlpPricesStale(
+  server: string,
+  fetcher: Fetcher = fetch
+): Promise<MarkTlpPricesStaleResult> {
+  return fetchJson<MarkTlpPricesStaleResult>(
+    buildApiPath("/api/interface/tlp-prices/mark-stale", {
+      server,
+    }),
+    fetcher,
+    { method: "POST" }
   )
 }
 

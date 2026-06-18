@@ -133,7 +133,8 @@ def main() -> None:
                 f"start_pos={stats.resumed_from_position}, end_pos={stats.last_position}, "
                 f"sale_messages={stats.sale_messages}, listings_found={stats.listings_found}, "
                 f"listings_inserted={stats.listings_inserted}, "
-                f"pending_items={stats.pending_items_upserted}"
+                f"pending_items={stats.pending_items_upserted}, "
+                f"parse_issues={stats.parse_issues_upserted}"
             )
     elif args.command == "enrich-pending":
         stats = enrich_pending_items(Path(args.db), limit=args.limit, source_server=args.source_server)
@@ -196,7 +197,8 @@ def main() -> None:
                 "Imported log: "
                 f"start_pos={log_stats.resumed_from_position}, end_pos={log_stats.last_position}, "
                 f"auctions={log_stats.auction_lines}, listings_inserted={log_stats.listings_inserted}, "
-                f"pending_items={log_stats.pending_items_upserted}"
+                f"pending_items={log_stats.pending_items_upserted}, "
+                f"parse_issues={log_stats.parse_issues_upserted}"
             )
 
         if not args.skip_enrich:

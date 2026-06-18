@@ -2,7 +2,6 @@ import {
   Activity,
   CheckCircle2,
   Database,
-  FileClock,
   FileText,
   Server,
   TriangleAlert,
@@ -20,11 +19,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import type { EqLogSettings, LatestTlpImport, SettingsStatusResponse } from "@/lib/api"
+import type { EqLogSettings, SettingsStatusResponse } from "@/lib/api"
 import { ApiError, browseEqLogPath, updateEqLogPath } from "@/lib/api"
 import { formatDateTime, formatNumber } from "@/lib/format"
 import type { MageloStatus } from "@/lib/magelo"
-import { formatMageloStatusLabel, latestImportSummary } from "@/lib/settings"
+import { formatMageloStatusLabel } from "@/lib/settings"
 import { cn } from "@/lib/utils"
 
 type SettingsPageProps = {
@@ -39,7 +38,7 @@ export function SettingsPage({ settings, mageloStatus }: SettingsPageProps) {
         <div className="min-w-0">
           <h2 className="text-base font-semibold">Local Status</h2>
           <p className="text-sm text-muted-foreground">
-            Read-only diagnostics for the local API, database, and import pipeline.
+            Read-only diagnostics for the local API, database, and browser integration.
           </p>
         </div>
         <Badge variant="outline" className="rounded-md">
@@ -88,32 +87,6 @@ export function SettingsPage({ settings, mageloStatus }: SettingsPageProps) {
         server={settings.active_server}
         logSettings={settings}
       />
-
-      <Card className="min-w-0">
-        <CardHeader className="border-b">
-          <CardTitle className="flex items-center gap-2">
-            <FileClock aria-hidden="true" className="size-4" />
-            <h3>Last TLP Auctions Import</h3>
-          </CardTitle>
-          <CardDescription>{latestImportSummary(settings)}</CardDescription>
-          <CardAction>
-            <ImportStatusBadge
-              status={settings.latest_tlp_import?.status}
-              hasError={settings.import_runs_error !== null}
-            />
-          </CardAction>
-        </CardHeader>
-        <CardContent className="grid gap-4">
-          {settings.latest_tlp_import ? (
-            <ImportDetails importRun={settings.latest_tlp_import} />
-          ) : (
-            <EmptyImportState error={settings.import_runs_error} />
-          )}
-          {settings.import_runs_error === null ? (
-            <TlpImportErrorList errors={settings.recent_tlp_errors} />
-          ) : null}
-        </CardContent>
-      </Card>
     </section>
   )
 }
@@ -283,13 +256,9 @@ function StatusCard({
     <Card size="sm">
       <CardHeader>
         <CardDescription>{title}</CardDescription>
-        <CardTitle className={cn("break-words", compact ? "text-base" : "text-2xl")}>
-          {value}
-        </CardTitle>
+        <CardTitle className={cn("break-words", compact ? "text-base" : "text-2xl")}>{value}</CardTitle>
         <CardAction>
-          <span className={cn("flex size-9 items-center justify-center rounded-md", toneClass)}>
-            {icon}
-          </span>
+          <span className={cn("flex size-9 items-center justify-center rounded-md", toneClass)}>{icon}</span>
         </CardAction>
       </CardHeader>
       <CardContent>
@@ -297,66 +266,6 @@ function StatusCard({
       </CardContent>
     </Card>
   )
-}
-
-function ImportDetails({ importRun }: { importRun: LatestTlpImport }) {
-  return (
-    <dl className="grid gap-2 md:grid-cols-2">
-      <DetailRow label="Source" value={importRun.source_name} />
-      <DetailRow label="Status" value={importRun.status} />
-      <DetailRow label="Started" value={formatDateTime(importRun.started_at)} />
-      <DetailRow label="Finished" value={formatDateTime(importRun.finished_at)} />
-      <DetailRow label="Items seen" value={formatNumber(importRun.items_seen)} />
-      <DetailRow label="Items inserted" value={formatNumber(importRun.items_inserted)} />
-      <DetailRow label="Items updated" value={formatNumber(importRun.items_updated)} />
-      <DetailRow label="Source URL" value={importRun.source_url ?? "n/a"} />
-      {importRun.error ? <DetailRow label="Error" value={importRun.error} wide /> : null}
-    </dl>
-  )
-}
-
-function TlpImportErrorList({ errors }: { errors: LatestTlpImport[] }) {
-  if (errors.length === 0) {
-    return (
-      <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-        No recent item-level TLP refresh errors for this server.
-      </p>
-    )
-  }
-
-  return (
-    <section className="grid gap-2">
-      <div className="flex items-center justify-between gap-3">
-        <h4 className="text-sm font-medium">Recent item refresh errors</h4>
-        <Badge variant="outline" className="rounded-md">
-          {formatNumber(errors.length)} shown
-        </Badge>
-      </div>
-      <div className="grid gap-2">
-        {errors.map((errorRun) => (
-          <div key={errorRun.import_run_id} className="rounded-md border bg-background px-3 py-2 text-sm">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <span className="font-medium">{formatImportErrorTarget(errorRun)}</span>
-              <span className="text-xs text-muted-foreground">
-                {formatDateTime(errorRun.finished_at ?? errorRun.started_at)}
-              </span>
-            </div>
-            <p className="mt-1 break-words text-destructive">
-              {errorRun.error ?? "Unknown TLP Auctions error"}
-            </p>
-            {errorRun.source_url ? (
-              <p className="mt-1 break-words text-xs text-muted-foreground">{errorRun.source_url}</p>
-            ) : null}
-          </div>
-        ))}
-      </div>
-    </section>
-  )
-}
-
-function formatImportErrorTarget(importRun: LatestTlpImport): string {
-  const itemId = importRun.source_url?.match(/item_id=(\d+)/)?.[1]
-  return itemId ? `Item ${itemId}` : importRun.source_url ?? "TLP item"
 }
 
 function DetailRow({
@@ -378,47 +287,5 @@ function DetailRow({
       <dt className="text-sm text-muted-foreground">{label}</dt>
       <dd className="min-w-0 break-words text-sm font-medium">{value}</dd>
     </div>
-  )
-}
-
-function ImportStatusBadge({
-  status,
-  hasError,
-}: {
-  status: string | undefined
-  hasError: boolean
-}) {
-  if (hasError) {
-    return <Badge variant="destructive">unavailable</Badge>
-  }
-
-  if (!status) {
-    return (
-      <Badge variant="outline" className="rounded-md">
-        none
-      </Badge>
-    )
-  }
-
-  return (
-    <Badge
-      variant="outline"
-      className={cn(
-        "rounded-md",
-        status === "completed"
-          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-          : "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-      )}
-    >
-      {status}
-    </Badge>
-  )
-}
-
-function EmptyImportState({ error }: { error: string | null }) {
-  return (
-    <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-      {error ? `Import runs unavailable: ${error}` : "No TLP Auctions import found."}
-    </p>
   )
 }

@@ -14,11 +14,10 @@ from eqmarket.db import init_db
 
 
 class ApiSettingsTests(unittest.TestCase):
-    def test_settings_status_returns_db_server_and_latest_tlp_import(self) -> None:
+    def test_settings_status_returns_db_server_and_log_settings(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "eqmarket.sqlite"
             init_db(db_path)
-            _seed_import_runs(db_path)
             app = create_app(db_path)
 
             with TestClient(app) as client:
@@ -30,81 +29,13 @@ class ApiSettingsTests(unittest.TestCase):
             self.assertEqual(payload["db_path"], str(db_path.resolve()))
             self.assertEqual(payload["default_server"], "frostreaver")
             self.assertEqual(payload["active_server"], "mischief")
-            self.assertIsNone(payload["import_runs_error"])
             self.assertIsNone(payload["eq_log_path"])
             self.assertIsNone(payload["eq_log_exists"])
             self.assertIsNone(payload["eq_log_import_state"])
             self.assertIsNone(payload["log_settings_error"])
-            self.assertEqual(
-                payload["latest_tlp_import"],
-                {
-                    "import_run_id": 3,
-                    "source_name": "tlp_auctions_prices",
-                    "source_url": "server=mischief;mode=history;history_days=3",
-                    "status": "completed",
-                    "items_seen": 42,
-                    "items_inserted": 5,
-                    "items_updated": 11,
-                    "error": None,
-                    "started_at": "2026-06-16 09:59:00",
-                    "finished_at": "2026-06-16 10:00:00",
-                },
-            )
-            self.assertEqual(
-                payload["recent_tlp_errors"],
-                [
-                    {
-                        "import_run_id": 2,
-                        "source_name": "tlp_auctions_history",
-                        "source_url": "item_id=101;server=mischief",
-                        "status": "failed",
-                        "items_seen": 0,
-                        "items_inserted": 0,
-                        "items_updated": 0,
-                        "error": "temporary upstream error",
-                        "started_at": "2026-06-16 09:30:00",
-                        "finished_at": "2026-06-16 09:30:10",
-                    }
-                ],
-            )
+            self.assertNotIn("recent_tlp_errors", payload)
 
-    def test_settings_status_returns_empty_import_when_no_tlp_run_exists(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = Path(temp_dir) / "eqmarket.sqlite"
-            init_db(db_path)
-            app = create_app(db_path)
-
-            with TestClient(app) as client:
-                response = client.get("/api/settings/status")
-
-            self.assertEqual(response.status_code, 200, response.text)
-            payload = response.json()
-            self.assertEqual(payload["active_server"], "frostreaver")
-            self.assertIsNone(payload["latest_tlp_import"])
-            self.assertEqual(payload["recent_tlp_errors"], [])
-            self.assertIsNone(payload["import_runs_error"])
-            self.assertIsNone(payload["eq_log_path"])
-            self.assertIsNone(payload["eq_log_exists"])
-
-    def test_settings_status_hides_old_tlp_errors_for_fresh_items(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = Path(temp_dir) / "eqmarket.sqlite"
-            init_db(db_path)
-            _seed_import_runs(db_path)
-            _seed_fresh_price(db_path, item_id=101, server="mischief")
-            app = create_app(db_path)
-
-            with TestClient(app) as client:
-                response = client.get(
-                    "/api/settings/status",
-                    params={"server": "mischief", "max_age_hours": 6},
-                )
-
-            self.assertEqual(response.status_code, 200, response.text)
-            payload = response.json()
-            self.assertEqual(payload["recent_tlp_errors"], [])
-
-    def test_settings_status_still_reports_db_path_when_import_runs_cannot_be_read(self) -> None:
+    def test_settings_status_still_reports_db_path_when_log_state_cannot_be_read(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "missing.sqlite"
             app = create_app(db_path)
@@ -115,9 +46,7 @@ class ApiSettingsTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200, response.text)
             payload = response.json()
             self.assertEqual(payload["db_path"], str(db_path.resolve()))
-            self.assertIsNone(payload["latest_tlp_import"])
-            self.assertEqual(payload["recent_tlp_errors"], [])
-            self.assertIsInstance(payload["import_runs_error"], str)
+            self.assertEqual(payload["active_server"], "frostreaver")
             self.assertIsNone(payload["eq_log_path"])
             self.assertIsInstance(payload["log_settings_error"], str)
 
@@ -186,73 +115,6 @@ def _seed_log_import_state(db_path: Path, log_path: Path) -> None:
             ) VALUES (?, 'frostreaver', 456, 789.0, 123, '2026-06-16 10:00:00')
             """,
             (str(log_path.resolve()),),
-        )
-        connection.commit()
-
-
-def _seed_import_runs(db_path: Path) -> None:
-    with closing(sqlite3.connect(db_path)) as connection:
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute(
-            "INSERT INTO items (item_id, name, normalized_name) VALUES (101, 'Errored Item', 'errored item')"
-        )
-        connection.execute(
-            """
-            INSERT INTO market_listings (
-                server, timestamp, seller, item_name, normalized_item_name, item_id,
-                price_raw, price_pp, source, confidence
-            ) VALUES ('mischief', CURRENT_TIMESTAMP, 'Seller', 'Errored Item',
-                      'errored item', 101, '1k', 1000, 'eq_log', 'parsed')
-            """
-        )
-        connection.execute(
-            """
-            INSERT INTO import_runs (
-                source_name, source_url, status, items_seen, items_inserted,
-                items_updated, started_at, finished_at
-            ) VALUES (
-                'eq_log_import', 'log=auction.log', 'completed', 20, 0, 20,
-                '2026-06-16 09:00:00', '2026-06-16 09:05:00'
-            )
-            """
-        )
-        connection.execute(
-            """
-            INSERT INTO import_runs (
-                source_name, source_url, status, items_seen, items_inserted,
-                items_updated, error, started_at, finished_at
-            ) VALUES (
-                'tlp_auctions_history', 'item_id=101;server=mischief', 'failed',
-                0, 0, 0, 'temporary upstream error',
-                '2026-06-16 09:30:00', '2026-06-16 09:30:10'
-            )
-            """
-        )
-        connection.execute(
-            """
-            INSERT INTO import_runs (
-                source_name, source_url, status, items_seen, items_inserted,
-                items_updated, started_at, finished_at
-            ) VALUES (
-                'tlp_auctions_prices', 'server=mischief;mode=history;history_days=3',
-                'completed', 42, 5, 11, '2026-06-16 09:59:00', '2026-06-16 10:00:00'
-            )
-            """
-        )
-        connection.commit()
-
-
-def _seed_fresh_price(db_path: Path, *, item_id: int, server: str) -> None:
-    with closing(sqlite3.connect(db_path)) as connection:
-        connection.execute(
-            """
-            INSERT INTO market_prices (
-                item_id, server, median_pp, sample_size, confidence, last_refresh_at, source
-            ) VALUES (?, ?, 1000, 1, 'low', CURRENT_TIMESTAMP, 'fixture')
-            ON CONFLICT(item_id, server) DO UPDATE SET
-                last_refresh_at = excluded.last_refresh_at
-            """,
-            (item_id, server),
         )
         connection.commit()
 

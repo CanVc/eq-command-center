@@ -84,14 +84,16 @@ def refresh_tlp_prices(
     request: Request,
     server: str = Query("frostreaver", min_length=1),
     limit: int = Query(DEFAULT_REFRESH_LIMIT, gt=0, le=2000),
-    max_age_hours: float = Query(DEFAULT_STALE_PRICE_HOURS, ge=0, le=24 * 30),
+    max_age_hours: float | None = Query(None, ge=0, le=24 * 30),
+    max_age_minutes: float | None = Query(None, ge=0, le=24 * 30 * 60),
     history_days: int = Query(DEFAULT_HISTORY_DAYS, ge=0, le=365),
     concurrency: int = Query(DEFAULT_REFRESH_CONCURRENCY, ge=1, le=MAX_REFRESH_CONCURRENCY),
     refresh_krono_when_empty: bool = Query(True),
 ) -> dict[str, Any]:
     db_server = _normalize_server(server)
     db_path = Path(request.app.state.db_path)
-    item_ids = _load_item_ids_or_503(db_path, db_server, limit, max_age_hours)
+    effective_max_age_hours = _resolve_max_age_hours(max_age_hours, max_age_minutes)
+    item_ids = _load_item_ids_or_503(db_path, db_server, limit, effective_max_age_hours)
 
     if item_ids:
         stats = _import_prices_or_502(
@@ -112,7 +114,7 @@ def refresh_tlp_prices(
         stats,
         item_ids=item_ids,
         limit=limit,
-        max_age_hours=max_age_hours,
+        max_age_hours=effective_max_age_hours,
         history_days=history_days,
         concurrency=concurrency,
     )
@@ -123,18 +125,20 @@ def start_tlp_price_refresh_job(
     request: Request,
     server: str = Query("frostreaver", min_length=1),
     limit: int = Query(DEFAULT_REFRESH_LIMIT, gt=0, le=2000),
-    max_age_hours: float = Query(DEFAULT_STALE_PRICE_HOURS, ge=0, le=24 * 30),
+    max_age_hours: float | None = Query(None, ge=0, le=24 * 30),
+    max_age_minutes: float | None = Query(None, ge=0, le=24 * 30 * 60),
     history_days: int = Query(DEFAULT_HISTORY_DAYS, ge=0, le=365),
     concurrency: int = Query(DEFAULT_REFRESH_CONCURRENCY, ge=1, le=MAX_REFRESH_CONCURRENCY),
     refresh_krono_when_empty: bool = Query(True),
 ) -> dict[str, Any]:
     db_server = _normalize_server(server)
+    effective_max_age_hours = _resolve_max_age_hours(max_age_hours, max_age_minutes)
     job = PriceRefreshJob(
         job_id=uuid4().hex,
         db_path=Path(request.app.state.db_path),
         server=db_server,
         limit=limit,
-        max_age_hours=max_age_hours,
+        max_age_hours=effective_max_age_hours,
         history_days=history_days,
         concurrency=concurrency,
         refresh_krono_when_empty=refresh_krono_when_empty,
@@ -286,6 +290,14 @@ def _normalize_server(server: str) -> str:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _resolve_max_age_hours(max_age_hours: float | None, max_age_minutes: float | None) -> float:
+    if max_age_minutes is not None:
+        return max_age_minutes / 60
+    if max_age_hours is not None:
+        return max_age_hours
+    return DEFAULT_STALE_PRICE_HOURS
+
+
 def _refresh_krono_or_502(db_path: Path, db_server: str) -> TlpPriceImportStats:
     try:
         return refresh_krono_price(db_path, db_server)
@@ -386,6 +398,7 @@ def _job_payload_unlocked(job: PriceRefreshJob) -> dict[str, Any]:
         "target_count": len(job.target_item_ids),
         "limit": job.limit,
         "max_age_hours": job.max_age_hours,
+        "max_age_minutes": _hours_to_minutes(job.max_age_hours),
         "history_days": job.history_days,
         "concurrency": job.concurrency,
         "stats": job.stats,
@@ -414,11 +427,18 @@ def _refresh_payload(
             "target_count": len(item_ids),
             "limit": limit,
             "max_age_hours": max_age_hours,
+            "max_age_minutes": _hours_to_minutes(max_age_hours),
             "history_days": history_days,
             "concurrency": concurrency,
         }
     )
     return payload
+
+
+def _hours_to_minutes(max_age_hours: float | None) -> float | None:
+    if max_age_hours is None:
+        return None
+    return round(max_age_hours * 60, 2)
 
 
 def _optional_int(value: object) -> int | None:

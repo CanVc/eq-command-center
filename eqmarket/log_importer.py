@@ -9,6 +9,7 @@ from pathlib import Path
 from eqmarket.db import init_db
 from eqmarket.log_parser import (
     ParsedListing,
+    is_sale_message,
     iter_auction_messages,
     normalize_item_name,
     parse_auction_line,
@@ -24,6 +25,8 @@ class LogImportStats:
     listings_found: int = 0
     listings_inserted: int = 0
     pending_items_upserted: int = 0
+    parse_issues_found: int = 0
+    parse_issues_upserted: int = 0
     resumed_from_position: int = 0
     last_position: int = 0
     latest_sale_timestamp: str | None = None
@@ -199,16 +202,43 @@ def import_log_file(
                 stats.lines_read += 1
                 auction = parse_auction_line(line)
                 if auction is None:
+                    if _looks_like_malformed_auction_line(line):
+                        stats.parse_issues_found += 1
+                        if _record_log_parse_issue(
+                            connection,
+                            server,
+                            log_key,
+                            raw_line=line.rstrip("\r\n"),
+                            reason_code="malformed_auction_line",
+                            reason="Line looked like /auction output but did not match the expected EQ log shape.",
+                            timestamp_raw=_timestamp_raw_from_line(line),
+                        ):
+                            stats.parse_issues_upserted += 1
                     continue
 
                 stats.auction_lines += 1
+                parsed_listings = parse_sale_listings(auction)
                 listings = [
                     split_listing
-                    for listing in parse_sale_listings(auction)
+                    for listing in parsed_listings
                     for split_listing in split_listing_by_known_items(listing, known_items)
                 ]
                 if listings:
                     stats.sale_messages += 1
+                elif is_sale_message(auction.message):
+                    stats.parse_issues_found += 1
+                    if _record_log_parse_issue(
+                        connection,
+                        server,
+                        log_key,
+                        raw_line=auction.raw_line,
+                        reason_code="no_listing_candidates",
+                        reason="Auction sale message did not contain a parseable item listing.",
+                        timestamp=auction.timestamp,
+                        timestamp_raw=auction.timestamp_raw,
+                        seller=auction.seller,
+                    ):
+                        stats.parse_issues_upserted += 1
                 stats.listings_found += len(listings)
 
                 for listing in listings:
@@ -218,6 +248,20 @@ def import_log_file(
                         stats.listings_inserted += 1
                     if pending:
                         stats.pending_items_upserted += 1
+                    if listing.price_raw is None:
+                        stats.parse_issues_found += 1
+                        if _record_log_parse_issue(
+                            connection,
+                            server,
+                            log_key,
+                            raw_line=listing.raw_line,
+                            reason_code="no_price",
+                            reason="Listing did not include a parseable platinum or Krono price.",
+                            timestamp=listing.timestamp,
+                            timestamp_raw=auction.timestamp_raw,
+                            seller=listing.seller,
+                        ):
+                            stats.parse_issues_upserted += 1
 
                 if limit is not None and stats.auction_lines >= limit:
                     break
@@ -229,6 +273,51 @@ def import_log_file(
         connection.commit()
 
     return stats
+
+
+def _record_log_parse_issue(
+    connection: sqlite3.Connection,
+    server: str,
+    log_path: str,
+    *,
+    raw_line: str,
+    reason_code: str,
+    reason: str,
+    timestamp: str | None = None,
+    timestamp_raw: str | None = None,
+    seller: str | None = None,
+) -> bool:
+    cursor = connection.execute(
+        """
+        INSERT INTO log_parse_issues (
+            server, log_path, timestamp, timestamp_raw, seller, raw_line, reason_code, reason
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(server, log_path, raw_line, reason_code) DO UPDATE SET
+            timestamp = COALESCE(excluded.timestamp, log_parse_issues.timestamp),
+            timestamp_raw = COALESCE(excluded.timestamp_raw, log_parse_issues.timestamp_raw),
+            seller = COALESCE(excluded.seller, log_parse_issues.seller),
+            reason = excluded.reason,
+            last_seen_at = CURRENT_TIMESTAMP,
+            seen_count = seen_count + 1
+        """,
+        (server, log_path, timestamp, timestamp_raw, seller, raw_line, reason_code, reason),
+    )
+    return cursor.rowcount > 0
+
+
+def _looks_like_malformed_auction_line(line: str) -> bool:
+    lowered = line.lower()
+    return " auctions," in lowered or "auction" in lowered and line.lstrip().startswith("[")
+
+
+def _timestamp_raw_from_line(line: str) -> str | None:
+    stripped = line.lstrip()
+    if not stripped.startswith("["):
+        return None
+    end = stripped.find("]")
+    if end <= 1:
+        return None
+    return stripped[1:end]
 
 
 def _load_log_position(connection: sqlite3.Connection, log_path: str, server: str) -> int | None:

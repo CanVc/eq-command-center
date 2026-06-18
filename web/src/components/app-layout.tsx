@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import type { KeyboardEvent, ReactNode } from "react"
+import type { ReactNode } from "react"
 import {
   BarChart3,
   Box,
@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Search,
   Settings,
+  SlidersHorizontal,
   Sun,
 } from "lucide-react"
 
@@ -22,11 +23,6 @@ import {
 } from "@/components/ui/select"
 import { formatDateTime, formatNumber, formatTime } from "@/lib/format"
 import { APP_PAGES, pathForPage, type AppPageId } from "@/lib/navigation"
-import {
-  MAX_TLP_MAX_AGE_HOURS,
-  MIN_TLP_MAX_AGE_HOURS,
-  formatTlpMaxAgeHours,
-} from "@/lib/tlp-refresh-preference"
 import { cn } from "@/lib/utils"
 
 type AppLayoutProps = {
@@ -35,16 +31,12 @@ type AppLayoutProps = {
   server: string
   isRefreshing: boolean
   isTlpRefreshing: boolean
-  tlpMaxAgeHours: number
-  tlpAutoRefreshEnabled: boolean
   staleItemCount: number | null
   latestLogSaleAt: string | null
   logWatcherError: string | null
   children: ReactNode
   onNavigate: (pageId: AppPageId) => void
   onServerChange: (server: string) => void
-  onTlpMaxAgeHoursChange: (maxAgeHours: number) => number
-  onTlpAutoRefreshEnabledChange: (enabled: boolean) => boolean
   onRefresh: () => void
   onTlpRefresh: () => void
 }
@@ -61,6 +53,7 @@ const NAV_ICONS: Record<AppPageId, ReactNode> = {
   deals: <BarChart3 aria-hidden="true" />,
   market: <ListFilter aria-hidden="true" />,
   items: <Search aria-hidden="true" />,
+  interface: <SlidersHorizontal aria-hidden="true" />,
   settings: <Settings aria-hidden="true" />,
 }
 
@@ -74,16 +67,12 @@ export function AppLayout({
   server,
   isRefreshing,
   isTlpRefreshing,
-  tlpMaxAgeHours,
-  tlpAutoRefreshEnabled,
   staleItemCount,
   latestLogSaleAt,
   logWatcherError,
   children,
   onNavigate,
   onServerChange,
-  onTlpMaxAgeHoursChange,
-  onTlpAutoRefreshEnabledChange,
   onRefresh,
   onTlpRefresh,
 }: AppLayoutProps) {
@@ -98,25 +87,6 @@ export function AppLayout({
 
   const toggleTheme = () => {
     setTheme((current) => (current === "dark" ? "light" : "dark"))
-  }
-
-  const applyTlpMaxAgeInput = (input: HTMLInputElement) => {
-    const rawValue = input.value.trim()
-    const parsedValue = rawValue === "" ? Number.NaN : Number(rawValue)
-
-    if (!Number.isFinite(parsedValue)) {
-      input.value = formatTlpMaxAgeHours(tlpMaxAgeHours)
-      return
-    }
-
-    const savedMaxAgeHours = onTlpMaxAgeHoursChange(parsedValue)
-    input.value = formatTlpMaxAgeHours(savedMaxAgeHours)
-  }
-
-  const handleTlpMaxAgeKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Enter") {
-      event.currentTarget.blur()
-    }
   }
 
   return (
@@ -175,41 +145,6 @@ export function AppLayout({
                   latestLogSaleAt={latestLogSaleAt}
                   logWatcherError={logWatcherError}
                 />
-
-                <label
-                  className="flex h-9 items-center gap-1.5 rounded-md border border-input bg-background px-2 text-xs text-muted-foreground"
-                  title="Maximum age, in hours, before a TLP item price is considered stale. Use 0 to refresh every eligible recent item."
-                >
-                  <span className="whitespace-nowrap">TLP max age</span>
-                  <input
-                    aria-label="TLP max age hours"
-                    className="h-7 w-16 rounded-md border border-input bg-background px-2 text-right text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-                    type="number"
-                    min={MIN_TLP_MAX_AGE_HOURS}
-                    max={MAX_TLP_MAX_AGE_HOURS}
-                    step={0.5}
-                    key={tlpMaxAgeHours}
-                    defaultValue={formatTlpMaxAgeHours(tlpMaxAgeHours)}
-                    disabled={isTlpRefreshing}
-                    onBlur={(event) => applyTlpMaxAgeInput(event.currentTarget)}
-                    onKeyDown={handleTlpMaxAgeKeyDown}
-                  />
-                  <span>h</span>
-                </label>
-
-                <label
-                  className="flex h-9 items-center gap-2 rounded-md border border-input bg-background px-2.5 text-sm text-foreground"
-                  title="Automatically start a stale TLP price refresh every 5 minutes. Empty auto runs skip Krono refresh."
-                >
-                  <input
-                    aria-label="Auto-refresh TLP prices every 5 minutes"
-                    className="size-4 accent-foreground"
-                    type="checkbox"
-                    checked={tlpAutoRefreshEnabled}
-                    onChange={(event) => onTlpAutoRefreshEnabledChange(event.target.checked)}
-                  />
-                  <span className="whitespace-nowrap">Auto 5m</span>
-                </label>
 
                 <Button
                   type="button"

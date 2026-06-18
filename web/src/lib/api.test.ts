@@ -6,6 +6,7 @@ import {
   fetchDeals,
   fetchDashboardSummary,
   fetchHealth,
+  fetchInterfacePageData,
   fetchItemDetailPageData,
   fetchItemTooltip,
   fetchItemSearchPreview,
@@ -13,6 +14,7 @@ import {
   fetchMarketListings,
   fetchRuntimeStatus,
   fetchSettingsStatus,
+  markTlpPricesStale,
   refreshKronoPrice,
   refreshTlpPrices,
   startTlpPriceRefreshJob,
@@ -84,7 +86,7 @@ describe("page API helpers", () => {
     await fetchListingsPreview("mischief", fetcher)
     await fetchMarketListings("mischief", { query: " crown ", limit: 50 }, fetcher)
     await fetchItemSearchPreview("mischief", fetcher)
-    await fetchRuntimeStatus("mischief", 1.5, fetcher)
+    await fetchRuntimeStatus("mischief", 90, fetcher)
 
     expect(fetcher).toHaveBeenNthCalledWith(
       1,
@@ -114,7 +116,7 @@ describe("page API helpers", () => {
         Accept: "application/json",
       },
     })
-    expect(fetcher).toHaveBeenNthCalledWith(5, "/api/runtime/status?server=mischief&max_age_hours=1.5", {
+    expect(fetcher).toHaveBeenNthCalledWith(5, "/api/runtime/status?server=mischief&max_age_minutes=90", {
       headers: {
         Accept: "application/json",
       },
@@ -143,20 +145,6 @@ describe("page API helpers", () => {
       db_path: "C:/tmp/eqmarket.sqlite",
       default_server: "frostreaver",
       active_server: "frostreaver",
-      latest_tlp_import: {
-        import_run_id: 10,
-        source_name: "tlp_auctions_prices",
-        source_url: "server=frostreaver;mode=history;history_days=3",
-        status: "completed",
-        items_seen: 50,
-        items_inserted: 2,
-        items_updated: 12,
-        error: null,
-        started_at: "2026-06-16T09:59:00",
-        finished_at: "2026-06-16T10:00:00",
-      },
-      recent_tlp_errors: [],
-      import_runs_error: null,
       eq_log_path: "C:/EverQuest/Logs/eqlog_Dreadbank_frostreaver.txt",
       eq_log_exists: true,
       eq_log_import_state: null,
@@ -192,6 +180,56 @@ describe("page API helpers", () => {
     })
   })
 
+  it("fetches interface diagnostics and marks TLP prices stale", async () => {
+    const tlpPayload = {
+      server: "frostreaver",
+      max_age_minutes: 360,
+      max_age_hours: 6,
+      stale_item_count: 2,
+      latest_tlp_import: null,
+      active_errors: [],
+      active_error_count: 0,
+    }
+    const logPayload = {
+      server: "frostreaver",
+      issues: [],
+      issue_count: 0,
+      limit: 500,
+    }
+    const stalePayload = {
+      server: "frostreaver",
+      affected_count: 4,
+    }
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(tlpPayload))
+      .mockResolvedValueOnce(jsonResponse(logPayload))
+      .mockResolvedValueOnce(jsonResponse(stalePayload))
+
+    await expect(fetchInterfacePageData("frostreaver", 360, fetcher)).resolves.toEqual({
+      tlpErrors: tlpPayload,
+      logParseIssues: logPayload,
+    })
+    await expect(markTlpPricesStale("frostreaver", fetcher)).resolves.toEqual(stalePayload)
+
+    expect(fetcher).toHaveBeenNthCalledWith(1, "/api/interface/tlp-errors?server=frostreaver&max_age_minutes=360", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/interface/log-parse-issues?server=frostreaver", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(3, "/api/interface/tlp-prices/mark-stale?server=frostreaver", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    })
+  })
+
   it("posts manual TLP refresh requests", async () => {
     const kronoPayload = {
       server: "frostreaver",
@@ -211,6 +249,7 @@ describe("page API helpers", () => {
       target_count: 2,
       limit: 500,
       max_age_hours: 6,
+      max_age_minutes: 360,
       history_days: 3,
       concurrency: 10,
       stats: null,
@@ -225,6 +264,7 @@ describe("page API helpers", () => {
       target_count: 2,
       limit: 500,
       max_age_hours: 6,
+      max_age_minutes: 360,
       history_days: 3,
       concurrency: 10,
       catalog_items_seen: 10,
@@ -248,11 +288,11 @@ describe("page API helpers", () => {
       .mockResolvedValueOnce(jsonResponse(jobPayload))
 
     await expect(refreshKronoPrice("frostreaver", fetcher)).resolves.toEqual(kronoPayload)
-    await expect(startTlpPriceRefreshJob("frostreaver", { maxAgeHours: 6 }, fetcher)).resolves.toEqual(jobPayload)
+    await expect(startTlpPriceRefreshJob("frostreaver", { maxAgeMinutes: 360 }, fetcher)).resolves.toEqual(jobPayload)
     await expect(fetchTlpPriceRefreshJob("abc123", fetcher)).resolves.toEqual(jobPayload)
-    await expect(refreshTlpPrices("frostreaver", { maxAgeHours: 6 }, fetcher)).resolves.toEqual(pricePayload)
+    await expect(refreshTlpPrices("frostreaver", { maxAgeMinutes: 360 }, fetcher)).resolves.toEqual(pricePayload)
     await expect(
-      startTlpPriceRefreshJob("frostreaver", { maxAgeHours: 6, refreshKronoWhenEmpty: false }, fetcher)
+      startTlpPriceRefreshJob("frostreaver", { maxAgeMinutes: 360, refreshKronoWhenEmpty: false }, fetcher)
     ).resolves.toEqual(jobPayload)
 
     expect(fetcher).toHaveBeenNthCalledWith(1, "/api/krono/refresh?server=frostreaver", {
@@ -261,7 +301,7 @@ describe("page API helpers", () => {
         Accept: "application/json",
       },
     })
-    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/tlp-prices/refresh-jobs?server=frostreaver&max_age_hours=6", {
+    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/tlp-prices/refresh-jobs?server=frostreaver&max_age_minutes=360", {
       method: "POST",
       headers: {
         Accept: "application/json",
@@ -272,7 +312,7 @@ describe("page API helpers", () => {
         Accept: "application/json",
       },
     })
-    expect(fetcher).toHaveBeenNthCalledWith(4, "/api/tlp-prices/refresh?server=frostreaver&max_age_hours=6", {
+    expect(fetcher).toHaveBeenNthCalledWith(4, "/api/tlp-prices/refresh?server=frostreaver&max_age_minutes=360", {
       method: "POST",
       headers: {
         Accept: "application/json",
@@ -280,7 +320,7 @@ describe("page API helpers", () => {
     })
     expect(fetcher).toHaveBeenNthCalledWith(
       5,
-      "/api/tlp-prices/refresh-jobs?server=frostreaver&max_age_hours=6&refresh_krono_when_empty=false",
+      "/api/tlp-prices/refresh-jobs?server=frostreaver&max_age_minutes=360&refresh_krono_when_empty=false",
       {
         method: "POST",
         headers: {
@@ -543,6 +583,7 @@ describe("page API helpers", () => {
           target_count: 1,
           limit: 1,
           max_age_hours: null,
+          max_age_minutes: null,
           history_days: 3,
           concurrency: 1,
           catalog_items_seen: 1,

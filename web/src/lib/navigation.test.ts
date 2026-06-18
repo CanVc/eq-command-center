@@ -8,6 +8,7 @@ describe("navigation", () => {
     expect(pageIdFromPath("/deals")).toBe("deals")
     expect(pageIdFromPath("/market/")).toBe("market")
     expect(pageIdFromPath("/items")).toBe("items")
+    expect(pageIdFromPath("/interface")).toBe("interface")
     expect(pageIdFromPath("/settings")).toBe("settings")
   })
 
@@ -20,6 +21,7 @@ describe("navigation", () => {
     expect(pathForPage("deals")).toBe("/deals")
     expect(pathForPage("market")).toBe("/market")
     expect(pathForPage("items")).toBe("/items")
+    expect(pathForPage("interface")).toBe("/interface")
     expect(pathForPage("settings")).toBe("/settings")
   })
 

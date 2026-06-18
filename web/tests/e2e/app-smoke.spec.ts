@@ -19,7 +19,7 @@ test("navigates main pages and stores the active server", async ({ page }) => {
   await expect(page).toHaveTitle(/EQ Command Center/)
   await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible()
 
-  for (const label of ["Deals", "Market", "Items", "Settings"]) {
+  for (const label of ["Deals", "Market", "Items", "Interface", "Settings"]) {
     await page.getByRole("link", { name: label }).click()
     await expect(page.getByRole("heading", { name: label, exact: true })).toBeVisible()
   }
@@ -92,16 +92,41 @@ test("renders local settings diagnostics as read-only status", async ({ page }) 
   await expect(page.getByText("2,048", { exact: true })).toBeVisible()
   await page.getByRole("button", { name: "Browse" }).click()
   await expect(page.getByText("C:/EverQuest/Logs/eqlog_Browse_frostreaver.txt")).toBeVisible()
-  await expect(page.getByRole("heading", { name: "Last TLP Auctions Import" })).toBeVisible()
-  await expect(page.getByText("tlp_auctions_prices").first()).toBeVisible()
-  await expect(page.getByText("completed", { exact: true }).first()).toBeVisible()
-  await expect(page.getByText("Items seen", { exact: true })).toBeVisible()
-  await expect(page.getByText("50", { exact: true })).toBeVisible()
   await page.getByLabel("EverQuest log path").fill("C:/EverQuest/Logs/eqlog_New_frostreaver.txt")
   await page.getByRole("button", { name: "Save" }).click()
   await expect(page.getByText("Log path saved.")).toBeVisible()
   await expect(page.getByText("C:/EverQuest/Logs/eqlog_New_frostreaver.txt")).toBeVisible()
   await expect.poll(() => settingsRequests.at(-1)?.searchParams.get("server")).toBe("frostreaver")
+})
+
+test("renders interface TLP controls and EQ log issues", async ({ page }) => {
+  const requestedUrls: string[] = []
+
+  await page.route("**/api/**", async (route) => {
+    requestedUrls.push(route.request().url())
+    await fulfillApi(route)
+  })
+
+  await page.goto("/interface")
+
+  await expect(page.getByRole("heading", { name: "Interface", exact: true })).toBeVisible()
+  await expect(page.getByRole("tab", { name: "Items / TLP Auctions" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "TLP refresh configuration" })).toBeVisible()
+  await expect(page.getByLabel("TLP max age minutes")).toHaveValue("360")
+  await page.getByLabel("TLP max age minutes").fill("30")
+  await page.getByLabel("TLP auto refresh interval minutes").fill("10")
+  await page.getByRole("button", { name: "Save" }).click()
+  await expect(page.getByLabel("TLP max age minutes")).toHaveValue("30")
+  await expect(page.getByRole("heading", { name: "Active TLP item refresh errors" })).toBeVisible()
+  await expect(page.getByText("temporary upstream error")).toBeVisible()
+  await page.getByRole("button", { name: "Full rescan" }).click()
+  await expect(page.getByText("TLP price rows marked stale")).toBeVisible()
+
+  await page.getByRole("tab", { name: "Auctions / EQ log" }).click()
+  await expect(page.getByRole("heading", { name: "EQ log parse issues" })).toBeVisible()
+  await expect(page.getByText("no_price")).toBeVisible()
+  await expect(page.getByText("Unpriced Sword")).toBeVisible()
+  await expect.poll(() => requestedUrls.some((url) => new URL(url).pathname === "/api/interface/tlp-prices/mark-stale")).toBe(true)
 })
 
 test("explains when the backend log picker endpoint is unavailable", async ({ page }) => {
@@ -533,6 +558,30 @@ async function fulfillApi(route: Route) {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify(buildSettingsStatus(server)),
+    })
+    return
+  }
+
+  if (url.pathname === "/api/interface/tlp-errors") {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(buildTlpInterfaceErrors(server)),
+    })
+    return
+  }
+
+  if (url.pathname === "/api/interface/log-parse-issues") {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(buildLogParseIssues(server)),
+    })
+    return
+  }
+
+  if (url.pathname === "/api/interface/tlp-prices/mark-stale" && route.request().method() === "POST") {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ server, affected_count: 3 }),
     })
     return
   }
@@ -1109,6 +1158,7 @@ function buildRuntimeStatus(server: string) {
   return {
     server,
     max_age_hours: 6,
+    max_age_minutes: 360,
     stale_item_count: 12,
     latest_log_sale_at: "2026-06-16T10:05:00",
     log_watcher: {
@@ -1157,6 +1207,7 @@ function buildTlpPriceRefreshJob(
     target_count: 1,
     limit: 500,
     max_age_hours: 6,
+    max_age_minutes: 360,
     history_days: 3,
     concurrency: 5,
     stats: status === "completed" ? buildTlpPriceRefresh(server) : null,
@@ -1174,6 +1225,7 @@ function buildTlpPriceRefresh(server: string, targetItemIds: number[] = [1]) {
     target_count: targetItemIds.length,
     limit: targetItemIds.length || 500,
     max_age_hours: 6,
+    max_age_minutes: 360,
     history_days: 3,
     concurrency: 5,
     catalog_items_seen: 1,
@@ -1256,21 +1308,75 @@ function buildSettingsStatus(server: string) {
     db_path: "C:/Dev/Projects/eq-command-center/data/eqmarket.sqlite",
     default_server: "frostreaver",
     active_server: server,
+    ...buildEqLogSettings("C:/EverQuest/Logs/eqlog_Dreadbank_frostreaver.txt"),
+  }
+}
+
+function buildTlpInterfaceErrors(server: string) {
+  return {
+    server,
+    max_age_minutes: 360,
+    max_age_hours: 6,
+    stale_item_count: 2,
     latest_tlp_import: {
       import_run_id: 10,
       source_name: "tlp_auctions_prices",
       source_url: `server=${server};mode=history;history_days=3`,
-      status: "completed",
+      status: "completed_with_errors",
       items_seen: 50,
       items_inserted: 2,
       items_updated: 12,
-      error: null,
+      error: "price_refresh_failed=1",
       started_at: "2026-06-16T09:59:00",
       finished_at: "2026-06-16T10:00:00",
     },
-    recent_tlp_errors: [],
-    import_runs_error: null,
-    ...buildEqLogSettings("C:/EverQuest/Logs/eqlog_Dreadbank_frostreaver.txt"),
+    active_errors: [
+      {
+        import_run_id: 11,
+        source_name: "tlp_auctions_history",
+        source_url: `item_id=1;server=${server}`,
+        status: "failed",
+        items_seen: 0,
+        items_inserted: 0,
+        items_updated: 0,
+        error: "temporary upstream error",
+        started_at: "2026-06-16T10:01:00",
+        finished_at: "2026-06-16T10:01:05",
+        item_id: 1,
+        item_name: "Stave of Shielding",
+        price_confidence: "failed",
+        price_source: "tlp_auctions_history_failed",
+        last_refresh_at: "2026-06-16T10:01:05",
+        latest_listing_at: "2026-06-16T10:00:00",
+        active: true,
+        origin: "import_run",
+      },
+    ],
+    active_error_count: 1,
+  }
+}
+
+function buildLogParseIssues(server: string) {
+  return {
+    server,
+    issues: [
+      {
+        id: 1,
+        server,
+        log_path: "C:/EverQuest/Logs/eqlog_Dreadbank_frostreaver.txt",
+        timestamp: "2026-06-16T10:00:00",
+        timestamp_raw: "Tue Jun 16 10:00:00 2026",
+        seller: "Seller",
+        raw_line: "[Tue Jun 16 10:00:00 2026] Seller auctions, 'WTS Unpriced Sword pst'",
+        reason_code: "no_price",
+        reason: "Listing did not include a parseable platinum or Krono price.",
+        created_at: "2026-06-16T10:00:01",
+        last_seen_at: "2026-06-16T10:00:01",
+        seen_count: 1,
+      },
+    ],
+    issue_count: 1,
+    limit: 500,
   }
 }
 

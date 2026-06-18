@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from eqmarket.api.app import create_app
 from eqmarket.db import init_db
+from eqmarket.log_importer import import_log_file
 
 
 class ApiContractTests(unittest.TestCase):
@@ -23,6 +24,8 @@ class ApiContractTests(unittest.TestCase):
             with TestClient(app) as client:
                 health = client.get("/api/health")
                 settings = client.get("/api/settings/status", params={"server": "frostreaver"})
+                interface_tlp = client.get("/api/interface/tlp-errors", params={"server": "frostreaver"})
+                interface_log = client.get("/api/interface/log-parse-issues", params={"server": "frostreaver"})
                 dashboard = client.get("/api/dashboard/summary", params={"server": "frostreaver"})
                 krono = client.get("/api/krono/latest", params={"server": "frostreaver"})
                 deals = client.get("/api/deals", params={"server": "frostreaver"})
@@ -36,6 +39,8 @@ class ApiContractTests(unittest.TestCase):
             for response in [
                 health,
                 settings,
+                interface_tlp,
+                interface_log,
                 dashboard,
                 krono,
                 deals,
@@ -56,15 +61,24 @@ class ApiContractTests(unittest.TestCase):
                     "db_path",
                     "default_server",
                     "active_server",
-                    "latest_tlp_import",
-                    "recent_tlp_errors",
-                    "import_runs_error",
                     "eq_log_path",
                     "eq_log_exists",
                     "eq_log_import_state",
                     "log_settings_error",
                 },
             )
+            self.assertTrue(
+                {
+                    "server",
+                    "max_age_minutes",
+                    "max_age_hours",
+                    "stale_item_count",
+                    "latest_tlp_import",
+                    "active_errors",
+                    "active_error_count",
+                }.issubset(interface_tlp.json())
+            )
+            self.assertTrue({"server", "issues", "issue_count", "limit"}.issubset(interface_log.json()))
             self.assertTrue(
                 {
                     "server",
@@ -125,6 +139,27 @@ class ApiContractTests(unittest.TestCase):
             self.assertTrue({"item_id", "server", "market_price_pp", "median_pp", "avg_pp", "sample_size"}.issubset(prices.json()))
             self.assertTrue({"listed_item_name", "resolved"}.issubset(item_listings.json()[0]))
             self.assertTrue({"item_id", "name", "icon_url", "market_price_pp", "last_seen_pp", "effects"}.issubset(tooltip.json()))
+
+    def test_interface_log_parse_issues_returns_persisted_import_issues(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            db_path = temp_path / "eqmarket.sqlite"
+            log_path = temp_path / "eqlog_Test_frostreaver.txt"
+            log_path.write_text(
+                "[Tue Jun 16 10:00:00 2026] Seller auctions, 'WTS Unpriced Sword pst'\n",
+                encoding="utf-8",
+            )
+            import_log_file(db_path, log_path, "frostreaver", incremental=False)
+            app = create_app(db_path)
+
+            with TestClient(app) as client:
+                response = client.get("/api/interface/log-parse-issues", params={"server": "frostreaver"})
+
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            self.assertEqual(payload["issue_count"], 1)
+            self.assertEqual(payload["issues"][0]["reason_code"], "no_price")
+            self.assertIn("Unpriced Sword", payload["issues"][0]["raw_line"])
 
 
 def _seed_contract_fixture(db_path: Path) -> None:
