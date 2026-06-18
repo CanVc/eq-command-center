@@ -44,6 +44,7 @@ function buildSettingsPayload(): SettingsStatusResponse {
       started_at: "2026-06-16T09:59:00",
       finished_at: "2026-06-16T10:00:00",
     },
+    recent_tlp_errors: [],
     import_runs_error: null,
     eq_log_path: "C:/EverQuest/Logs/eqlog_Dreadbank_frostreaver.txt",
     eq_log_exists: true,

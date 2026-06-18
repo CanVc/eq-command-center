@@ -38,6 +38,7 @@ export type SettingsStatusResponse = EqLogSettings & {
   default_server: string
   active_server: string
   latest_tlp_import: LatestTlpImport | null
+  recent_tlp_errors: LatestTlpImport[]
   import_runs_error: string | null
 }
 

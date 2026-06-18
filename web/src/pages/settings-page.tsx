@@ -103,12 +103,15 @@ export function SettingsPage({ settings, mageloStatus }: SettingsPageProps) {
             />
           </CardAction>
         </CardHeader>
-        <CardContent>
+        <CardContent className="grid gap-4">
           {settings.latest_tlp_import ? (
             <ImportDetails importRun={settings.latest_tlp_import} />
           ) : (
             <EmptyImportState error={settings.import_runs_error} />
           )}
+          {settings.import_runs_error === null ? (
+            <TlpImportErrorList errors={settings.recent_tlp_errors} />
+          ) : null}
         </CardContent>
       </Card>
     </section>
@@ -310,6 +313,50 @@ function ImportDetails({ importRun }: { importRun: LatestTlpImport }) {
       {importRun.error ? <DetailRow label="Error" value={importRun.error} wide /> : null}
     </dl>
   )
+}
+
+function TlpImportErrorList({ errors }: { errors: LatestTlpImport[] }) {
+  if (errors.length === 0) {
+    return (
+      <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+        No recent item-level TLP refresh errors for this server.
+      </p>
+    )
+  }
+
+  return (
+    <section className="grid gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <h4 className="text-sm font-medium">Recent item refresh errors</h4>
+        <Badge variant="outline" className="rounded-md">
+          {formatNumber(errors.length)} shown
+        </Badge>
+      </div>
+      <div className="grid gap-2">
+        {errors.map((errorRun) => (
+          <div key={errorRun.import_run_id} className="rounded-md border bg-background px-3 py-2 text-sm">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <span className="font-medium">{formatImportErrorTarget(errorRun)}</span>
+              <span className="text-xs text-muted-foreground">
+                {formatDateTime(errorRun.finished_at ?? errorRun.started_at)}
+              </span>
+            </div>
+            <p className="mt-1 break-words text-destructive">
+              {errorRun.error ?? "Unknown TLP Auctions error"}
+            </p>
+            {errorRun.source_url ? (
+              <p className="mt-1 break-words text-xs text-muted-foreground">{errorRun.source_url}</p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function formatImportErrorTarget(importRun: LatestTlpImport): string {
+  const itemId = importRun.source_url?.match(/item_id=(\d+)/)?.[1]
+  return itemId ? `Item ${itemId}` : importRun.source_url ?? "TLP item"
 }
 
 function DetailRow({

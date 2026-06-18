@@ -50,6 +50,23 @@ class ApiSettingsTests(unittest.TestCase):
                     "finished_at": "2026-06-16 10:00:00",
                 },
             )
+            self.assertEqual(
+                payload["recent_tlp_errors"],
+                [
+                    {
+                        "import_run_id": 2,
+                        "source_name": "tlp_auctions_history",
+                        "source_url": "item_id=101;server=mischief",
+                        "status": "failed",
+                        "items_seen": 0,
+                        "items_inserted": 0,
+                        "items_updated": 0,
+                        "error": "temporary upstream error",
+                        "started_at": "2026-06-16 09:30:00",
+                        "finished_at": "2026-06-16 09:30:10",
+                    }
+                ],
+            )
 
     def test_settings_status_returns_empty_import_when_no_tlp_run_exists(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -64,6 +81,7 @@ class ApiSettingsTests(unittest.TestCase):
             payload = response.json()
             self.assertEqual(payload["active_server"], "frostreaver")
             self.assertIsNone(payload["latest_tlp_import"])
+            self.assertEqual(payload["recent_tlp_errors"], [])
             self.assertIsNone(payload["import_runs_error"])
             self.assertIsNone(payload["eq_log_path"])
             self.assertIsNone(payload["eq_log_exists"])
@@ -80,6 +98,7 @@ class ApiSettingsTests(unittest.TestCase):
             payload = response.json()
             self.assertEqual(payload["db_path"], str(db_path.resolve()))
             self.assertIsNone(payload["latest_tlp_import"])
+            self.assertEqual(payload["recent_tlp_errors"], [])
             self.assertIsInstance(payload["import_runs_error"], str)
             self.assertIsNone(payload["eq_log_path"])
             self.assertIsInstance(payload["log_settings_error"], str)

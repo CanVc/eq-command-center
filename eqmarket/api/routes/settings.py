@@ -18,6 +18,7 @@ from eqmarket.local_settings import (
 
 
 DEFAULT_SERVER = "frostreaver"
+TLP_IMPORT_ERROR_LIMIT = 10
 
 router = APIRouter()
 
@@ -33,6 +34,11 @@ def settings_status(
 ) -> dict[str, Any]:
     active_server = _normalize_server(server)
     latest_import, import_runs_error = _fetch_latest_tlp_import(request.app.state.db_path)
+    recent_tlp_errors, recent_errors_error = _fetch_recent_tlp_errors(request.app.state.db_path, active_server)
+    if import_runs_error is None:
+        import_runs_error = recent_errors_error
+    if import_runs_error is not None:
+        recent_tlp_errors = []
 
     return {
         "status": "ok",
@@ -40,6 +46,7 @@ def settings_status(
         "default_server": DEFAULT_SERVER,
         "active_server": active_server,
         "latest_tlp_import": latest_import,
+        "recent_tlp_errors": recent_tlp_errors,
         "import_runs_error": import_runs_error,
         **_fetch_log_settings(request.app.state.db_path, active_server),
     }
@@ -175,6 +182,46 @@ def _fetch_latest_tlp_import(db_path: str | Path) -> tuple[dict[str, Any] | None
     if row is None:
         return None, None
 
+    return _import_run_payload(row), None
+
+
+def _fetch_recent_tlp_errors(
+    db_path: str | Path,
+    server: str,
+    *,
+    limit: int = TLP_IMPORT_ERROR_LIMIT,
+) -> tuple[list[dict[str, Any]], str | None]:
+    try:
+        with closing(connect_readonly(db_path)) as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    import_run_id,
+                    source_name,
+                    source_url,
+                    status,
+                    items_seen,
+                    items_inserted,
+                    items_updated,
+                    error,
+                    started_at,
+                    finished_at
+                FROM import_runs
+                WHERE source_name = 'tlp_auctions_history'
+                  AND status = 'failed'
+                  AND lower(COALESCE(source_url, '')) LIKE ?
+                ORDER BY datetime(COALESCE(finished_at, started_at)) DESC, import_run_id DESC
+                LIMIT ?
+                """,
+                (f"%server={server.lower()}%", limit),
+            ).fetchall()
+    except sqlite3.Error as exc:
+        return [], str(exc)
+
+    return [_import_run_payload(row) for row in rows], None
+
+
+def _import_run_payload(row: sqlite3.Row) -> dict[str, Any]:
     return {
         "import_run_id": int(row["import_run_id"]),
         "source_name": row["source_name"],
@@ -186,4 +233,4 @@ def _fetch_latest_tlp_import(db_path: str | Path) -> tuple[dict[str, Any] | None
         "error": row["error"],
         "started_at": row["started_at"],
         "finished_at": row["finished_at"],
-    }, None
+    }

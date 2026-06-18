@@ -298,7 +298,7 @@ function App() {
           limit: 0,
           max_age_hours: refreshMaxAgeHours,
           history_days: 3,
-          concurrency: 5,
+          concurrency: 10,
           stats: null,
           error: error instanceof Error ? error.message : "Unknown TLP Auctions error",
           created_at: new Date().toISOString(),

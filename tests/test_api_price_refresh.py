@@ -112,8 +112,8 @@ class ApiPriceRefreshTests(unittest.TestCase):
             importer.assert_called_once()
             self.assertEqual(importer.call_args.kwargs["item_ids"], payload["target_item_ids"])
             self.assertEqual(importer.call_args.kwargs["history_days"], 3)
-            self.assertEqual(importer.call_args.kwargs["concurrency"], 5)
-            self.assertEqual(payload["concurrency"], 5)
+            self.assertEqual(importer.call_args.kwargs["concurrency"], 10)
+            self.assertEqual(payload["concurrency"], 10)
 
     def test_runtime_status_reports_stale_items_and_latest_log_sale(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -173,8 +173,8 @@ class ApiPriceRefreshTests(unittest.TestCase):
             self.assertEqual(status_payload["total"], 2)
             self.assertEqual(set(status_payload["target_item_ids"]), {101, 103})
             self.assertEqual(status_payload["stats"]["history_prices_upserted"], 2)
-            self.assertEqual(status_payload["concurrency"], 5)
-            self.assertEqual(status_payload["stats"]["concurrency"], 5)
+            self.assertEqual(status_payload["concurrency"], 10)
+            self.assertEqual(status_payload["stats"]["concurrency"], 10)
 
     def test_tlp_refresh_job_reuses_active_job_instead_of_queueing_duplicate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

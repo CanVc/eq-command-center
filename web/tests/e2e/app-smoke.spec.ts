@@ -1268,6 +1268,7 @@ function buildSettingsStatus(server: string) {
       started_at: "2026-06-16T09:59:00",
       finished_at: "2026-06-16T10:00:00",
     },
+    recent_tlp_errors: [],
     import_runs_error: null,
     ...buildEqLogSettings("C:/EverQuest/Logs/eqlog_Dreadbank_frostreaver.txt"),
   }

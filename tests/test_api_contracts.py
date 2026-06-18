@@ -57,6 +57,7 @@ class ApiContractTests(unittest.TestCase):
                     "default_server",
                     "active_server",
                     "latest_tlp_import",
+                    "recent_tlp_errors",
                     "import_runs_error",
                     "eq_log_path",
                     "eq_log_exists",

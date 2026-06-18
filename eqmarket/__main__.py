@@ -11,7 +11,7 @@ from eqmarket.price_importer import import_tlp_prices, load_recent_listing_item_
 from eqmarket.scoring.deals import format_deal_score, score_market_listings
 
 
-DEFAULT_PRICE_REFRESH_CONCURRENCY = 5
+DEFAULT_PRICE_REFRESH_CONCURRENCY = 10
 MAX_PRICE_REFRESH_CONCURRENCY = 10
 
 
