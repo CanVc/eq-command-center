@@ -33,6 +33,10 @@ class ApiDealsTests(unittest.TestCase):
             self.assertEqual(payload[0]["item"], {"item_id": 106, "name": "Runed Crown"})
             self.assertEqual(payload[0]["seller"], "BigSeller")
             self.assertEqual(payload[0]["price_raw"], "8k")
+            self.assertEqual(
+                payload[0]["raw_line"],
+                "[Tue Jun 16 10:00:00 2026] BigSeller auctions, 'WTS Runed Crown 8k'",
+            )
             self.assertEqual(payload[0]["listing_price_pp"], 8000)
             self.assertEqual(payload[0]["market_price_pp"], 20000)
             self.assertEqual(payload[0]["market_price_source"], "median_pp")
@@ -241,14 +245,15 @@ def _seed_deals_fixture(db_path: Path) -> dict[str, int]:
         ]
 
         for key, server, timestamp_modifier, seller, item_name, normalized_name, item_id, price_raw, price_pp in listing_rows:
+            raw_line = f"[Tue Jun 16 10:00:00 2026] {seller} auctions, 'WTS {item_name} {price_raw}'"
             cursor = connection.execute(
                 """
                 INSERT INTO market_listings (
                     server, timestamp, seller, item_name, normalized_item_name, item_id,
-                    price_raw, price_pp, source, confidence
-                ) VALUES (?, datetime('now', ?), ?, ?, ?, ?, ?, ?, 'eq_log', 'parsed')
+                    price_raw, price_pp, raw_line, source, confidence
+                ) VALUES (?, datetime('now', ?), ?, ?, ?, ?, ?, ?, ?, 'eq_log', 'parsed')
                 """,
-                (server, timestamp_modifier, seller, item_name, normalized_name, item_id, price_raw, price_pp),
+                (server, timestamp_modifier, seller, item_name, normalized_name, item_id, price_raw, price_pp, raw_line),
             )
             listing_ids[key] = int(cursor.lastrowid)
 

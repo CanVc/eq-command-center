@@ -3,12 +3,16 @@ import {
   Clock3,
   Coins,
   ListChecks,
+  ScrollText,
   TrendingUp,
 } from "lucide-react"
+import { Fragment, useState } from "react"
 import type { ReactNode } from "react"
 
 import { ItemLink } from "@/components/item-link"
+import { RawSalePanel } from "@/components/raw-sale-panel"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardAction,
@@ -156,6 +160,8 @@ function MetricCard({
 }
 
 function TopDiscountsTable({ deals, server }: { deals: DashboardDealPreview[]; server: string }) {
+  const [rawListingId, setRawListingId] = useState<number | null>(null)
+
   return (
     <Table>
       <TableHeader>
@@ -165,40 +171,67 @@ function TopDiscountsTable({ deals, server }: { deals: DashboardDealPreview[]; s
           <TableHead>Market</TableHead>
           <TableHead>Discount</TableHead>
           <TableHead>Seller</TableHead>
+          <TableHead>Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {deals.map((deal) => (
-          <TableRow key={deal.listing_id}>
-            <TableCell className="min-w-[13rem] whitespace-normal">
-              <ItemLink
-                itemId={deal.item_id}
-                name={deal.item_name}
-                server={server}
-                details={[
-                  { label: "Listed", value: formatPrice(deal.listing_price_pp) },
-                  { label: "Market", value: formatPrice(deal.market_price_pp) },
-                  { label: "Discount", value: formatPercent(deal.discount_pct) },
-                  { label: "Seller", value: deal.seller },
-                  { label: "Seen", value: formatDateTime(deal.timestamp) },
-                ]}
-              />
-            </TableCell>
-            <TableCell>{deal.price_raw ?? formatPrice(deal.listing_price_pp)}</TableCell>
-            <TableCell>
-              <div className="grid gap-1">
-                <span>{formatPrice(deal.market_price_pp)}</span>
-                <span className="text-xs text-muted-foreground">
-                  {deal.market_price_source ?? "reference"}
-                </span>
-              </div>
-            </TableCell>
-            <TableCell>
-              <Badge variant="secondary">{formatPercent(deal.discount_pct)}</Badge>
-            </TableCell>
-            <TableCell>{deal.seller ?? "Unknown"}</TableCell>
-          </TableRow>
-        ))}
+        {deals.map((deal) => {
+          const isRawOpen = rawListingId === deal.listing_id
+
+          return (
+            <Fragment key={deal.listing_id}>
+              <TableRow>
+                <TableCell className="min-w-[13rem] whitespace-normal">
+                  <ItemLink
+                    itemId={deal.item_id}
+                    name={deal.item_name}
+                    server={server}
+                    details={[
+                      { label: "Listed", value: formatPrice(deal.listing_price_pp) },
+                      { label: "Market", value: formatPrice(deal.market_price_pp) },
+                      { label: "Discount", value: formatPercent(deal.discount_pct) },
+                      { label: "Seller", value: deal.seller },
+                      { label: "Seen", value: formatDateTime(deal.timestamp) },
+                    ]}
+                  />
+                </TableCell>
+                <TableCell>{deal.price_raw ?? formatPrice(deal.listing_price_pp)}</TableCell>
+                <TableCell>
+                  <div className="grid gap-1">
+                    <span>{formatPrice(deal.market_price_pp)}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {deal.market_price_source ?? "reference"}
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <Badge variant="secondary">{formatPercent(deal.discount_pct)}</Badge>
+                </TableCell>
+                <TableCell>{deal.seller ?? "Unknown"}</TableCell>
+                <TableCell>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    aria-label={`Show raw sale for ${deal.item_name}`}
+                    aria-expanded={isRawOpen}
+                    onClick={() => setRawListingId(isRawOpen ? null : deal.listing_id)}
+                  >
+                    <ScrollText aria-hidden="true" />
+                    Raw
+                  </Button>
+                </TableCell>
+              </TableRow>
+              {isRawOpen ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="bg-muted/30 p-3">
+                    <RawSalePanel rawLine={deal.raw_line} />
+                  </TableCell>
+                </TableRow>
+              ) : null}
+            </Fragment>
+          )
+        })}
       </TableBody>
     </Table>
   )

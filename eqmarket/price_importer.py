@@ -11,6 +11,7 @@ from typing import Callable, Iterable
 from eqmarket.db import init_db
 from eqmarket.item_resolution import load_item_candidates, resolve_item_id_for_listing
 from eqmarket.log_parser import normalize_item_name
+from eqmarket.review_rules import apply_active_discard_rules
 from eqmarket.sources.tlp_auctions import (
     CatalogItem,
     PriceStats,
@@ -77,6 +78,7 @@ def refresh_krono_price(db_path: Path, server: str) -> TlpPriceImportStats:
             _upsert_krono_price(connection, db_server, stats.krono_price_pp, krono.sample_size, krono.last_updated)
             stats.krono_updated = True
             stats.krono_listings_converted = _convert_krono_listings(connection, db_server, stats.krono_price_pp)
+            apply_active_discard_rules(connection, db_server)
         connection.commit()
 
     return stats
@@ -253,6 +255,7 @@ def import_tlp_prices(
             _upsert_krono_price(connection, db_server, stats.krono_price_pp, krono.sample_size, krono.last_updated)
             stats.krono_updated = True
             stats.krono_listings_converted = _convert_krono_listings(connection, db_server, stats.krono_price_pp)
+            apply_active_discard_rules(connection, db_server)
 
         _notify_price_import_progress(progress_callback, phase="catalog", completed=0, total=None)
         catalog = client.get_catalog(api_server)
@@ -344,6 +347,8 @@ def import_tlp_prices(
         )
         for normalized_name in sorted(refreshed_names):
             stats.listings_linked += _link_listings_by_name(connection, db_server, normalized_name)
+
+        apply_active_discard_rules(connection, db_server)
 
         _record_tlp_price_import_run(connection, db_server, stats, fetch_history, history_days)
         connection.commit()

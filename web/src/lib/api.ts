@@ -141,6 +141,7 @@ export type DashboardDealPreview = {
   item_id: number | null
   item_name: string
   price_raw: string | null
+  raw_line: string | null
   listing_price_pp: number
   market_price_pp: number
   market_price_source: string | null
@@ -150,6 +151,7 @@ export type DashboardDealPreview = {
 }
 
 export type ListingReviewStatus = "active" | "discarded" | "suspect"
+export type ListingReviewStatusFilter = ListingReviewStatus | "all"
 
 export type ListingReview = {
   listing_id: number
@@ -165,6 +167,35 @@ export type ListingReviewUpdate = {
   status: ListingReviewStatus
   reasonCode?: string | null
   note?: string | null
+}
+
+export type ListingDiscardRule = {
+  rule_id: number
+  enabled: boolean
+  server: string
+  seller: string | null
+  item_id: number
+  price_currency: string | null
+  price_amount: number | null
+  price_pp: number | null
+  reason_code: string | null
+  note: string | null
+  source_listing_id: number | null
+  created_at: string
+  updated_at: string
+  disabled_at: string | null
+}
+
+export type ListingSimilarReviewResult = {
+  listing_id: number
+  server: string
+  action: "discard_similar" | "restore_similar"
+  rule?: ListingDiscardRule
+  disabled_rule_count?: number
+  disabled_rules?: ListingDiscardRule[]
+  matched_count: number
+  restored_count?: number
+  review: ListingReview
 }
 
 export type DealPreview = DashboardDealPreview & {
@@ -204,6 +235,7 @@ export type ListingPreview = {
   item_id: number | null
   item_name: string
   price_raw: string | null
+  raw_line: string | null
   price_pp: number | null
   source: string
   confidence: string | null
@@ -283,6 +315,7 @@ export type TlpPriceRefreshJobStatus = {
 
 export type MarketListingFilters = {
   query: string
+  reviewStatus: ListingReviewStatusFilter
   limit: number
 }
 
@@ -290,6 +323,7 @@ export const MARKET_LISTING_PAGE_SIZE = 25
 
 export const DEFAULT_MARKET_LISTING_FILTERS: MarketListingFilters = {
   query: "",
+  reviewStatus: "active",
   limit: MARKET_LISTING_PAGE_SIZE,
 }
 
@@ -667,6 +701,7 @@ export async function fetchMarketListings(
     buildApiPath("/api/listings/recent", {
       server,
       q: filters.query.trim() || undefined,
+      review_status: filters.reviewStatus,
       limit: filters.limit,
     }),
     fetcher
@@ -876,6 +911,36 @@ export async function restoreListing(
   fetcher: Fetcher = fetch
 ): Promise<ListingReview> {
   return updateListingReview(listingId, { status: "active" }, fetcher)
+}
+
+export async function discardSimilarListings(
+  listingId: number,
+  reasonCode = "manual",
+  note: string | null = null,
+  fetcher: Fetcher = fetch
+): Promise<ListingSimilarReviewResult> {
+  return fetchJson<ListingSimilarReviewResult>(
+    `/api/listings/${listingId}/discard-similar`,
+    fetcher,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ reason_code: reasonCode, note }),
+    }
+  )
+}
+
+export async function restoreSimilarListings(
+  listingId: number,
+  fetcher: Fetcher = fetch
+): Promise<ListingSimilarReviewResult> {
+  return fetchJson<ListingSimilarReviewResult>(
+    `/api/listings/${listingId}/restore-similar`,
+    fetcher,
+    { method: "POST" }
+  )
 }
 
 export async function markTlpPricesStale(

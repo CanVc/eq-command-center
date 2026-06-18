@@ -17,6 +17,7 @@ import {
   DEFAULT_DEAL_FILTERS,
   DEFAULT_MARKET_LISTING_FILTERS,
   discardListing,
+  discardSimilarListings,
   fetchDashboardSummary,
   fetchDeals,
   fetchInterfacePageData,
@@ -29,6 +30,7 @@ import {
   markTlpPricesStale,
   refreshKronoPrice,
   restoreListing,
+  restoreSimilarListings,
   startTlpPriceRefreshJob,
   type DashboardSummary,
   type DealFilters,
@@ -394,6 +396,30 @@ function App() {
     }
   }, [])
 
+  const discardSimilarMarketListings = useCallback(async (listingId: number, reasonCode = "manual") => {
+    try {
+      await discardSimilarListings(listingId, reasonCode)
+      setRefreshKey((current) => current + 1)
+    } catch (error) {
+      setPageState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Unable to discard similar listings",
+      })
+    }
+  }, [])
+
+  const restoreSimilarMarketListings = useCallback(async (listingId: number) => {
+    try {
+      await restoreSimilarListings(listingId)
+      setRefreshKey((current) => current + 1)
+    } catch (error) {
+      setPageState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Unable to restore similar listings",
+      })
+    }
+  }, [])
+
   return (
     <AppLayout
       activePage={activePage}
@@ -443,6 +469,8 @@ function App() {
             onFullTlpRescan={fullTlpRescan}
             onDiscardListing={discardMarketListing}
             onRestoreListing={restoreMarketListing}
+            onDiscardSimilarListings={discardSimilarMarketListings}
+            onRestoreSimilarListings={restoreSimilarMarketListings}
           />
         )}
       </section>
@@ -640,6 +668,8 @@ function PageContent({
   onFullTlpRescan,
   onDiscardListing,
   onRestoreListing,
+  onDiscardSimilarListings,
+  onRestoreSimilarListings,
 }: {
   data: PageData
   server: string
@@ -659,6 +689,8 @@ function PageContent({
   onFullTlpRescan: () => Promise<MarkTlpPricesStaleResult>
   onDiscardListing: (listingId: number, reasonCode?: string) => Promise<void>
   onRestoreListing: (listingId: number) => Promise<void>
+  onDiscardSimilarListings: (listingId: number, reasonCode?: string) => Promise<void>
+  onRestoreSimilarListings: (listingId: number) => Promise<void>
 }) {
   switch (data.page) {
     case "dashboard":
@@ -672,6 +704,8 @@ function PageContent({
           onFiltersChange={onDealFiltersChange}
           onDiscardListing={onDiscardListing}
           onRestoreListing={onRestoreListing}
+          onDiscardSimilarListings={onDiscardSimilarListings}
+          onRestoreSimilarListings={onRestoreSimilarListings}
         />
       )
     case "market":
@@ -683,6 +717,8 @@ function PageContent({
           onFiltersChange={onMarketListingFiltersChange}
           onDiscardListing={onDiscardListing}
           onRestoreListing={onRestoreListing}
+          onDiscardSimilarListings={onDiscardSimilarListings}
+          onRestoreSimilarListings={onRestoreSimilarListings}
         />
       )
     case "items":

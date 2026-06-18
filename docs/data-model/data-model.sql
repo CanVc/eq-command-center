@@ -25,6 +25,9 @@ VALUES (2, 'Allow duplicate item display names; item_id is canonical');
 INSERT OR IGNORE INTO schema_version (version, description)
 VALUES (3, 'Add market listing review/discard status');
 
+INSERT OR IGNORE INTO schema_version (version, description)
+VALUES (4, 'Add persistent market listing discard rules');
+
 -- -----------------------------------------------------------------------------
 -- Items
 -- -----------------------------------------------------------------------------
@@ -297,6 +300,39 @@ CREATE INDEX IF NOT EXISTS idx_market_listing_reviews_status
 
 CREATE INDEX IF NOT EXISTS idx_market_listing_reviews_reason
     ON market_listing_reviews(reason_code);
+
+-- Persistent discard rules for repeated noisy listings. Rules match the review
+-- overlay by server + seller + item_id + seen price. They never delete raw
+-- market_listings rows; they only create/update market_listing_reviews rows.
+CREATE TABLE IF NOT EXISTS market_listing_discard_rules (
+    rule_id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    enabled INTEGER NOT NULL DEFAULT 1,
+    server TEXT NOT NULL,
+    seller TEXT,
+    item_id INTEGER NOT NULL,
+
+    price_currency TEXT,
+    price_amount REAL,
+    price_pp INTEGER,
+
+    reason_code TEXT,
+    note TEXT,
+    source_listing_id INTEGER,
+
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    disabled_at TEXT,
+
+    FOREIGN KEY (item_id) REFERENCES items(item_id) ON DELETE CASCADE,
+    FOREIGN KEY (source_listing_id) REFERENCES market_listings(listing_id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_market_listing_discard_rules_enabled
+    ON market_listing_discard_rules(enabled, server, seller, item_id, price_currency, price_amount, price_pp);
+
+CREATE INDEX IF NOT EXISTS idx_market_listing_discard_rules_source_listing
+    ON market_listing_discard_rules(source_listing_id);
 
 CREATE TABLE IF NOT EXISTS market_prices (
     item_id INTEGER NOT NULL,

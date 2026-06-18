@@ -15,11 +15,13 @@ import {
   fetchRuntimeStatus,
   fetchSettingsStatus,
   discardListing,
+  discardSimilarListings,
   markTlpPricesStale,
   refreshKronoPrice,
   refreshTlpPrices,
   startTlpPriceRefreshJob,
   fetchTlpPriceRefreshJob,
+  restoreSimilarListings,
   updateEqLogPath,
 } from "./api"
 
@@ -86,7 +88,7 @@ describe("page API helpers", () => {
       fetcher
     )
     await fetchListingsPreview("mischief", fetcher)
-    await fetchMarketListings("mischief", { query: " crown ", limit: 50 }, fetcher)
+    await fetchMarketListings("mischief", { query: " crown ", reviewStatus: "discarded", limit: 50 }, fetcher)
     await fetchItemSearchPreview("mischief", fetcher)
     await fetchRuntimeStatus("mischief", 90, fetcher)
 
@@ -106,7 +108,7 @@ describe("page API helpers", () => {
     })
     expect(fetcher).toHaveBeenNthCalledWith(
       3,
-      "/api/listings/recent?server=mischief&q=crown&limit=50",
+      "/api/listings/recent?server=mischief&q=crown&review_status=discarded&limit=50",
       {
         headers: {
           Accept: "application/json",
@@ -253,6 +255,46 @@ describe("page API helpers", () => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ status: "discarded", reason_code: "wrong_unit", note: null }),
+    })
+  })
+
+  it("posts similar review rule actions", async () => {
+    const payload = {
+      listing_id: 42,
+      server: "frostreaver",
+      action: "discard_similar",
+      matched_count: 3,
+      review: {
+        listing_id: 42,
+        server: "frostreaver",
+        status: "discarded",
+        reason_code: "manual",
+        note: null,
+        created_at: "2026-06-18 12:00:00",
+        updated_at: "2026-06-18 12:00:00",
+      },
+    }
+    const restorePayload = { ...payload, action: "restore_similar", disabled_rule_count: 1, restored_count: 3 }
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(payload))
+      .mockResolvedValueOnce(jsonResponse(restorePayload))
+
+    await expect(discardSimilarListings(42, "manual", null, fetcher)).resolves.toEqual(payload)
+    await restoreSimilarListings(42, fetcher)
+
+    expect(fetcher).toHaveBeenNthCalledWith(1, "/api/listings/42/discard-similar", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ reason_code: "manual", note: null }),
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/listings/42/restore-similar", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
     })
   })
 

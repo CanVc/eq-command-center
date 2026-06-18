@@ -36,6 +36,10 @@ class ApiDashboardTests(unittest.TestCase):
             self.assertEqual(payload["top_seen_items"][0]["seen_count"], 2)
 
             self.assertEqual([deal["item_id"] for deal in payload["top_discounts"]], [101, 102])
+            self.assertEqual(
+                payload["top_discounts"][0]["raw_line"],
+                "[Tue Jun 16 10:00:00 2026] Nebblastin auctions, 'WTS Stave of Shielding 4k'",
+            )
             self.assertEqual(payload["top_discounts"][0]["market_price_pp"], 10000)
             self.assertEqual(payload["top_discounts"][0]["market_price_source"], "avg_pp")
             self.assertEqual(payload["top_discounts"][0]["discount_pct"], 60.0)
@@ -123,15 +127,65 @@ def _seed_dashboard_fixture(db_path: Path) -> None:
             """
             INSERT INTO market_listings (
                 server, timestamp, seller, item_name, normalized_item_name, item_id,
-                price_raw, price_pp, source, confidence
-            ) VALUES (?, datetime('now', ?), ?, ?, ?, ?, ?, ?, 'eq_log', 'parsed')
+                price_raw, price_pp, raw_line, source, confidence
+            ) VALUES (?, datetime('now', ?), ?, ?, ?, ?, ?, ?, ?, 'eq_log', 'parsed')
             """,
             [
-                ("frostreaver", "-1 hour", "Nebblastin", "Stave of Shielding", "stave of shielding", 101, "4k", 4000),
-                ("frostreaver", "-2 hours", "SellerTwo", "Stave of Shielding", "stave of shielding", 101, "9k", 9000),
-                ("frostreaver", "-3 hours", "SellerThree", "Cloak of Flames", "cloak of flames", 102, "70k", 70000),
-                ("frostreaver", "-2 days", "OldSeller", "Cloak of Flames", "cloak of flames", 102, "1k", 1000),
-                ("other", "-1 hour", "OtherSeller", "Other Server Item", "other server item", 103, "1k", 1000),
+                (
+                    "frostreaver",
+                    "-1 hour",
+                    "Nebblastin",
+                    "Stave of Shielding",
+                    "stave of shielding",
+                    101,
+                    "4k",
+                    4000,
+                    "[Tue Jun 16 10:00:00 2026] Nebblastin auctions, 'WTS Stave of Shielding 4k'",
+                ),
+                (
+                    "frostreaver",
+                    "-2 hours",
+                    "SellerTwo",
+                    "Stave of Shielding",
+                    "stave of shielding",
+                    101,
+                    "9k",
+                    9000,
+                    "[Tue Jun 16 10:00:00 2026] SellerTwo auctions, 'WTS Stave of Shielding 9k'",
+                ),
+                (
+                    "frostreaver",
+                    "-3 hours",
+                    "SellerThree",
+                    "Cloak of Flames",
+                    "cloak of flames",
+                    102,
+                    "70k",
+                    70000,
+                    "[Tue Jun 16 10:00:00 2026] SellerThree auctions, 'WTS Cloak of Flames 70k'",
+                ),
+                (
+                    "frostreaver",
+                    "-2 days",
+                    "OldSeller",
+                    "Cloak of Flames",
+                    "cloak of flames",
+                    102,
+                    "1k",
+                    1000,
+                    "[Tue Jun 16 10:00:00 2026] OldSeller auctions, 'WTS Cloak of Flames 1k'",
+                ),
+                (
+                    "other",
+                    "-1 hour",
+                    "OtherSeller",
+                    "Other Server Item",
+                    "other server item",
+                    103,
+                    "1k",
+                    1000,
+                    "[Tue Jun 16 10:00:00 2026] OtherSeller auctions, 'WTS Other Server Item 1k'",
+                ),
             ],
         )
         connection.execute(

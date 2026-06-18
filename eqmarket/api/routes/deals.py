@@ -64,6 +64,7 @@ def _fetch_deals(
                 ml.price_raw,
                 ml.price_amount,
                 ml.price_pp AS listing_price_pp,
+                ml.raw_line,
                 COALESCE(NULLIF(mp.median_pp, 0), NULLIF(mp.avg_pp, 0), NULLIF(mp.p25_pp, 0)) AS market_price_pp,
                 CASE
                     WHEN mp.median_pp IS NOT NULL AND mp.median_pp > 0 THEN 'median_pp'
@@ -180,6 +181,7 @@ def _deal_payload(row: sqlite3.Row) -> dict[str, Any]:
         "item_id": _optional_int(row["item_id"]),
         "item_name": row["item_name"],
         "price_raw": row["price_raw"],
+        "raw_line": row["raw_line"],
         "listing_price_pp": int(row["listing_price_pp"]),
         "market_price_pp": int(row["market_price_pp"]),
         "market_price_source": row["market_price_source"],

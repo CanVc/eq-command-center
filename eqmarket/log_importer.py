@@ -8,6 +8,7 @@ from pathlib import Path
 
 from eqmarket.db import init_db
 from eqmarket.item_resolution import resolve_item_id_for_listing
+from eqmarket.review_rules import apply_active_discard_rules_to_listing
 from eqmarket.log_parser import (
     ParsedListing,
     is_sale_message,
@@ -148,6 +149,9 @@ def insert_listing(connection: sqlite3.Connection, server: str, listing: ParsedL
         ),
     )
     listing_inserted = cursor.rowcount > 0
+
+    if listing_inserted:
+        apply_active_discard_rules_to_listing(connection, int(cursor.lastrowid))
 
     pending_upserted = False
     if listing_inserted and item_id is None:

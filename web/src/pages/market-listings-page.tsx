@@ -1,8 +1,9 @@
-import { Ban, ListPlus, RotateCcw, Search, X } from "lucide-react"
-import { useState } from "react"
+import { Ban, ListPlus, RotateCcw, Search, ScrollText, X } from "lucide-react"
+import { Fragment, useState } from "react"
 import type { FormEvent } from "react"
 
 import { ItemLink } from "@/components/item-link"
+import { RawSalePanel } from "@/components/raw-sale-panel"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -13,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import type { ListingPreview, MarketListingFilters } from "@/lib/api"
+import type { ListingPreview, ListingReviewStatusFilter, MarketListingFilters } from "@/lib/api"
 import { formatDateTime, formatPrice } from "@/lib/format"
 import {
   canLoadMoreListings,
@@ -29,6 +30,8 @@ type MarketListingsPageProps = {
   onFiltersChange: (filters: MarketListingFilters) => void
   onDiscardListing: (listingId: number, reasonCode?: string) => Promise<void>
   onRestoreListing: (listingId: number) => Promise<void>
+  onDiscardSimilarListings: (listingId: number, reasonCode?: string) => Promise<void>
+  onRestoreSimilarListings: (listingId: number) => Promise<void>
 }
 
 const searchInputClassName =
@@ -41,6 +44,8 @@ export function MarketListingsPage({
   onFiltersChange,
   onDiscardListing,
   onRestoreListing,
+  onDiscardSimilarListings,
+  onRestoreSimilarListings,
 }: MarketListingsPageProps) {
   const [draftQuery, setDraftQuery] = useState(filters.query)
   const [reviewingListingId, setReviewingListingId] = useState<number | null>(null)
@@ -48,27 +53,39 @@ export function MarketListingsPage({
 
   const applySearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    onFiltersChange(resetMarketListingSearch(draftQuery))
+    onFiltersChange(resetMarketListingSearch(draftQuery, filters.reviewStatus))
   }
 
   const clearSearch = () => {
     setDraftQuery("")
-    onFiltersChange(resetMarketListingSearch(""))
+    onFiltersChange(resetMarketListingSearch("", filters.reviewStatus))
   }
 
-  const discardListing = async (listingId: number) => {
+  const changeReviewStatus = (reviewStatus: ListingReviewStatusFilter) => {
+    onFiltersChange(resetMarketListingSearch(draftQuery, reviewStatus))
+  }
+
+  const discardListing = async (listingId: number, similar = false) => {
     setReviewingListingId(listingId)
     try {
-      await onDiscardListing(listingId, "manual")
+      if (similar) {
+        await onDiscardSimilarListings(listingId, "manual")
+      } else {
+        await onDiscardListing(listingId, "manual")
+      }
     } finally {
       setReviewingListingId(null)
     }
   }
 
-  const restoreListing = async (listingId: number) => {
+  const restoreListing = async (listingId: number, similar = false) => {
     setReviewingListingId(listingId)
     try {
-      await onRestoreListing(listingId)
+      if (similar) {
+        await onRestoreSimilarListings(listingId)
+      } else {
+        await onRestoreListing(listingId)
+      }
     } finally {
       setReviewingListingId(null)
     }
@@ -89,7 +106,7 @@ export function MarketListingsPage({
       <form
         aria-label="Listing search"
         onSubmit={applySearch}
-        className="grid gap-3 rounded-lg border bg-card p-3 sm:grid-cols-[minmax(0,1fr)_auto]"
+        className="grid gap-3 rounded-lg border bg-card p-3 md:grid-cols-[minmax(0,1fr)_12rem_auto]"
       >
         <label className="grid gap-1.5 text-sm">
           <span className="text-xs font-medium text-muted-foreground">Search</span>
@@ -100,6 +117,21 @@ export function MarketListingsPage({
             placeholder="Item or seller"
             onChange={(event) => setDraftQuery(event.target.value)}
           />
+        </label>
+
+        <label className="grid gap-1.5 text-sm">
+          <span className="text-xs font-medium text-muted-foreground">Review status</span>
+          <select
+            aria-label="Review status"
+            className={searchInputClassName}
+            value={filters.reviewStatus}
+            onChange={(event) => changeReviewStatus(event.target.value as ListingReviewStatusFilter)}
+          >
+            <option value="active">Active</option>
+            <option value="suspect">Suspect</option>
+            <option value="discarded">Discarded</option>
+            <option value="all">All</option>
+          </select>
         </label>
 
         <div className="flex flex-wrap items-end gap-2">
@@ -125,7 +157,7 @@ export function MarketListingsPage({
           onRestoreListing={restoreListing}
         />
       ) : (
-        <EmptyState filtered={!!filters.query} />
+        <EmptyState filtered={!!filters.query || filters.reviewStatus !== "active"} />
       )}
 
       {canLoadMore ? (
@@ -154,9 +186,11 @@ function ListingsTable({
   listings: ListingPreview[]
   server: string
   reviewingListingId: number | null
-  onDiscardListing: (listingId: number) => void
-  onRestoreListing: (listingId: number) => void
+  onDiscardListing: (listingId: number, similar?: boolean) => void
+  onRestoreListing: (listingId: number, similar?: boolean) => void
 }) {
+  const [rawListingId, setRawListingId] = useState<number | null>(null)
+
   return (
     <div className="overflow-x-auto rounded-lg border">
       <Table>
@@ -175,70 +209,174 @@ function ListingsTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {listings.map((listing) => (
-            <TableRow key={listing.listing_id}>
-              <TableCell className="min-w-[10rem]">
-                <time dateTime={listing.timestamp}>{formatDateTime(listing.timestamp)}</time>
-              </TableCell>
-              <TableCell>{listing.seller ?? "Unknown"}</TableCell>
-              <TableCell className="min-w-[14rem] whitespace-normal">
-                <ItemLink
-                  itemId={listing.item_id}
-                  name={listing.item_name}
-                  server={server}
-                  details={[
-                    { label: "Seller", value: listing.seller },
-                    { label: "Raw price", value: listing.price_raw },
-                    { label: "Price PP", value: formatPrice(listing.price_pp) },
-                    { label: "Source", value: listing.source },
-                    { label: "Confidence", value: listing.confidence },
-                    { label: "Seen", value: formatDateTime(listing.timestamp) },
-                  ]}
-                />
-              </TableCell>
-              <TableCell>{listing.price_raw ?? "n/a"}</TableCell>
-              <TableCell>{formatPrice(listing.price_pp)}</TableCell>
-              <TableCell>
-                <Badge variant="outline" className="rounded-md">
-                  {listing.source}
-                </Badge>
-              </TableCell>
-              <TableCell>{listing.confidence ?? "n/a"}</TableCell>
-              <TableCell>
-                <ResolvedBadge resolved={listing.resolved} />
-              </TableCell>
-              <TableCell>
-                <ReviewBadge status={listing.review_status} reasonCode={listing.review_reason_code} />
-              </TableCell>
-              <TableCell>
-                {listing.review_status === "active" ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={reviewingListingId === listing.listing_id}
-                    onClick={() => void onDiscardListing(listing.listing_id)}
-                  >
-                    <Ban aria-hidden="true" />
-                    Discard
-                  </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={reviewingListingId === listing.listing_id}
-                    onClick={() => void onRestoreListing(listing.listing_id)}
-                  >
-                    <RotateCcw aria-hidden="true" />
-                    Restore
-                  </Button>
-                )}
-              </TableCell>
-            </TableRow>
-          ))}
+          {listings.map((listing) => {
+            const isRawOpen = rawListingId === listing.listing_id
+
+            return (
+              <Fragment key={listing.listing_id}>
+                <TableRow>
+                  <TableCell className="min-w-[10rem]">
+                    <time dateTime={listing.timestamp}>{formatDateTime(listing.timestamp)}</time>
+                  </TableCell>
+                  <TableCell>{listing.seller ?? "Unknown"}</TableCell>
+                  <TableCell className="min-w-[14rem] whitespace-normal">
+                    <ItemLink
+                      itemId={listing.item_id}
+                      name={listing.item_name}
+                      server={server}
+                      details={[
+                        { label: "Seller", value: listing.seller },
+                        { label: "Raw price", value: listing.price_raw },
+                        { label: "Price PP", value: formatPrice(listing.price_pp) },
+                        { label: "Source", value: listing.source },
+                        { label: "Confidence", value: listing.confidence },
+                        { label: "Seen", value: formatDateTime(listing.timestamp) },
+                      ]}
+                    />
+                  </TableCell>
+                  <TableCell>{listing.price_raw ?? "n/a"}</TableCell>
+                  <TableCell>{formatPrice(listing.price_pp)}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className="rounded-md">
+                      {listing.source}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{listing.confidence ?? "n/a"}</TableCell>
+                  <TableCell>
+                    <ResolvedBadge resolved={listing.resolved} />
+                  </TableCell>
+                  <TableCell>
+                    <ReviewBadge status={listing.review_status} reasonCode={listing.review_reason_code} />
+                  </TableCell>
+                  <TableCell>
+                    <ListingActions
+                      listing={listing}
+                      disabled={reviewingListingId === listing.listing_id}
+                      rawOpen={isRawOpen}
+                      onToggleRaw={() => setRawListingId(isRawOpen ? null : listing.listing_id)}
+                      onDiscardListing={onDiscardListing}
+                      onRestoreListing={onRestoreListing}
+                    />
+                  </TableCell>
+                </TableRow>
+                {isRawOpen ? (
+                  <TableRow>
+                    <TableCell colSpan={10} className="bg-muted/30 p-3">
+                      <RawSalePanel rawLine={listing.raw_line} />
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+              </Fragment>
+            )
+          })}
         </TableBody>
       </Table>
+    </div>
+  )
+}
+
+function ListingActions({
+  listing,
+  disabled,
+  rawOpen,
+  onToggleRaw,
+  onDiscardListing,
+  onRestoreListing,
+}: {
+  listing: ListingPreview
+  disabled: boolean
+  rawOpen: boolean
+  onToggleRaw: () => void
+  onDiscardListing: (listingId: number, similar?: boolean) => void
+  onRestoreListing: (listingId: number, similar?: boolean) => void
+}) {
+  if (listing.review_status === "discarded") {
+    return (
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-label={`Show raw sale for ${listing.item_name}`}
+          aria-expanded={rawOpen}
+          onClick={onToggleRaw}
+        >
+          <ScrollText aria-hidden="true" />
+          Raw
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled}
+          onClick={() => void onRestoreListing(listing.listing_id)}
+        >
+          <RotateCcw aria-hidden="true" />
+          Restore
+        </Button>
+        {listing.resolved ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled}
+            onClick={() => void onRestoreListing(listing.listing_id, true)}
+          >
+            <RotateCcw aria-hidden="true" />
+            Similar
+          </Button>
+        ) : null}
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        aria-label={`Show raw sale for ${listing.item_name}`}
+        aria-expanded={rawOpen}
+        onClick={onToggleRaw}
+      >
+        <ScrollText aria-hidden="true" />
+        Raw
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={disabled}
+        onClick={() => void onDiscardListing(listing.listing_id)}
+      >
+        <Ban aria-hidden="true" />
+        Discard
+      </Button>
+      {listing.resolved ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled}
+          onClick={() => void onDiscardListing(listing.listing_id, true)}
+        >
+          <Ban aria-hidden="true" />
+          Similar
+        </Button>
+      ) : null}
+      {listing.review_status === "suspect" ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled}
+          onClick={() => void onRestoreListing(listing.listing_id)}
+        >
+          <RotateCcw aria-hidden="true" />
+          Keep
+        </Button>
+      ) : null}
     </div>
   )
 }

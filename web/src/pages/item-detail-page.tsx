@@ -7,6 +7,7 @@ import {
   Shield,
   Sparkles,
 } from "lucide-react"
+import { Fragment, useState } from "react"
 import type { ReactNode } from "react"
 import {
   Area,
@@ -19,6 +20,7 @@ import {
 } from "recharts"
 
 import { ItemLink } from "@/components/item-link"
+import { RawSalePanel } from "@/components/raw-sale-panel"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -462,6 +464,8 @@ function ListingsCard({
   itemId: number
   server: string
 }) {
+  const [rawListingId, setRawListingId] = useState<number | null>(null)
+
   return (
     <Card className="min-w-0">
       <CardHeader className="border-b">
@@ -484,40 +488,67 @@ function ListingsCard({
                   <TableHead>Price PP</TableHead>
                   <TableHead>Source</TableHead>
                   <TableHead>Confidence</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {listings.map((listing) => (
-                  <TableRow key={listing.listing_id}>
-                    <TableCell className="min-w-[10rem]">
-                      <time dateTime={listing.timestamp}>{formatDateTime(listing.timestamp)}</time>
-                    </TableCell>
-                    <TableCell>{listing.seller ?? "Unknown"}</TableCell>
-                    <TableCell className="min-w-[13rem] whitespace-normal">
-                      <ItemLink
-                        itemId={listing.item_id ?? itemId}
-                        name={listing.listed_item_name}
-                        server={server}
-                        details={[
-                          { label: "Seller", value: listing.seller },
-                          { label: "Raw price", value: listing.price_raw },
-                          { label: "Price PP", value: formatPrice(listing.price_pp) },
-                          { label: "Source", value: listing.source },
-                          { label: "Confidence", value: listing.confidence },
-                          { label: "Seen", value: formatDateTime(listing.timestamp) },
-                        ]}
-                      />
-                    </TableCell>
-                    <TableCell>{listing.price_raw ?? "n/a"}</TableCell>
-                    <TableCell>{formatPrice(listing.price_pp)}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="rounded-md">
-                        {listing.source}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{listing.confidence ?? "n/a"}</TableCell>
-                  </TableRow>
-                ))}
+                {listings.map((listing) => {
+                  const isRawOpen = rawListingId === listing.listing_id
+
+                  return (
+                    <Fragment key={listing.listing_id}>
+                      <TableRow>
+                        <TableCell className="min-w-[10rem]">
+                          <time dateTime={listing.timestamp}>{formatDateTime(listing.timestamp)}</time>
+                        </TableCell>
+                        <TableCell>{listing.seller ?? "Unknown"}</TableCell>
+                        <TableCell className="min-w-[13rem] whitespace-normal">
+                          <ItemLink
+                            itemId={listing.item_id ?? itemId}
+                            name={listing.listed_item_name}
+                            server={server}
+                            details={[
+                              { label: "Seller", value: listing.seller },
+                              { label: "Raw price", value: listing.price_raw },
+                              { label: "Price PP", value: formatPrice(listing.price_pp) },
+                              { label: "Source", value: listing.source },
+                              { label: "Confidence", value: listing.confidence },
+                              { label: "Seen", value: formatDateTime(listing.timestamp) },
+                            ]}
+                          />
+                        </TableCell>
+                        <TableCell>{listing.price_raw ?? "n/a"}</TableCell>
+                        <TableCell>{formatPrice(listing.price_pp)}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="rounded-md">
+                            {listing.source}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{listing.confidence ?? "n/a"}</TableCell>
+                        <TableCell>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            aria-label={`Show raw sale for ${listing.listed_item_name}`}
+                            aria-expanded={isRawOpen}
+                            onClick={() => setRawListingId(isRawOpen ? null : listing.listing_id)}
+                          >
+                            <ScrollText aria-hidden="true" />
+                            Raw
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                      {isRawOpen ? (
+                        <TableRow>
+                          <TableCell colSpan={8} className="bg-muted/30 p-3">
+                            <RawSalePanel rawLine={listing.raw_line} />
+                          </TableCell>
+                        </TableRow>
+                      ) : null}
+                    </Fragment>
+                  )
+                })}
               </TableBody>
             </Table>
           </div>

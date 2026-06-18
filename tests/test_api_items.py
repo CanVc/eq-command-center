@@ -98,6 +98,10 @@ class ApiItemsTests(unittest.TestCase):
             self.assertEqual(payload[0]["item"], {"item_id": 101, "name": "Stave of Shielding"})
             self.assertEqual(payload[0]["listed_item_name"], "Stave of Shielding MQ")
             self.assertEqual(payload[0]["price_raw"], "42k")
+            self.assertEqual(
+                payload[0]["raw_line"],
+                "[Tue Jun 16 10:00:00 2026] LatestSeller auctions, 'WTS Stave of Shielding MQ 42k'",
+            )
             self.assertEqual(payload[0]["price_pp"], 42000)
             self.assertTrue(payload[0]["resolved"])
 
@@ -436,14 +440,15 @@ def _seed_items_fixture(db_path: Path) -> dict[str, int]:
         ]
 
         for key, server, timestamp, seller, item_name, normalized_name, item_id, price_raw, price_pp in listing_rows:
+            raw_line = f"[Tue Jun 16 10:00:00 2026] {seller} auctions, 'WTS {item_name} {price_raw}'"
             cursor = connection.execute(
                 """
                 INSERT INTO market_listings (
                     server, timestamp, seller, item_name, normalized_item_name, item_id,
-                    price_raw, price_pp, source, confidence
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'eq_log', 'parsed')
+                    price_raw, price_pp, raw_line, source, confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'eq_log', 'parsed')
                 """,
-                (server, timestamp, seller, item_name, normalized_name, item_id, price_raw, price_pp),
+                (server, timestamp, seller, item_name, normalized_name, item_id, price_raw, price_pp, raw_line),
             )
             listing_ids[key] = int(cursor.lastrowid)
 

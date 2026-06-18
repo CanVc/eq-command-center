@@ -10,12 +10,23 @@ from pydantic import BaseModel
 
 from eqmarket.api.db import connect_readonly
 from eqmarket.db import init_db
+from eqmarket.review_rules import (
+    DiscardRule,
+    SimilarRuleError,
+    apply_discard_rule_to_matching_listings,
+    create_or_update_discard_rule_for_listing,
+    disable_discard_rules_for_signature,
+    fetch_listing_ids_for_signature,
+    fetch_listing_signature,
+    restore_listing_ids,
+)
 
 
 DEFAULT_LIMIT = 100
 DEFAULT_DISCARD_REASON = "manual"
 
 ListingReviewStatus = Literal["active", "discarded", "suspect"]
+ListingReviewStatusFilter = Literal["active", "discarded", "suspect", "all"]
 
 
 class ListingReviewUpdate(BaseModel):
@@ -79,6 +90,46 @@ def discard_listing(
     return review
 
 
+@router.post("/api/listings/{listing_id}/discard-similar")
+def discard_similar_listings(
+    listing_id: int,
+    request: Request,
+    payload: ListingReviewAction | None = None,
+) -> dict[str, Any]:
+    reason_code = _normalize_optional_text(payload.reason_code if payload is not None else None) or DEFAULT_DISCARD_REASON
+    note = _normalize_optional_text(payload.note if payload is not None else None)
+
+    with closing(_connect_writable_or_503(request.app.state.db_path)) as connection:
+        try:
+            rule = create_or_update_discard_rule_for_listing(
+                connection,
+                listing_id,
+                reason_code=reason_code,
+                note=note,
+            )
+        except SimilarRuleError as exc:
+            if str(exc) == "Listing not found":
+                raise HTTPException(status_code=404, detail="Listing not found") from exc
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        matched_count = apply_discard_rule_to_matching_listings(
+            connection,
+            rule,
+            override_active_reviews=True,
+        )
+        review = _fetch_listing_review_payload(connection, listing_id)
+        connection.commit()
+
+    return {
+        "listing_id": listing_id,
+        "server": rule.server,
+        "action": "discard_similar",
+        "rule": _discard_rule_payload(rule),
+        "matched_count": matched_count,
+        "review": review,
+    }
+
+
 @router.post("/api/listings/{listing_id}/restore")
 def restore_listing(
     listing_id: int,
@@ -97,6 +148,36 @@ def restore_listing(
     return review
 
 
+@router.post("/api/listings/{listing_id}/restore-similar")
+def restore_similar_listings(
+    listing_id: int,
+    request: Request,
+) -> dict[str, Any]:
+    with closing(_connect_writable_or_503(request.app.state.db_path)) as connection:
+        signature = fetch_listing_signature(connection, listing_id)
+        if signature is None:
+            raise HTTPException(status_code=404, detail="Listing not found")
+        if signature.item_id is None:
+            raise HTTPException(status_code=400, detail="Similar restore requires a resolved item_id")
+
+        listing_ids = fetch_listing_ids_for_signature(connection, signature)
+        disabled_rules = disable_discard_rules_for_signature(connection, signature)
+        restored_count = restore_listing_ids(connection, listing_ids)
+        review = _fetch_listing_review_payload(connection, listing_id)
+        connection.commit()
+
+    return {
+        "listing_id": listing_id,
+        "server": signature.server,
+        "action": "restore_similar",
+        "disabled_rule_count": len(disabled_rules),
+        "disabled_rules": [_discard_rule_payload(rule) for rule in disabled_rules],
+        "matched_count": len(listing_ids),
+        "restored_count": restored_count,
+        "review": review,
+    }
+
+
 @router.get("/api/listings/recent")
 def recent_listings(
     request: Request,
@@ -104,6 +185,7 @@ def recent_listings(
     q: str | None = Query(None),
     limit: int = Query(DEFAULT_LIMIT, gt=0, le=500),
     offset: int = Query(0, ge=0),
+    review_status: ListingReviewStatusFilter = Query("all"),
 ) -> list[dict[str, Any]]:
     db_server = _normalize_server(server)
     search_text = _normalize_search(q)
@@ -113,6 +195,7 @@ def recent_listings(
             connection,
             db_server,
             search_text=search_text,
+            review_status=review_status,
             limit=limit,
             offset=offset,
         )
@@ -123,10 +206,12 @@ def _fetch_recent_listings(
     db_server: str,
     *,
     search_text: str | None,
+    review_status: ListingReviewStatusFilter,
     limit: int,
     offset: int,
 ) -> list[dict[str, Any]]:
     search_filter = ""
+    status_filter = ""
     params: list[Any] = [db_server]
 
     if search_text is not None:
@@ -140,6 +225,10 @@ def _fetch_recent_listings(
         search_pattern = _like_pattern(search_text)
         params.extend([search_pattern, search_pattern, search_pattern])
 
+    if review_status != "all":
+        status_filter = "AND COALESCE(mlr.status, 'active') = ?"
+        params.append(review_status)
+
     params.extend([limit, offset])
 
     rows = connection.execute(
@@ -152,6 +241,7 @@ def _fetch_recent_listings(
             COALESCE(i.name, ml.item_name) AS item_name,
             ml.price_raw,
             ml.price_pp,
+            ml.raw_line,
             ml.source,
             ml.confidence,
             COALESCE(mlr.status, 'active') AS review_status,
@@ -164,6 +254,7 @@ def _fetch_recent_listings(
             ON mlr.listing_id = ml.listing_id
         WHERE lower(ml.server) = ?
 {search_filter}
+          {status_filter}
         ORDER BY datetime(ml.timestamp) DESC, ml.timestamp DESC, ml.listing_id DESC
         LIMIT ? OFFSET ?
         """,
@@ -187,6 +278,7 @@ def _listing_payload(row: sqlite3.Row) -> dict[str, Any]:
         "item_id": item_id,
         "item_name": row["item_name"],
         "price_raw": row["price_raw"],
+        "raw_line": row["raw_line"],
         "price_pp": _optional_int(row["price_pp"]),
         "source": row["source"],
         "confidence": row["confidence"],
@@ -229,6 +321,10 @@ def _upsert_listing_review(
         (listing_id, status, reason_code, note),
     )
 
+    return _fetch_listing_review_payload(connection, listing_id)
+
+
+def _fetch_listing_review_payload(connection: sqlite3.Connection, listing_id: int) -> dict[str, Any]:
     row = connection.execute(
         """
         SELECT
@@ -246,6 +342,8 @@ def _upsert_listing_review(
         """,
         (listing_id,),
     ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Listing review not found")
     return _listing_review_payload(row)
 
 
@@ -258,6 +356,25 @@ def _listing_review_payload(row: sqlite3.Row) -> dict[str, Any]:
         "note": row["note"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
+    }
+
+
+def _discard_rule_payload(rule: DiscardRule) -> dict[str, Any]:
+    return {
+        "rule_id": rule.rule_id,
+        "enabled": rule.enabled,
+        "server": rule.server,
+        "seller": rule.seller,
+        "item_id": rule.item_id,
+        "price_currency": rule.price_currency,
+        "price_amount": rule.price_amount,
+        "price_pp": rule.price_pp,
+        "reason_code": rule.reason_code,
+        "note": rule.note,
+        "source_listing_id": rule.source_listing_id,
+        "created_at": rule.created_at,
+        "updated_at": rule.updated_at,
+        "disabled_at": rule.disabled_at,
     }
 
 

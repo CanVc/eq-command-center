@@ -7,6 +7,7 @@ from pathlib import Path
 from eqmarket.db import init_db
 from eqmarket.item_resolution import resolve_item_id_for_listing
 from eqmarket.log_parser import normalize_item_name
+from eqmarket.review_rules import apply_active_discard_rules
 from eqmarket.sources.lucy import LucyClient, LucyLookupError, as_float, as_int, raw_payload
 from eqmarket.sources.lucy import PARSER_VERSION as LUCY_PARSER_VERSION
 
@@ -336,6 +337,8 @@ def _link_existing_listings(connection: sqlite3.Connection, normalized_name: str
             (item_id, server, normalized_name),
         )
         linked += cursor.rowcount
+        if cursor.rowcount > 0:
+            apply_active_discard_rules(connection, server)
 
     watchlist_rows = connection.execute(
         """

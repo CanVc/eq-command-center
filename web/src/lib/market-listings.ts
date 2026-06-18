@@ -1,15 +1,20 @@
 import {
   DEFAULT_MARKET_LISTING_FILTERS,
   MARKET_LISTING_PAGE_SIZE,
+  type ListingReviewStatusFilter,
   type MarketListingFilters,
 } from "@/lib/api"
 
 const MAX_MARKET_LISTING_LIMIT = 500
 
-export function resetMarketListingSearch(query: string): MarketListingFilters {
+export function resetMarketListingSearch(
+  query: string,
+  reviewStatus: ListingReviewStatusFilter = DEFAULT_MARKET_LISTING_FILTERS.reviewStatus
+): MarketListingFilters {
   return {
     ...DEFAULT_MARKET_LISTING_FILTERS,
     query: normalizeListingQuery(query),
+    reviewStatus: normalizeReviewStatus(reviewStatus),
   }
 }
 
@@ -23,6 +28,7 @@ export function expandMarketListingLimit(filters: MarketListingFilters): MarketL
 export function normalizeMarketListingFilters(filters: MarketListingFilters): MarketListingFilters {
   return {
     query: normalizeListingQuery(filters.query),
+    reviewStatus: normalizeReviewStatus(filters.reviewStatus),
     limit: clampLimit(filters.limit),
   }
 }
@@ -32,11 +38,15 @@ export function canLoadMoreListings(rowCount: number, limit: number): boolean {
 }
 
 export function marketListingFiltersKey(filters: MarketListingFilters): string {
-  return `${filters.query}\u0000${filters.limit}`
+  return `${filters.query}\u0000${filters.reviewStatus}\u0000${filters.limit}`
 }
 
 function normalizeListingQuery(query: string): string {
   return query.trim().replace(/\s+/g, " ")
+}
+
+function normalizeReviewStatus(status: ListingReviewStatusFilter): ListingReviewStatusFilter {
+  return ["active", "suspect", "discarded", "all"].includes(status) ? status : DEFAULT_MARKET_LISTING_FILTERS.reviewStatus
 }
 
 function clampLimit(limit: number): number {

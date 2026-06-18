@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react"
+import { Fragment, useEffect, useState } from "react"
 import type { FormEvent } from "react"
-import { Ban, Check, Copy, SlidersHorizontal } from "lucide-react"
+import { Ban, Check, Copy, ScrollText, SlidersHorizontal } from "lucide-react"
 
 import { ItemLink } from "@/components/item-link"
+import { RawSalePanel } from "@/components/raw-sale-panel"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -22,6 +23,7 @@ import {
   normalizeDealFilters,
   type DraftDealFilters,
 } from "@/lib/deals"
+import { copyText } from "@/lib/clipboard"
 import { formatDateTime, formatNumber, formatPercent, formatPrice } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -32,6 +34,8 @@ type DealsPageProps = {
   onFiltersChange: (filters: DealFilters) => void
   onDiscardListing: (listingId: number, reasonCode?: string) => Promise<void>
   onRestoreListing: (listingId: number) => Promise<void>
+  onDiscardSimilarListings: (listingId: number, reasonCode?: string) => Promise<void>
+  onRestoreSimilarListings: (listingId: number) => Promise<void>
 }
 
 const numberInputClassName =
@@ -44,6 +48,8 @@ export function DealsPage({
   onFiltersChange,
   onDiscardListing,
   onRestoreListing,
+  onDiscardSimilarListings,
+  onRestoreSimilarListings,
 }: DealsPageProps) {
   const [copiedListingId, setCopiedListingId] = useState<number | null>(null)
   const [reviewingListingId, setReviewingListingId] = useState<number | null>(null)
@@ -67,19 +73,27 @@ export function DealsPage({
     setCopiedListingId(deal.listing_id)
   }
 
-  const discardDeal = async (deal: DealPreview) => {
+  const discardDeal = async (deal: DealPreview, similar = false) => {
     setReviewingListingId(deal.listing_id)
     try {
-      await onDiscardListing(deal.listing_id, "wrong_unit")
+      if (similar) {
+        await onDiscardSimilarListings(deal.listing_id, "wrong_unit")
+      } else {
+        await onDiscardListing(deal.listing_id, "wrong_unit")
+      }
     } finally {
       setReviewingListingId(null)
     }
   }
 
-  const trustDeal = async (deal: DealPreview) => {
+  const trustDeal = async (deal: DealPreview, similar = false) => {
     setReviewingListingId(deal.listing_id)
     try {
-      await onRestoreListing(deal.listing_id)
+      if (similar) {
+        await onRestoreSimilarListings(deal.listing_id)
+      } else {
+        await onRestoreListing(deal.listing_id)
+      }
     } finally {
       setReviewingListingId(null)
     }
@@ -231,9 +245,11 @@ function DealsTable({
   copiedListingId: number | null
   reviewingListingId: number | null
   onCopyTell: (deal: DealPreview) => void
-  onDiscardDeal: (deal: DealPreview) => void
-  onTrustDeal: (deal: DealPreview) => void
+  onDiscardDeal: (deal: DealPreview, similar?: boolean) => void
+  onTrustDeal: (deal: DealPreview, similar?: boolean) => void
 }) {
+  const [rawListingId, setRawListingId] = useState<number | null>(null)
+
   return (
     <div className="overflow-x-auto rounded-lg border">
       <Table>
@@ -250,84 +266,119 @@ function DealsTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {deals.map((deal) => (
-            <TableRow key={deal.listing_id}>
-              <TableCell className="min-w-[14rem] whitespace-normal">
-                <div className="grid gap-1">
-                  <ItemLink
-                    itemId={deal.item_id}
-                    name={deal.item_name}
-                    server={server}
-                    details={[
-                      { label: "Seen", value: deal.price_raw ?? formatPrice(deal.listing_price_pp) },
-                      { label: "Market", value: formatPrice(deal.market_price_pp) },
-                      { label: "Discount", value: formatPercent(deal.discount_pct) },
-                      { label: "Seller", value: deal.seller },
-                      { label: "Date", value: formatDateTime(deal.timestamp) },
-                    ]}
-                  />
-                  {deal.review_status === "suspect" ? (
-                    <Badge variant="outline" className="w-fit rounded-md border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">
-                      Suspect · {formatReviewReason(deal.review_reason_code)}
-                    </Badge>
-                  ) : null}
-                </div>
-              </TableCell>
-              <TableCell>{deal.price_raw ?? formatPrice(deal.listing_price_pp)}</TableCell>
-              <TableCell>
-                <div className="grid min-w-[7rem] gap-1">
-                  <span>{formatPrice(deal.market_price_pp)}</span>
-                  <span className="text-xs text-muted-foreground">
-                    +{formatPrice(deal.potential_profit_pp)}
-                  </span>
-                </div>
-              </TableCell>
-              <TableCell>
-                <DiscountBadge value={deal.discount_pct} />
-              </TableCell>
-              <TableCell>{deal.seller ?? "Unknown"}</TableCell>
-              <TableCell>{formatDateTime(deal.timestamp)}</TableCell>
-              <TableCell>{formatScore(deal.score)}</TableCell>
-              <TableCell>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    aria-label={`Copy tell for ${deal.item_name}`}
-                    onClick={() => void onCopyTell(deal)}
-                  >
-                    <Copy aria-hidden="true" />
-                    {copiedListingId === deal.listing_id ? "Copied" : "Tell"}
-                  </Button>
-                  {deal.review_status === "suspect" ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      aria-label={`Trust ${deal.item_name}`}
-                      disabled={reviewingListingId === deal.listing_id}
-                      onClick={() => void onTrustDeal(deal)}
-                    >
-                      <Check aria-hidden="true" />
-                      Keep
-                    </Button>
-                  ) : null}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    aria-label={`Discard ${deal.item_name}`}
-                    disabled={reviewingListingId === deal.listing_id}
-                    onClick={() => void onDiscardDeal(deal)}
-                  >
-                    <Ban aria-hidden="true" />
-                    {reviewingListingId === deal.listing_id ? "Saving" : "Discard"}
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
+          {deals.map((deal) => {
+            const isRawOpen = rawListingId === deal.listing_id
+
+            return (
+              <Fragment key={deal.listing_id}>
+                <TableRow>
+                  <TableCell className="min-w-[14rem] whitespace-normal">
+                    <div className="grid gap-1">
+                      <ItemLink
+                        itemId={deal.item_id}
+                        name={deal.item_name}
+                        server={server}
+                        details={[
+                          { label: "Seen", value: deal.price_raw ?? formatPrice(deal.listing_price_pp) },
+                          { label: "Market", value: formatPrice(deal.market_price_pp) },
+                          { label: "Discount", value: formatPercent(deal.discount_pct) },
+                          { label: "Seller", value: deal.seller },
+                          { label: "Date", value: formatDateTime(deal.timestamp) },
+                        ]}
+                      />
+                      {deal.review_status === "suspect" ? (
+                        <Badge variant="outline" className="w-fit rounded-md border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                          Suspect · {formatReviewReason(deal.review_reason_code)}
+                        </Badge>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                  <TableCell>{deal.price_raw ?? formatPrice(deal.listing_price_pp)}</TableCell>
+                  <TableCell>
+                    <div className="grid min-w-[7rem] gap-1">
+                      <span>{formatPrice(deal.market_price_pp)}</span>
+                      <span className="text-xs text-muted-foreground">
+                        +{formatPrice(deal.potential_profit_pp)}
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <DiscountBadge value={deal.discount_pct} />
+                  </TableCell>
+                  <TableCell>{deal.seller ?? "Unknown"}</TableCell>
+                  <TableCell>{formatDateTime(deal.timestamp)}</TableCell>
+                  <TableCell>{formatScore(deal.score)}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Show raw sale for ${deal.item_name}`}
+                        aria-expanded={isRawOpen}
+                        onClick={() => setRawListingId(isRawOpen ? null : deal.listing_id)}
+                      >
+                        <ScrollText aria-hidden="true" />
+                        Raw
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Copy tell for ${deal.item_name}`}
+                        onClick={() => void onCopyTell(deal)}
+                      >
+                        <Copy aria-hidden="true" />
+                        {copiedListingId === deal.listing_id ? "Copied" : "Tell"}
+                      </Button>
+                      {deal.review_status === "suspect" ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          aria-label={`Trust ${deal.item_name}`}
+                          disabled={reviewingListingId === deal.listing_id}
+                          onClick={() => void onTrustDeal(deal)}
+                        >
+                          <Check aria-hidden="true" />
+                          Keep
+                        </Button>
+                      ) : null}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Discard ${deal.item_name}`}
+                        disabled={reviewingListingId === deal.listing_id}
+                        onClick={() => void onDiscardDeal(deal)}
+                      >
+                        <Ban aria-hidden="true" />
+                        {reviewingListingId === deal.listing_id ? "Saving" : "Discard"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Discard similar ${deal.item_name}`}
+                        disabled={reviewingListingId === deal.listing_id || !deal.resolved}
+                        onClick={() => void onDiscardDeal(deal, true)}
+                      >
+                        <Ban aria-hidden="true" />
+                        Similar
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+                {isRawOpen ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="bg-muted/30 p-3">
+                      <RawSalePanel rawLine={deal.raw_line} />
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+              </Fragment>
+            )
+          })}
         </TableBody>
       </Table>
     </div>
@@ -369,18 +420,3 @@ function formatScore(value: number): string {
   return Number.isInteger(value) ? formatNumber(value) : value.toFixed(1)
 }
 
-async function copyText(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    return
-  }
-
-  const textarea = document.createElement("textarea")
-  textarea.value = text
-  textarea.style.position = "fixed"
-  textarea.style.opacity = "0"
-  document.body.appendChild(textarea)
-  textarea.select()
-  document.execCommand("copy")
-  textarea.remove()
-}

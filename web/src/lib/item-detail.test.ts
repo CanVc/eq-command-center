@@ -131,6 +131,7 @@ function buildListing(overrides: Partial<ItemListing>): ItemListing {
     item_name: "Stave of Shielding",
     listed_item_name: "Stave of Shielding",
     price_raw: overrides.price_raw ?? `${overrides.price_pp ?? 0}pp`,
+    raw_line: overrides.raw_line ?? "[Tue Jun 16 10:00:00 2026] Seller auctions, 'WTS Stave of Shielding 1000pp'",
     price_pp: overrides.price_pp ?? 1000,
     source: "eq_log",
     confidence: "parsed",
