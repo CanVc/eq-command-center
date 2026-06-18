@@ -13,8 +13,8 @@ from fastapi.testclient import TestClient
 
 from eqmarket.api.app import create_app
 from eqmarket.db import init_db
-from eqmarket.price_importer import TlpPriceImportStats, import_tlp_prices
-from eqmarket.sources.tlp_auctions import CatalogItem, KronoPrice, PricePoint, TlpAuctionsClient
+from eqmarket.price_importer import TlpPriceImportStats, import_tlp_prices, load_recent_listing_item_ids
+from eqmarket.sources.tlp_auctions import CatalogItem, KronoPrice, PricePoint, TlpAuctionsClient, TlpAuctionsError
 
 
 class TlpAuctionsClientTests(unittest.TestCase):
@@ -258,6 +258,44 @@ class PriceImporterConcurrencyTests(unittest.TestCase):
             self.assertEqual(listing_item_id, 1)
             self.assertEqual(violations, [])
 
+    def test_failed_price_marker_counts_as_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            _seed_failed_refresh_item_fixture(db_path, item_id=302, with_failed_marker=True)
+
+            self.assertIn(
+                302,
+                load_recent_listing_item_ids(db_path, "frostreaver", 10, max_age_hours=6),
+            )
+
+    def test_failed_item_history_refresh_remains_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            _seed_failed_refresh_item_fixture(db_path)
+
+            with patch("eqmarket.price_importer.TlpAuctionsClient", return_value=_FailingHistoryFakeTlpClient()):
+                stats = import_tlp_prices(
+                    db_path,
+                    "frostreaver",
+                    item_ids=[301],
+                    history_days=None,
+                    concurrency=1,
+                )
+
+            self.assertEqual(stats.price_refresh_failed, 1)
+            self.assertIn(
+                301,
+                load_recent_listing_item_ids(db_path, "frostreaver", 10, max_age_hours=6),
+            )
+            with closing(sqlite3.connect(db_path)) as connection:
+                market_price = connection.execute(
+                    "SELECT 1 FROM market_prices WHERE item_id = 301 AND server = 'frostreaver'"
+                ).fetchone()
+
+            self.assertIsNone(market_price)
+
     def test_import_tlp_prices_fetches_item_histories_in_parallel(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "eqmarket.sqlite"
@@ -285,6 +323,17 @@ class _DuplicateCatalogFakeTlpClient:
 
     def get_catalog(self, server_name: str) -> list[CatalogItem]:
         return [CatalogItem(item_id=2, name="Duplicate Item", price=1000)]
+
+
+class _FailingHistoryFakeTlpClient:
+    def get_krono_price(self, server_name: str) -> None:
+        return None
+
+    def get_catalog(self, server_name: str) -> list[CatalogItem]:
+        return [CatalogItem(item_id=301, name="Failed Refresh Item", price=1000)]
+
+    def get_item_history(self, item_id: int, server_name: str) -> list[PricePoint]:
+        raise TlpAuctionsError("temporary upstream error")
 
 
 class _ConcurrentFakeTlpClient:
@@ -368,6 +417,40 @@ def _seed_duplicate_catalog_name_fixture(db_path: Path) -> None:
                       'duplicate item', '1k', 1000, 'eq_log', 'parsed')
             """
         )
+        connection.commit()
+
+
+def _seed_failed_refresh_item_fixture(
+    db_path: Path,
+    *,
+    item_id: int = 301,
+    with_failed_marker: bool = False,
+) -> None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(
+            "INSERT INTO items (item_id, name, normalized_name) VALUES (?, 'Failed Refresh Item', 'failed refresh item')",
+            (item_id,),
+        )
+        connection.execute(
+            """
+            INSERT INTO market_listings (
+                server, timestamp, seller, item_name, normalized_item_name, item_id,
+                price_raw, price_pp, source, confidence
+            ) VALUES ('frostreaver', CURRENT_TIMESTAMP, 'Seller', 'Failed Refresh Item',
+                      'failed refresh item', ?, '1k', 1000, 'eq_log', 'parsed')
+            """,
+            (item_id,),
+        )
+        if with_failed_marker:
+            connection.execute(
+                """
+                INSERT INTO market_prices (
+                    item_id, server, sample_size, confidence, last_refresh_at, source
+                ) VALUES (?, 'frostreaver', 0, 'failed', CURRENT_TIMESTAMP, 'tlp_auctions_history_failed')
+                """,
+                (item_id,),
+            )
         connection.commit()
 
 

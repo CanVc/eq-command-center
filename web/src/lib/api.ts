@@ -707,13 +707,18 @@ export async function fetchItemTooltip(
 
 export async function fetchSettingsStatus(
   server: string,
+  maxAgeHoursOrFetcher?: number | Fetcher,
   fetcher: Fetcher = fetch
 ): Promise<SettingsStatusResponse> {
+  const maxAgeHours = typeof maxAgeHoursOrFetcher === "number" ? maxAgeHoursOrFetcher : undefined
+  const resolvedFetcher = typeof maxAgeHoursOrFetcher === "function" ? maxAgeHoursOrFetcher : fetcher
+
   return fetchJson<SettingsStatusResponse>(
     buildApiPath("/api/settings/status", {
       server,
+      max_age_hours: maxAgeHours,
     }),
-    fetcher
+    resolvedFetcher
   )
 }
 

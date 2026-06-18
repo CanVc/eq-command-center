@@ -137,6 +137,8 @@ def _stale_price_filter(max_age_hours: float | None) -> tuple[str, list[object]]
         """
               AND (
                     mp.item_id IS NULL
+                    OR mp.confidence = 'failed'
+                    OR mp.source = 'tlp_auctions_history_failed'
                     OR mp.last_refresh_at IS NULL
                     OR datetime(mp.last_refresh_at) <= datetime('now', ?)
                   )
@@ -345,7 +347,6 @@ def _record_history_refresh_result(
     if result.error is not None:
         stats.price_refresh_failed += 1
         _record_price_refresh_failure(connection, db_server, result.item_id, result.error)
-        _upsert_price_refresh_marker(connection, db_server, result.item_id, "failed", str(result.error)[:1000])
     elif result.price_stats is None:
         _upsert_price_refresh_marker(connection, db_server, result.item_id, "no_data", None)
         stats.no_price_data += 1

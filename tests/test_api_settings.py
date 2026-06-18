@@ -86,6 +86,24 @@ class ApiSettingsTests(unittest.TestCase):
             self.assertIsNone(payload["eq_log_path"])
             self.assertIsNone(payload["eq_log_exists"])
 
+    def test_settings_status_hides_old_tlp_errors_for_fresh_items(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            _seed_import_runs(db_path)
+            _seed_fresh_price(db_path, item_id=101, server="mischief")
+            app = create_app(db_path)
+
+            with TestClient(app) as client:
+                response = client.get(
+                    "/api/settings/status",
+                    params={"server": "mischief", "max_age_hours": 6},
+                )
+
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            self.assertEqual(payload["recent_tlp_errors"], [])
+
     def test_settings_status_still_reports_db_path_when_import_runs_cannot_be_read(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "missing.sqlite"
@@ -174,6 +192,19 @@ def _seed_log_import_state(db_path: Path, log_path: Path) -> None:
 
 def _seed_import_runs(db_path: Path) -> None:
     with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(
+            "INSERT INTO items (item_id, name, normalized_name) VALUES (101, 'Errored Item', 'errored item')"
+        )
+        connection.execute(
+            """
+            INSERT INTO market_listings (
+                server, timestamp, seller, item_name, normalized_item_name, item_id,
+                price_raw, price_pp, source, confidence
+            ) VALUES ('mischief', CURRENT_TIMESTAMP, 'Seller', 'Errored Item',
+                      'errored item', 101, '1k', 1000, 'eq_log', 'parsed')
+            """
+        )
         connection.execute(
             """
             INSERT INTO import_runs (
@@ -207,6 +238,21 @@ def _seed_import_runs(db_path: Path) -> None:
                 'completed', 42, 5, 11, '2026-06-16 09:59:00', '2026-06-16 10:00:00'
             )
             """
+        )
+        connection.commit()
+
+
+def _seed_fresh_price(db_path: Path, *, item_id: int, server: str) -> None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute(
+            """
+            INSERT INTO market_prices (
+                item_id, server, median_pp, sample_size, confidence, last_refresh_at, source
+            ) VALUES (?, ?, 1000, 1, 'low', CURRENT_TIMESTAMP, 'fixture')
+            ON CONFLICT(item_id, server) DO UPDATE SET
+                last_refresh_at = excluded.last_refresh_at
+            """,
+            (item_id, server),
         )
         connection.commit()
 

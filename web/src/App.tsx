@@ -186,7 +186,7 @@ function App() {
 
     async function loadPage() {
       try {
-        const data = await fetchPageData(activeRoute, server, dealFilters, marketListingFilters)
+        const data = await fetchPageData(activeRoute, server, tlpMaxAgeHours, dealFilters, marketListingFilters)
         if (isActive) {
           setPageState({ status: "ready", data, loadedAt: new Date() })
         }
@@ -205,7 +205,7 @@ function App() {
     return () => {
       isActive = false
     }
-  }, [activeRoute, dealFilters, marketListingFilters, refreshKey, server])
+  }, [activeRoute, dealFilters, marketListingFilters, refreshKey, server, tlpMaxAgeHours])
 
   const navigateTo = useCallback((pageId: AppPageId) => {
     const nextPath = pathForPage(pageId)
@@ -399,6 +399,7 @@ function App() {
 async function fetchPageData(
   route: AppRoute,
   server: string,
+  tlpMaxAgeHours: number,
   dealFilters: DealFilters,
   marketListingFilters: MarketListingFilters
 ): Promise<PageData> {
@@ -421,7 +422,7 @@ async function fetchPageData(
     case "items":
       return { page, payload: await fetchItemSearchPreview(server) }
     case "settings":
-      return { page, payload: await fetchSettingsStatus(server) }
+      return { page, payload: await fetchSettingsStatus(server, tlpMaxAgeHours) }
   }
 }
 
