@@ -17,8 +17,8 @@ SALE_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 BUY_PREFIX_RE = re.compile(r"^\s*(?:wtbuy|wtb|buying|want\s+to\s+buy)\b", re.IGNORECASE)
-LEADING_NOISE_RE = re.compile(r"^(?:[-,;/|<>~\\=`\[\]{}()\s.]+|(?:ea|each|obo|pst|firm|cheap|stack|for)\b\s*)+", re.IGNORECASE)
-TRAILING_NOISE_RE = re.compile(r"(?:[-,;/|<>~\\=`\[\]{}()\s.]+|\b(?:ea|each|obo|pst|firm|wts|stack|for)\b\s*)+$", re.IGNORECASE)
+LEADING_NOISE_RE = re.compile(r"^(?:[-,;/|<>~\\=`\[\]{}()\s.!?]+|(?:ea|each|apiece|obo|pst|firm|cheap|stack|for)\b\s*)+", re.IGNORECASE)
+TRAILING_NOISE_RE = re.compile(r"(?:[-,;/|<>~\\=`\[\]{}()\s.!?]+|\b(?:ea|each|apiece|obo|pst|firm|wts|stack|for)\b\s*)+$", re.IGNORECASE)
 ITEM_SEPARATOR_RE = re.compile(r"\s*(?:<>|\.{2,}|[,;/|<>~\\=]|[\[\]{}()]|\s+-+\s+|\s+I\s+)\s*")
 EQ_ITEM_LINK_PREFIX_RE = re.compile(r"(?:Q[0-9A-F]{91}|[0-9A-F]{91})")
 ZERO_LINK_TRAILER_RE = re.compile(r"\b0+\s*(?:pp|p|plats?|platinums?)\b$", re.IGNORECASE)
@@ -204,6 +204,33 @@ def _price_from_match(match: re.Match[str], following_text: str) -> tuple[str, f
     return None
 
 
+def parse_price_text(text: str) -> tuple[str, float, str, int | None] | None:
+    """Parse a standalone price string using the same rules as auction parsing."""
+    stripped = text.strip()
+    if not stripped:
+        return None
+
+    match = PRICE_RE.fullmatch(stripped)
+    if match is None:
+        return None
+
+    return _price_from_match(match, "")
+
+
+def _no_price_listing(auction: AuctionMessage, item_name: str) -> ParsedListing:
+    return ParsedListing(
+        timestamp=auction.timestamp,
+        seller=auction.seller,
+        item_name=item_name,
+        price_raw=None,
+        price_amount=None,
+        price_currency=None,
+        price_pp=None,
+        raw_line=auction.raw_line,
+        confidence="no_price",
+    )
+
+
 def parse_sale_listings(auction: AuctionMessage) -> list[ParsedListing]:
     """Extract sale listing candidates from one auction message.
 
@@ -225,19 +252,7 @@ def parse_sale_listings(auction: AuctionMessage) -> list[ParsedListing]:
             unit_text = (match.group("unit") or "").lower()
             if unit_text and _match_amount_is_non_positive(match):
                 for item_name in _split_item_text(message[cursor : match.start()]):
-                    listings.append(
-                        ParsedListing(
-                            timestamp=auction.timestamp,
-                            seller=auction.seller,
-                            item_name=item_name,
-                            price_raw=None,
-                            price_amount=None,
-                            price_currency=None,
-                            price_pp=None,
-                            raw_line=auction.raw_line,
-                            confidence="no_price",
-                        )
-                    )
+                    listings.append(_no_price_listing(auction, item_name))
                 cursor = match.end()
             continue
 
@@ -245,10 +260,18 @@ def parse_sale_listings(auction: AuctionMessage) -> list[ParsedListing]:
 
         item_names = _split_item_text(message[cursor : match.start()])
         if not item_names:
+            cursor = match.end()
             continue
 
         price_raw, price_amount, price_currency, price_pp = price
-        priced_item_names = item_names if _price_applies_to_all_split_items(following_text) else item_names[-1:]
+        # By default a price labels only the nearest item before it. Earlier
+        # comma-separated items remain listings, but with no price, unless the
+        # seller explicitly says the price is for each item.
+        price_applies_to_all = _price_applies_to_all_split_items(following_text)
+        unpriced_item_names = [] if price_applies_to_all else item_names[:-1]
+        priced_item_names = item_names if price_applies_to_all else item_names[-1:]
+        for item_name in unpriced_item_names:
+            listings.append(_no_price_listing(auction, item_name))
         for item_name in priced_item_names:
             listings.append(
                 ParsedListing(
@@ -265,25 +288,15 @@ def parse_sale_listings(auction: AuctionMessage) -> list[ParsedListing]:
         cursor = match.end()
 
     if listings:
+        for item_name in _split_item_text(message[cursor:]):
+            listings.append(_no_price_listing(auction, item_name))
         return listings
 
     # No usable price in a sale-looking auction: keep each advertised item with
     # null price so we can still tell the seller and potentially negotiate.
     if not saw_price_candidate:
         for item_name in _split_item_text(auction.message):
-            listings.append(
-                ParsedListing(
-                    timestamp=auction.timestamp,
-                    seller=auction.seller,
-                    item_name=item_name,
-                    price_raw=None,
-                    price_amount=None,
-                    price_currency=None,
-                    price_pp=None,
-                    raw_line=auction.raw_line,
-                    confidence="no_price",
-                )
-            )
+            listings.append(_no_price_listing(auction, item_name))
 
     return listings
 

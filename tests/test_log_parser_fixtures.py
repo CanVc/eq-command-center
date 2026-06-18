@@ -40,10 +40,48 @@ class LogParserFixtureTests(unittest.TestCase):
         listings = parse_sale_listings(auction)
 
         self.assertEqual(
-            [(listing.item_name, listing.price_raw, listing.price_currency, listing.price_pp) for listing in listings],
+            [(listing.item_name, listing.price_raw, listing.price_currency, listing.price_pp, listing.confidence) for listing in listings],
             [
-                ("Staff of Elemental Mastery: Water", "3kr", "krono", None),
-                ("Mask of Venom", "1kr", "krono", None),
+                ("Truesight Helmet", None, None, None, "no_price"),
+                ("Staff of Elemental Mastery: Water", "3kr", "krono", None, "parsed"),
+                ("Shroud of Longevity", None, None, None, "no_price"),
+                ("Mask of Venom", "1kr", "krono", None, "parsed"),
+            ],
+        )
+
+    def test_partial_price_list_keeps_unpriced_items_unpriced(self) -> None:
+        auction = parse_auction_line(
+            "[Thu Jun 18 11:52:07 2026] Krtowin auctions, 'WTS Yakatizma's Shield of Crafting , "
+            "War Bow of Rallos Zek , Frostreaver's Velium Crown 1kr, Dragons Tear Earring 4kr'"
+        )
+        self.assertIsNotNone(auction)
+
+        listings = parse_sale_listings(auction)
+
+        self.assertEqual(
+            [(listing.item_name, listing.price_raw, listing.price_currency, listing.price_pp, listing.confidence) for listing in listings],
+            [
+                ("Yakatizma's Shield of Crafting", None, None, None, "no_price"),
+                ("War Bow of Rallos Zek", None, None, None, "no_price"),
+                ("Frostreaver's Velium Crown", "1kr", "krono", None, "parsed"),
+                ("Dragons Tear Earring", "4kr", "krono", None, "parsed"),
+            ],
+        )
+
+    def test_each_price_still_applies_to_split_items(self) -> None:
+        auction = parse_auction_line(
+            "[Thu Jun 18 11:52:07 2026] Seller auctions, 'WTS Item One, Item Two 500pp each, Item Three'"
+        )
+        self.assertIsNotNone(auction)
+
+        listings = parse_sale_listings(auction)
+
+        self.assertEqual(
+            [(listing.item_name, listing.price_raw, listing.price_pp, listing.confidence) for listing in listings],
+            [
+                ("Item One", "500pp", 500, "parsed"),
+                ("Item Two", "500pp", 500, "parsed"),
+                ("Item Three", None, None, "no_price"),
             ],
         )
 

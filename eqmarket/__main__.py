@@ -8,6 +8,7 @@ from eqmarket.enrichment import enrich_pending_items
 from eqmarket.local_settings import get_configured_log_path
 from eqmarket.log_importer import import_log_file, parse_log_file
 from eqmarket.price_importer import import_tlp_prices, load_recent_listing_item_ids
+from eqmarket.price_repair import repair_listing_prices, repair_listing_raw_lines
 from eqmarket.scoring.deals import format_deal_score, score_market_listings
 
 
@@ -54,6 +55,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_PRICE_REFRESH_CONCURRENCY,
         help=f"Parallel TLP item history requests (1-{MAX_PRICE_REFRESH_CONCURRENCY})",
     )
+
+    repair_parser = subparsers.add_parser("repair-listing-prices", help="Recompute stored price_amount/price_pp from price_raw")
+    repair_parser.add_argument("--db", default="data/eqmarket.sqlite", help="SQLite database path")
+    repair_parser.add_argument("--server", help="Optional server name to repair")
+
+    raw_repair_parser = subparsers.add_parser(
+        "repair-log-listings",
+        help="Reparse stored EQ raw lines, insert corrected listings, and discard stale parser matches",
+    )
+    raw_repair_parser.add_argument("--db", default="data/eqmarket.sqlite", help="SQLite database path")
+    raw_repair_parser.add_argument("--server", help="Optional server name to repair")
 
     score_parser = subparsers.add_parser("score-listings", help="Score resolved listings against market_prices")
     score_parser.add_argument("--db", default="data/eqmarket.sqlite", help="SQLite database path")
@@ -166,6 +178,23 @@ def main() -> None:
             f"krono_updated={stats.krono_updated}, "
             f"krono_price_pp={stats.krono_price_pp}, krono_listings_converted={stats.krono_listings_converted}"
         )
+    elif args.command == "repair-listing-prices":
+        stats = repair_listing_prices(Path(args.db), server=args.server)
+        scope = f"server={args.server}" if args.server else "all servers"
+        print(
+            "Repaired listing prices: "
+            f"scope={scope}, seen={stats.listings_seen}, "
+            f"reparsed={stats.reparsed_prices}, updated={stats.updated}"
+        )
+    elif args.command == "repair-log-listings":
+        stats = repair_listing_raw_lines(Path(args.db), server=args.server, progress_callback=_print_log_repair_progress)
+        scope = f"server={args.server}" if args.server else "all servers"
+        print(
+            "Repaired log listings: "
+            f"scope={scope}, raw_lines={stats.raw_lines_seen}, reparsed={stats.raw_lines_reparsed}, "
+            f"skipped={stats.parse_skipped}, seen={stats.listings_seen}, matched={stats.listings_matched}, "
+            f"inserted={stats.listings_inserted}, discarded={stats.listings_discarded}"
+        )
     elif args.command == "score-listings":
         stats, scores = score_market_listings(
             Path(args.db),
@@ -263,6 +292,15 @@ def main() -> None:
             print(format_deal_score(score))
         if len(scores) > 50:
             print(f"... {len(scores) - 50} more")
+
+
+def _print_log_repair_progress(current: int, total: int, stats: object) -> None:
+    print(
+        "Repair progress: "
+        f"{current}/{total} raw lines, matched={stats.listings_matched}, "
+        f"inserted={stats.listings_inserted}, discarded={stats.listings_discarded}",
+        flush=True,
+    )
 
 
 def _resolve_required_log_path(log_arg: str | None, db_path: Path, parser: argparse.ArgumentParser) -> Path:
