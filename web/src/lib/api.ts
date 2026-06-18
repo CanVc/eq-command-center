@@ -41,6 +41,30 @@ export type SettingsStatusResponse = EqLogSettings & {
   import_runs_error: string | null
 }
 
+export type LogWatcherStatus = {
+  running: boolean
+  log_path: string | null
+  log_exists: boolean | null
+  server: string | null
+  last_position: number | null
+  last_checked_at: string | null
+  last_imported_at: string | null
+  latest_sale_at: string | null
+  lines_read: number
+  auction_lines: number
+  listings_found: number
+  listings_inserted: number
+  error: string | null
+}
+
+export type RuntimeStatus = {
+  server: string
+  max_age_hours: number
+  stale_item_count: number
+  latest_log_sale_at: string | null
+  log_watcher: LogWatcherStatus | null
+}
+
 export type DashboardSummary = {
   server: string
   recent_window_hours: number
@@ -397,6 +421,20 @@ type QueryValue = string | number | boolean | null | undefined
 
 export async function fetchHealth(fetcher: Fetcher = fetch): Promise<HealthResponse> {
   return fetchJson<HealthResponse>(HEALTH_PATH, fetcher)
+}
+
+export async function fetchRuntimeStatus(
+  server: string,
+  maxAgeHours: number,
+  fetcher: Fetcher = fetch
+): Promise<RuntimeStatus> {
+  return fetchJson<RuntimeStatus>(
+    buildApiPath("/api/runtime/status", {
+      server,
+      max_age_hours: maxAgeHours,
+    }),
+    fetcher
+  )
 }
 
 export async function fetchDashboardSummary(

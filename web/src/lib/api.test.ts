@@ -11,6 +11,7 @@ import {
   fetchItemSearchPreview,
   fetchListingsPreview,
   fetchMarketListings,
+  fetchRuntimeStatus,
   fetchSettingsStatus,
   refreshKronoPrice,
   refreshTlpPrices,
@@ -83,6 +84,7 @@ describe("page API helpers", () => {
     await fetchListingsPreview("mischief", fetcher)
     await fetchMarketListings("mischief", { query: " crown ", limit: 50 }, fetcher)
     await fetchItemSearchPreview("mischief", fetcher)
+    await fetchRuntimeStatus("mischief", 1.5, fetcher)
 
     expect(fetcher).toHaveBeenNthCalledWith(
       1,
@@ -108,6 +110,11 @@ describe("page API helpers", () => {
       }
     )
     expect(fetcher).toHaveBeenNthCalledWith(4, "/api/items/search?server=mischief&q=stave&limit=5", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(5, "/api/runtime/status?server=mischief&max_age_hours=1.5", {
       headers: {
         Accept: "application/json",
       },

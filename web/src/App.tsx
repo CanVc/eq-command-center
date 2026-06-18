@@ -21,6 +21,7 @@ import {
   fetchItemDetailPageData,
   fetchItemSearchPreview,
   fetchMarketListings,
+  fetchRuntimeStatus,
   fetchSettingsStatus,
   fetchTlpPriceRefreshJob,
   refreshKronoPrice,
@@ -32,6 +33,7 @@ import {
   type ItemSearchResult,
   type ListingPreview,
   type MarketListingFilters,
+  type RuntimeStatus,
   type SettingsStatusResponse,
   type TlpPriceRefreshJobStatus,
 } from "@/lib/api"
@@ -92,6 +94,7 @@ function App() {
   )
   const [refreshKey, setRefreshKey] = useState(0)
   const [tlpRefreshJob, setTlpRefreshJob] = useState<TlpPriceRefreshJobStatus | null>(null)
+  const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null)
   const [progressNow, setProgressNow] = useState(() => Date.now())
   const [mageloStatus, setMageloStatus] = useState<MageloStatus>(() => getMageloStatus())
   const [pageState, setPageState] = useState<PageState>({ status: "loading" })
@@ -152,6 +155,31 @@ function App() {
       window.clearTimeout(timer)
     }
   }, [mageloStatus, pageState])
+
+  useEffect(() => {
+    let isActive = true
+
+    async function loadRuntimeStatus() {
+      try {
+        const status = await fetchRuntimeStatus(server, tlpMaxAgeHours)
+        if (isActive) {
+          setRuntimeStatus(status)
+        }
+      } catch {
+        if (isActive) {
+          setRuntimeStatus(null)
+        }
+      }
+    }
+
+    void loadRuntimeStatus()
+    const timer = window.setInterval(loadRuntimeStatus, 5000)
+
+    return () => {
+      isActive = false
+      window.clearInterval(timer)
+    }
+  }, [refreshKey, server, tlpMaxAgeHours])
 
   useEffect(() => {
     let isActive = true
@@ -328,6 +356,9 @@ function App() {
       isTlpRefreshing={isTlpRefreshing}
       tlpMaxAgeHours={tlpMaxAgeHours}
       tlpAutoRefreshEnabled={tlpAutoRefreshEnabled}
+      staleItemCount={runtimeStatus?.stale_item_count ?? null}
+      latestLogSaleAt={runtimeStatus?.latest_log_sale_at ?? null}
+      logWatcherError={runtimeStatus?.log_watcher?.error ?? null}
       onNavigate={navigateTo}
       onServerChange={changeServer}
       onTlpMaxAgeHoursChange={changeTlpMaxAgeHours}

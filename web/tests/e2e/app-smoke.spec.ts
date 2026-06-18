@@ -537,6 +537,14 @@ async function fulfillApi(route: Route) {
     return
   }
 
+  if (url.pathname === "/api/runtime/status") {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(buildRuntimeStatus(server)),
+    })
+    return
+  }
+
   if (url.pathname === "/api/settings/log-path" && route.request().method() === "PUT") {
     const body = route.request().postDataJSON() as { log_path?: string | null }
     await route.fulfill({
@@ -1094,6 +1102,30 @@ function buildKronoLatest(server: string) {
     source: "fixture",
     confidence: "high",
     last_refresh_at: "2026-06-16T10:00:00",
+  }
+}
+
+function buildRuntimeStatus(server: string) {
+  return {
+    server,
+    max_age_hours: 6,
+    stale_item_count: 12,
+    latest_log_sale_at: "2026-06-16T10:05:00",
+    log_watcher: {
+      running: true,
+      log_path: "C:/EverQuest/Logs/eqlog_Dreadbank_frostreaver.txt",
+      log_exists: true,
+      server,
+      last_position: 12345,
+      last_checked_at: "2026-06-16T10:05:05Z",
+      last_imported_at: "2026-06-16T10:05:05Z",
+      latest_sale_at: "2026-06-16T10:05:00",
+      lines_read: 4,
+      auction_lines: 1,
+      listings_found: 1,
+      listings_inserted: 1,
+      error: null,
+    },
   }
 }
 

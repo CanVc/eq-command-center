@@ -75,18 +75,8 @@ def load_recent_listing_item_ids(
 ) -> list[int]:
     """Return recent listing item ids, optionally only missing/stale TLP prices."""
     db_server = db_server_name(server)
-    params: list[object] = [db_server]
-    freshness_filter = ""
-    if max_age_hours is not None:
-        freshness_filter = """
-              AND (
-                    mp.item_id IS NULL
-                    OR mp.last_refresh_at IS NULL
-                    OR datetime(mp.last_refresh_at) <= datetime('now', ?)
-                  )
-        """
-        params.append(f"-{max_age_hours:g} hours")
-    params.append(limit)
+    freshness_filter, freshness_params = _stale_price_filter(max_age_hours)
+    params: list[object] = [db_server, *freshness_params, limit]
 
     with closing(sqlite3.connect(db_path)) as connection:
         rows = connection.execute(
@@ -106,6 +96,53 @@ def load_recent_listing_item_ids(
             params,
         ).fetchall()
     return [int(row[0]) for row in rows]
+
+
+def count_stale_listing_item_ids(
+    db_path: Path,
+    server: str,
+    *,
+    max_age_hours: float | None = None,
+) -> int:
+    """Return the approximate number of local listing item ids needing TLP price refresh."""
+    db_server = db_server_name(server)
+    freshness_filter, freshness_params = _stale_price_filter(max_age_hours)
+    params: list[object] = [db_server, *freshness_params]
+
+    with closing(sqlite3.connect(db_path)) as connection:
+        row = connection.execute(
+            f"""
+            SELECT count(*)
+            FROM (
+                SELECT ml.item_id
+                FROM market_listings ml
+                LEFT JOIN market_prices mp
+                    ON mp.item_id = ml.item_id AND lower(mp.server) = lower(ml.server)
+                WHERE lower(ml.server) = ?
+                  AND ml.item_id IS NOT NULL
+                  AND ml.price_pp IS NOT NULL
+{freshness_filter}
+                GROUP BY ml.item_id
+            ) stale_items
+            """,
+            params,
+        ).fetchone()
+    return int(row[0]) if row else 0
+
+
+def _stale_price_filter(max_age_hours: float | None) -> tuple[str, list[object]]:
+    if max_age_hours is None:
+        return "", []
+    return (
+        """
+              AND (
+                    mp.item_id IS NULL
+                    OR mp.last_refresh_at IS NULL
+                    OR datetime(mp.last_refresh_at) <= datetime('now', ?)
+                  )
+        """,
+        [f"-{max_age_hours:g} hours"],
+    )
 
 
 def import_tlp_prices(
@@ -162,7 +199,9 @@ def import_tlp_prices(
         for item in matched_catalog:
             if _upsert_minimal_item(connection, item):
                 stats.items_upserted += 1
-            stats.listings_linked += _link_listings_by_name(connection, db_server, item)
+            canonical_item_id = _canonical_item_id_for_catalog_item(connection, item)
+            if canonical_item_id is not None:
+                stats.listings_linked += _link_listings_by_name(connection, db_server, item, canonical_item_id)
 
         target_item_ids = _load_target_item_ids(connection, db_server, item_id_list)
         if all_catalog:
@@ -367,6 +406,18 @@ def _upsert_minimal_item(connection: sqlite3.Connection, item: CatalogItem) -> b
 def _item_exists(connection: sqlite3.Connection, item_id: int) -> bool:
     row = connection.execute("SELECT 1 FROM items WHERE item_id = ?", (item_id,)).fetchone()
     return row is not None
+
+
+def _canonical_item_id_for_catalog_item(connection: sqlite3.Connection, item: CatalogItem) -> int | None:
+    row = connection.execute("SELECT item_id FROM items WHERE item_id = ?", (item.item_id,)).fetchone()
+    if row is not None:
+        return int(row[0])
+
+    row = connection.execute(
+        "SELECT item_id FROM items WHERE normalized_name = ?",
+        (normalize_item_name(item.name),),
+    ).fetchone()
+    return int(row[0]) if row is not None else None
 
 
 def _upsert_krono_price(
@@ -582,7 +633,12 @@ def _load_target_item_ids(connection: sqlite3.Connection, db_server: str, item_i
     return {int(row[0]) for row in rows if row[0] is not None}
 
 
-def _link_listings_by_name(connection: sqlite3.Connection, db_server: str, item: CatalogItem) -> int:
+def _link_listings_by_name(
+    connection: sqlite3.Connection,
+    db_server: str,
+    item: CatalogItem,
+    canonical_item_id: int,
+) -> int:
     normalized_name = normalize_item_name(item.name)
     cursor = connection.execute(
         """
@@ -592,7 +648,7 @@ def _link_listings_by_name(connection: sqlite3.Connection, db_server: str, item:
           AND item_id IS NULL
           AND normalized_item_name = ?
         """,
-        (item.item_id, db_server, normalized_name),
+        (canonical_item_id, db_server, normalized_name),
     )
     linked = cursor.rowcount
     connection.execute(
@@ -603,7 +659,7 @@ def _link_listings_by_name(connection: sqlite3.Connection, db_server: str, item:
           AND item_id IS NULL
           AND normalized_item_name = ?
         """,
-        (item.item_id, db_server, normalized_name),
+        (canonical_item_id, db_server, normalized_name),
     )
     return linked
 

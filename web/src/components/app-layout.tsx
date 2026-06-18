@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { formatDateTime, formatNumber, formatTime } from "@/lib/format"
 import { APP_PAGES, pathForPage, type AppPageId } from "@/lib/navigation"
 import {
   MAX_TLP_MAX_AGE_HOURS,
@@ -36,6 +37,9 @@ type AppLayoutProps = {
   isTlpRefreshing: boolean
   tlpMaxAgeHours: number
   tlpAutoRefreshEnabled: boolean
+  staleItemCount: number | null
+  latestLogSaleAt: string | null
+  logWatcherError: string | null
   children: ReactNode
   onNavigate: (pageId: AppPageId) => void
   onServerChange: (server: string) => void
@@ -72,6 +76,9 @@ export function AppLayout({
   isTlpRefreshing,
   tlpMaxAgeHours,
   tlpAutoRefreshEnabled,
+  staleItemCount,
+  latestLogSaleAt,
+  logWatcherError,
   children,
   onNavigate,
   onServerChange,
@@ -163,6 +170,12 @@ export function AppLayout({
 
                 <ThemeToggle theme={theme} onToggle={toggleTheme} />
 
+                <RuntimeSummary
+                  staleItemCount={staleItemCount}
+                  latestLogSaleAt={latestLogSaleAt}
+                  logWatcherError={logWatcherError}
+                />
+
                 <label
                   className="flex h-9 items-center gap-1.5 rounded-md border border-input bg-background px-2 text-xs text-muted-foreground"
                   title="Maximum age, in hours, before a TLP item price is considered stale. Use 0 to refresh every eligible recent item."
@@ -253,6 +266,39 @@ function ThemeToggle({ theme, onToggle }: { theme: Theme; onToggle: () => void }
     >
       {isDark ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
     </Button>
+  )
+}
+
+function RuntimeSummary({
+  staleItemCount,
+  latestLogSaleAt,
+  logWatcherError,
+}: {
+  staleItemCount: number | null
+  latestLogSaleAt: string | null
+  logWatcherError: string | null
+}) {
+  const staleLabel = staleItemCount === null ? "…" : formatNumber(staleItemCount)
+  const saleLabel = latestLogSaleAt ? formatTime(latestLogSaleAt) : "n/a"
+  const title = [
+    `Items needing TLP price refresh: ${staleItemCount === null ? "unknown" : formatNumber(staleItemCount)}`,
+    `Latest /auction sale read from EQ log: ${formatDateTime(latestLogSaleAt)}`,
+    logWatcherError ? `Log watcher: ${logWatcherError}` : "Log watcher: running",
+  ].join("\n")
+
+  return (
+    <div
+      className={cn(
+        "flex h-9 items-center gap-2 rounded-md border border-input bg-background px-2.5 text-xs text-muted-foreground",
+        logWatcherError && "border-destructive/50 text-destructive"
+      )}
+      title={title}
+      aria-label="Runtime import status"
+    >
+      <span className="whitespace-nowrap">{staleLabel} stale items</span>
+      <span className="text-border">|</span>
+      <span className="whitespace-nowrap">Last sale {saleLabel}</span>
+    </div>
   )
 }
 

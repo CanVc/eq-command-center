@@ -1,59 +1,36 @@
 # Story — Sync incrémental des ventes TLP Auctions
 
-- **Statut** : Terminé
+- **Statut** : Annulé / rollback fonctionnel
 - **Date de création** : 2026-06-17
+- **Date de rollback** : 2026-06-17
 - **Spec liée** : [docs/UI-spec/UI-spec.md](../UI-spec/UI-spec.md)
 
-## Résumé
+## Décision
 
-Passer à une source principale `TLP Auctions` pour les annonces récentes : synchroniser régulièrement les ventes WTS pricées depuis `/api/sales`, puis utiliser le log EQ local surtout comme seed/fallback.
+Ne plus utiliser `TLP Auctions /api/sales` comme source de `market_listings`.
 
-## Pourquoi
+Le flux TLP Auctions a un retard observé de plusieurs minutes par rapport au chat `/auction` en jeu. Pour le use-case principal — détecter vite une opportunité et initier un trade avec un personnage connecté — ce retard rend les ventes TLP peu actionnables.
 
-Le log local dépend du personnage connecté et rate les annonces vues pendant les périodes offline. TLP Auctions possède déjà un flux global des annonces récentes par serveur. Avec un sync incrémental, on peut récupérer toutes les nouvelles annonces depuis le dernier refresh au lieu de se limiter arbitrairement aux 1000 dernières.
+## Direction retenue
 
-## Hypothèse API
+- Le **log EQ local `/auction`** reste la source temps réel prioritaire pour les opportunités.
+- TLP Auctions reste utile pour :
+  - les liens externes item,
+  - le catalogue / item ids,
+  - les prix de référence et historiques non temps réel.
+- Ne plus insérer de lignes `source = 'tlp_auctions_sales'` dans `market_listings`.
+- Ne plus maintenir de curseur `tlp_sales_cursor:*`.
 
-Endpoint observé :
+## Rollback appliqué
 
-```text
-GET https://tlp-auctions.com/api/sales?serverName=Frostreaver&page=1&pageSize=200&isBuy=false&pricedOnly=true
-```
+- Suppression de l'importeur backend TLP sales.
+- Suppression de l'endpoint/job de sync sales.
+- Suppression de l'appel sales dans le refresh TLP prices.
+- Nettoyage de la DB locale :
+  - `market_listings.source = 'tlp_auctions_sales'`,
+  - `app_settings.key LIKE 'tlp_sales_cursor:%'`,
+  - `import_runs.source_name = 'tlp_auctions_sales'`.
 
-Notes :
+## Note
 
-- `pageSize` semble capé à `200` côté TLP Auctions.
-- Les résultats sont renvoyés du plus récent au plus ancien.
-- Les champs utiles incluent `id`, `itemId`, `item`, `auctioneer`, `transactionType`, `platPrice`, `kronoPrice`, `datetime`, `rawGuid`.
-- Si un filtre `since`/`from datetime` existe côté API, l'utiliser. Sinon, paginer jusqu'à retomber avant le dernier curseur local.
-
-## Comment
-
-Créer un importeur `tlp_auctions_sales` incrémental :
-
-1. Lire le curseur du dernier sync réussi par serveur : `last_datetime` + idéalement `last_id`.
-2. Appeler `/api/sales` page par page avec `pageSize=200`, `isBuy=false`, `pricedOnly=true`.
-3. Upsert chaque vente dans `market_listings` avec `source = 'tlp_auctions_sales'`.
-4. Continuer tant que les annonces reçues sont plus récentes que le curseur précédent.
-5. Stopper quand toute une page est plus ancienne/égale au curseur, avec une marge d'overlap pour les égalités de datetime.
-6. Dédupliquer via `seen_hash` basé sur `tlp_sale:{server}:{id}` ou `rawGuid/itemId/datetime/price` si `id` manque.
-7. Écrire un `import_runs` et mettre à jour le curseur seulement à la fin d'un run réussi.
-
-## Tâches
-
-- [x] Ajouter un modèle client `TlpSale` et `TlpAuctionsClient.get_sales(...)`.
-- [x] Ajouter une fonction backend `sync_tlp_sales(db_path, server, since_cursor, max_pages)`.
-- [x] Stocker le curseur par serveur (`app_settings` ou table dédiée) : dernier `datetime` + dernier `id` traité.
-- [x] Upsert les ventes TLP dans `market_listings` sans casser les entrées `eq_log` existantes.
-- [x] Convertir les prix Krono si `kronoPrice > 0` avec le dernier prix Krono connu.
-- [x] Ajouter une route/job API pour lancer ce sync, réutilisable par l'auto-refresh 5 minutes.
-- [x] Faire utiliser ce sync par l'auto-refresh avant le refresh des prix item stale.
-- [x] Ajouter tests unitaires : pagination, arrêt sur curseur datetime, déduplication, reprise après échec.
-
-## Critères d'acceptation
-
-- [x] Un refresh récupère toutes les nouvelles ventes TLP Auctions depuis le dernier sync réussi, sans limite fixe à 1000.
-- [x] `market_listings` contient les annonces TLP récentes même si aucun personnage n'était connecté.
-- [x] Relancer deux fois le sync ne crée pas de doublons.
-- [x] En cas d'échec au milieu de la pagination, le curseur n'avance pas.
-- [x] L'auto-refresh 5 minutes peut s'appuyer sur ce sync incrémental.
+Si on veut plus tard une source non-locale exhaustive, elle devra être traitée comme un flux d'analyse/historique, pas comme signal d'achat réactif.

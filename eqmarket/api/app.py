@@ -14,7 +14,9 @@ from eqmarket.api.routes.deals import router as deals_router
 from eqmarket.api.routes.items import router as items_router
 from eqmarket.api.routes.listings import router as listings_router
 from eqmarket.api.routes.prices import router as prices_router
+from eqmarket.api.routes.runtime import router as runtime_router
 from eqmarket.api.routes.settings import router as settings_router
+from eqmarket.log_watcher import LogWatcher
 
 
 LOGGER = logging.getLogger(__name__)
@@ -31,7 +33,11 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         LOGGER.info("Using SQLite database: %s", app.state.db_path)
-        yield
+        app.state.log_watcher.start()
+        try:
+            yield
+        finally:
+            app.state.log_watcher.stop()
 
     app = FastAPI(
         title="EQ Command Center API",
@@ -39,6 +45,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.db_path = resolved_db_path
+    app.state.log_watcher = LogWatcher(resolved_db_path)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(LOCAL_WEB_ORIGINS),
@@ -58,6 +65,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     app.include_router(items_router)
     app.include_router(listings_router)
     app.include_router(prices_router)
+    app.include_router(runtime_router)
     app.include_router(settings_router)
 
     return app

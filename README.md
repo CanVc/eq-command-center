@@ -100,7 +100,7 @@ npm run dev -- --host 0.0.0.0
 
 When Codex or another agent changes frontend/server startup behavior, restart the affected process with the same commands: stop it with `Ctrl+C`, then rerun the API and/or Vite command above. Keep the API on `127.0.0.1:8000`; Vite proxies `/api` for LAN clients.
 
-Configure your EverQuest log path from the frontend Settings page with the file picker, or pass it directly to the CLI. Once saved, `import-log` and `run-alerts` can reuse the configured path.
+Configure your EverQuest log path from the frontend Settings page with the file picker, or pass it directly to the CLI. Once saved, the API tails the configured log while it is running; `import-log` and `run-alerts` can also reuse the configured path.
 
 Preview EverQuest auction parsing without writing to SQLite:
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,6 +26,7 @@ class LogImportStats:
     pending_items_upserted: int = 0
     resumed_from_position: int = 0
     last_position: int = 0
+    latest_sale_timestamp: str | None = None
 
 
 KnownItemIndex = dict[tuple[str, ...], str]
@@ -171,16 +173,21 @@ def import_log_file(
     server: str,
     limit: int | None = None,
     incremental: bool = True,
+    start_at_end_if_new: bool = False,
 ) -> LogImportStats:
     init_db(db_path)
     stats = LogImportStats()
     log_key = str(log_path.resolve())
 
-    with sqlite3.connect(db_path) as connection:
+    with closing(sqlite3.connect(db_path)) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
         known_items = _load_known_item_index(connection)
-        start_position = _load_log_position(connection, log_key, server) if incremental else 0
+        saved_position = _load_log_position(connection, log_key, server) if incremental else None
         file_size = log_path.stat().st_size
+        if saved_position is None:
+            start_position = file_size if incremental and start_at_end_if_new else 0
+        else:
+            start_position = saved_position
         if start_position > file_size:
             # Log was truncated/rotated/recreated.
             start_position = 0
@@ -205,6 +212,7 @@ def import_log_file(
                 stats.listings_found += len(listings)
 
                 for listing in listings:
+                    stats.latest_sale_timestamp = listing.timestamp
                     inserted, pending = insert_listing(connection, server, listing)
                     if inserted:
                         stats.listings_inserted += 1
@@ -218,11 +226,12 @@ def import_log_file(
 
         if incremental:
             _save_log_position(connection, log_key, server, log_path, stats.last_position)
+        connection.commit()
 
     return stats
 
 
-def _load_log_position(connection: sqlite3.Connection, log_path: str, server: str) -> int:
+def _load_log_position(connection: sqlite3.Connection, log_path: str, server: str) -> int | None:
     row = connection.execute(
         """
         SELECT last_position
@@ -231,7 +240,7 @@ def _load_log_position(connection: sqlite3.Connection, log_path: str, server: st
         """,
         (log_path, server),
     ).fetchone()
-    return int(row[0]) if row else 0
+    return int(row[0]) if row else None
 
 
 def _save_log_position(
