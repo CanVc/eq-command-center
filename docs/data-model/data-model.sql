@@ -22,6 +22,9 @@ VALUES (1, 'Initial EQ Market Scanner schema');
 INSERT OR IGNORE INTO schema_version (version, description)
 VALUES (2, 'Allow duplicate item display names; item_id is canonical');
 
+INSERT OR IGNORE INTO schema_version (version, description)
+VALUES (3, 'Add market listing review/discard status');
+
 -- -----------------------------------------------------------------------------
 -- Items
 -- -----------------------------------------------------------------------------
@@ -272,6 +275,28 @@ CREATE INDEX IF NOT EXISTS idx_market_listings_normalized_item_name
 
 CREATE INDEX IF NOT EXISTS idx_market_listings_seller
     ON market_listings(seller);
+
+-- Manual or automated listing review state. The raw market_listings row is kept
+-- immutable for audit/re-import purposes; consumers can hide discarded/suspect
+-- rows via this overlay and restore them by setting status back to active.
+CREATE TABLE IF NOT EXISTS market_listing_reviews (
+    listing_id INTEGER PRIMARY KEY,
+
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'discarded', 'suspect')),
+    reason_code TEXT,
+    note TEXT,
+
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (listing_id) REFERENCES market_listings(listing_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_market_listing_reviews_status
+    ON market_listing_reviews(status);
+
+CREATE INDEX IF NOT EXISTS idx_market_listing_reviews_reason
+    ON market_listing_reviews(reason_code);
 
 CREATE TABLE IF NOT EXISTS market_prices (
     item_id INTEGER NOT NULL,

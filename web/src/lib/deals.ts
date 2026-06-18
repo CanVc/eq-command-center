@@ -7,6 +7,7 @@ export type DraftDealFilters = {
   minPricePp: string
   limit: string
   resolvedOnly: boolean
+  includeSuspect: boolean
 }
 
 export function buildTellMessage(
@@ -23,6 +24,7 @@ export function normalizeDealFilters(filters: DraftDealFilters): DealFilters {
     minPricePp: clampNumber(filters.minPricePp, DEFAULT_DEAL_FILTERS.minPricePp, 0, 10_000_000),
     limit: Math.round(clampNumber(filters.limit, DEFAULT_DEAL_FILTERS.limit, 1, 500)),
     resolvedOnly: filters.resolvedOnly,
+    includeSuspect: filters.includeSuspect,
   }
 }
 
@@ -32,6 +34,7 @@ export function dealFiltersToDraft(filters: DealFilters): DraftDealFilters {
     minPricePp: String(filters.minPricePp),
     limit: String(filters.limit),
     resolvedOnly: filters.resolvedOnly,
+    includeSuspect: filters.includeSuspect,
   }
 }
 
@@ -41,6 +44,7 @@ export function dealFiltersKey(filters: DealFilters): string {
     filters.minPricePp,
     filters.limit,
     filters.resolvedOnly ? "resolved" : "all",
+    filters.includeSuspect ? "suspect" : "active",
   ].join(":")
 }
 

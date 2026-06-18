@@ -331,12 +331,15 @@ def _fetch_price_payload(connection: sqlite3.Connection, item_id: int, db_server
 def _fetch_last_seen_payload(connection: sqlite3.Connection, item_id: int, db_server: str) -> dict[str, Any]:
     row = connection.execute(
         """
-        SELECT timestamp, seller, price_raw, price_pp
-        FROM market_listings
-        WHERE item_id = ?
-          AND lower(server) = ?
-          AND price_pp IS NOT NULL
-        ORDER BY datetime(timestamp) DESC, timestamp DESC, listing_id DESC
+        SELECT ml.timestamp, ml.seller, ml.price_raw, ml.price_pp
+        FROM market_listings ml
+        LEFT JOIN market_listing_reviews mlr
+            ON mlr.listing_id = ml.listing_id
+        WHERE ml.item_id = ?
+          AND lower(ml.server) = ?
+          AND ml.price_pp IS NOT NULL
+          AND COALESCE(mlr.status, 'active') = 'active'
+        ORDER BY datetime(ml.timestamp) DESC, ml.timestamp DESC, ml.listing_id DESC
         LIMIT 1
         """,
         (item_id, db_server),
@@ -408,19 +411,24 @@ def _fetch_item_listings(
     rows = connection.execute(
         """
         SELECT
-            listing_id,
-            timestamp,
-            seller,
-            item_id,
-            item_name,
-            price_raw,
-            price_pp,
-            source,
-            confidence
-        FROM market_listings
-        WHERE item_id = ?
-          AND lower(server) = ?
-        ORDER BY datetime(timestamp) DESC, timestamp DESC, listing_id DESC
+            ml.listing_id,
+            ml.timestamp,
+            ml.seller,
+            ml.item_id,
+            ml.item_name,
+            ml.price_raw,
+            ml.price_pp,
+            ml.source,
+            ml.confidence,
+            COALESCE(mlr.status, 'active') AS review_status,
+            mlr.reason_code AS review_reason_code,
+            mlr.note AS review_note
+        FROM market_listings ml
+        LEFT JOIN market_listing_reviews mlr
+            ON mlr.listing_id = ml.listing_id
+        WHERE ml.item_id = ?
+          AND lower(ml.server) = ?
+        ORDER BY datetime(ml.timestamp) DESC, ml.timestamp DESC, ml.listing_id DESC
         LIMIT ?
         """,
         (int(item["item_id"]), db_server, limit),
@@ -571,6 +579,9 @@ def _listing_payload(row: sqlite3.Row, canonical_item_name: str) -> dict[str, An
         "source": row["source"],
         "confidence": row["confidence"],
         "resolved": item_id is not None,
+        "review_status": row["review_status"],
+        "review_reason_code": row["review_reason_code"],
+        "review_note": row["review_note"],
     }
 
 

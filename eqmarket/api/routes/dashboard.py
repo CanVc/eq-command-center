@@ -98,11 +98,16 @@ def _fetch_deal_count(
         """
         WITH priced_listings AS (
             SELECT
+                ml.price_raw,
+                ml.price_amount,
                 ml.price_pp AS listing_price_pp,
-                COALESCE(NULLIF(mp.median_pp, 0), NULLIF(mp.avg_pp, 0), NULLIF(mp.p25_pp, 0)) AS market_price_pp
+                COALESCE(NULLIF(mp.median_pp, 0), NULLIF(mp.avg_pp, 0), NULLIF(mp.p25_pp, 0)) AS market_price_pp,
+                mlr.status AS review_status
             FROM market_listings ml
             JOIN market_prices mp
                 ON mp.item_id = ml.item_id AND lower(mp.server) = lower(ml.server)
+            LEFT JOIN market_listing_reviews mlr
+                ON mlr.listing_id = ml.listing_id
             WHERE lower(ml.server) = ?
               AND datetime(ml.timestamp) >= datetime('now', ?)
         )
@@ -110,6 +115,16 @@ def _fetch_deal_count(
         FROM priced_listings
         WHERE listing_price_pp > 0
           AND market_price_pp > 0
+          AND COALESCE(review_status, 'active') = 'active'
+          AND NOT (
+                review_status IS NULL
+                AND price_raw IS NOT NULL
+                AND trim(price_raw) GLOB '[0-9]*'
+                AND trim(price_raw) NOT GLOB '*[A-Za-z]*'
+                AND price_amount IS NOT NULL
+                AND listing_price_pp < market_price_pp * 0.05
+                AND market_price_pp >= 10000
+              )
           AND ((market_price_pp - listing_price_pp) * 100.0 / market_price_pp) >= ?
         """,
         (db_server, window_modifier, min_discount),
@@ -174,6 +189,7 @@ def _fetch_top_discounts(
                 ml.item_id,
                 COALESCE(i.name, ml.item_name) AS item_name,
                 ml.price_raw,
+                ml.price_amount,
                 ml.price_pp AS listing_price_pp,
                 COALESCE(NULLIF(mp.median_pp, 0), NULLIF(mp.avg_pp, 0), NULLIF(mp.p25_pp, 0)) AS market_price_pp,
                 CASE
@@ -184,6 +200,7 @@ def _fetch_top_discounts(
                 END AS market_price_source,
                 mp.sample_size,
                 mp.confidence,
+                mlr.status AS review_status,
                 ((COALESCE(NULLIF(mp.median_pp, 0), NULLIF(mp.avg_pp, 0), NULLIF(mp.p25_pp, 0)) - ml.price_pp) * 100.0
                     / COALESCE(NULLIF(mp.median_pp, 0), NULLIF(mp.avg_pp, 0), NULLIF(mp.p25_pp, 0))) AS discount_pct
             FROM market_listings ml
@@ -191,10 +208,22 @@ def _fetch_top_discounts(
                 ON mp.item_id = ml.item_id AND lower(mp.server) = lower(ml.server)
             LEFT JOIN items i
                 ON i.item_id = ml.item_id
+            LEFT JOIN market_listing_reviews mlr
+                ON mlr.listing_id = ml.listing_id
             WHERE lower(ml.server) = ?
               AND datetime(ml.timestamp) >= datetime('now', ?)
               AND ml.price_pp > 0
               AND COALESCE(NULLIF(mp.median_pp, 0), NULLIF(mp.avg_pp, 0), NULLIF(mp.p25_pp, 0)) > 0
+              AND COALESCE(mlr.status, 'active') = 'active'
+              AND NOT (
+                    mlr.status IS NULL
+                    AND ml.price_raw IS NOT NULL
+                    AND trim(ml.price_raw) GLOB '[0-9]*'
+                    AND trim(ml.price_raw) NOT GLOB '*[A-Za-z]*'
+                    AND ml.price_amount IS NOT NULL
+                    AND ml.price_pp < COALESCE(NULLIF(mp.median_pp, 0), NULLIF(mp.avg_pp, 0), NULLIF(mp.p25_pp, 0)) * 0.05
+                    AND COALESCE(NULLIF(mp.median_pp, 0), NULLIF(mp.avg_pp, 0), NULLIF(mp.p25_pp, 0)) >= 10000
+                  )
         )
         SELECT *
         FROM priced_listings

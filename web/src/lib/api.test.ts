@@ -14,6 +14,7 @@ import {
   fetchMarketListings,
   fetchRuntimeStatus,
   fetchSettingsStatus,
+  discardListing,
   markTlpPricesStale,
   refreshKronoPrice,
   refreshTlpPrices,
@@ -80,6 +81,7 @@ describe("page API helpers", () => {
         minPricePp: 5000,
         limit: 25,
         resolvedOnly: false,
+        includeSuspect: true,
       },
       fetcher
     )
@@ -90,7 +92,7 @@ describe("page API helpers", () => {
 
     expect(fetcher).toHaveBeenNthCalledWith(
       1,
-      "/api/deals?server=mischief&min_discount=45&min_price_pp=5000&limit=25&resolved_only=false",
+      "/api/deals?server=mischief&min_discount=45&min_price_pp=5000&limit=25&resolved_only=false&include_suspect=true",
       {
         headers: {
           Accept: "application/json",
@@ -227,6 +229,30 @@ describe("page API helpers", () => {
       headers: {
         Accept: "application/json",
       },
+    })
+  })
+
+  it("discards listing reviews", async () => {
+    const payload = {
+      listing_id: 42,
+      server: "frostreaver",
+      status: "discarded",
+      reason_code: "wrong_unit",
+      note: null,
+      created_at: "2026-06-18 12:00:00",
+      updated_at: "2026-06-18 12:00:00",
+    }
+    const fetcher = vi.fn().mockResolvedValue(jsonResponse(payload))
+
+    await expect(discardListing(42, "wrong_unit", null, fetcher)).resolves.toEqual(payload)
+
+    expect(fetcher).toHaveBeenCalledWith("/api/listings/42/review", {
+      method: "PUT",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ status: "discarded", reason_code: "wrong_unit", note: null }),
     })
   })
 

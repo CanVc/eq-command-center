@@ -26,6 +26,7 @@ def list_deals(
     limit: int = Query(DEFAULT_LIMIT, gt=0, le=500),
     min_price_pp: int = Query(0, ge=0),
     resolved_only: bool = Query(True),
+    include_suspect: bool = Query(False),
 ) -> list[dict[str, Any]]:
     db_server = _normalize_server(server)
 
@@ -36,6 +37,7 @@ def list_deals(
             min_discount=min_discount,
             min_price_pp=min_price_pp,
             resolved_only=resolved_only,
+            include_suspect=include_suspect,
             limit=limit,
         )
 
@@ -47,11 +49,12 @@ def _fetch_deals(
     min_discount: float,
     min_price_pp: int,
     resolved_only: bool,
+    include_suspect: bool,
     limit: int,
 ) -> list[dict[str, Any]]:
     rows = connection.execute(
         """
-        WITH priced_listings AS (
+        WITH priced_base AS (
             SELECT
                 ml.listing_id,
                 ml.timestamp,
@@ -59,6 +62,7 @@ def _fetch_deals(
                 ml.item_id,
                 COALESCE(i.name, ml.item_name) AS item_name,
                 ml.price_raw,
+                ml.price_amount,
                 ml.price_pp AS listing_price_pp,
                 COALESCE(NULLIF(mp.median_pp, 0), NULLIF(mp.avg_pp, 0), NULLIF(mp.p25_pp, 0)) AS market_price_pp,
                 CASE
@@ -69,7 +73,11 @@ def _fetch_deals(
                 END AS market_price_source,
                 mp.sample_size,
                 mp.confidence,
-                ls.deal_score AS stored_deal_score
+                ls.deal_score AS stored_deal_score,
+                mlr.status AS explicit_review_status,
+                mlr.reason_code AS explicit_review_reason_code,
+                mlr.note AS explicit_review_note,
+                kp.price_pp AS krono_price_pp
             FROM market_listings ml
             JOIN market_prices mp
                 ON mp.item_id = ml.item_id AND lower(mp.server) = lower(ml.server)
@@ -77,8 +85,56 @@ def _fetch_deals(
                 ON i.item_id = ml.item_id
             LEFT JOIN listing_scores ls
                 ON ls.listing_id = ml.listing_id AND ls.profile_name = ?
+            LEFT JOIN market_listing_reviews mlr
+                ON mlr.listing_id = ml.listing_id
+            LEFT JOIN krono_prices kp
+                ON lower(kp.server) = lower(ml.server)
             WHERE lower(ml.server) = ?
               AND (? = 0 OR ml.item_id IS NOT NULL)
+        ),
+        priced_listings AS (
+            SELECT
+                *,
+                CASE
+                    WHEN explicit_review_status IS NULL AND _is_auto_suspect = 1 THEN 'suspect'
+                    ELSE COALESCE(explicit_review_status, 'active')
+                END AS review_status,
+                CASE
+                    WHEN explicit_review_status IS NULL AND _is_likely_krono_missing_unit = 1 THEN 'likely_krono_price_missing_unit'
+                    WHEN explicit_review_status IS NULL AND _is_auto_suspect = 1 THEN 'bare_price_extreme_discount'
+                    ELSE explicit_review_reason_code
+                END AS review_reason_code,
+                explicit_review_note AS review_note
+            FROM (
+                SELECT
+                    *,
+                    CASE
+                        WHEN price_raw IS NOT NULL
+                          AND trim(price_raw) GLOB '[0-9]*'
+                          AND trim(price_raw) NOT GLOB '*[A-Za-z]*'
+                          AND price_amount IS NOT NULL
+                          AND listing_price_pp > 0
+                          AND market_price_pp >= 10000
+                          AND listing_price_pp < market_price_pp * 0.05
+                        THEN 1
+                        ELSE 0
+                    END AS _is_auto_suspect,
+                    CASE
+                        WHEN price_raw IS NOT NULL
+                          AND trim(price_raw) GLOB '[0-9]*'
+                          AND trim(price_raw) NOT GLOB '*[A-Za-z]*'
+                          AND price_amount IS NOT NULL
+                          AND listing_price_pp > 0
+                          AND market_price_pp >= 10000
+                          AND listing_price_pp < market_price_pp * 0.05
+                          AND krono_price_pp IS NOT NULL
+                          AND krono_price_pp > 0
+                          AND ABS((price_amount * krono_price_pp) - market_price_pp) <= market_price_pp * 0.25
+                        THEN 1
+                        ELSE 0
+                    END AS _is_likely_krono_missing_unit
+                FROM priced_base
+            ) reviewed_base
         )
         SELECT
             *,
@@ -88,6 +144,8 @@ def _fetch_deals(
         WHERE listing_price_pp > 0
           AND market_price_pp > 0
           AND listing_price_pp >= ?
+          AND review_status != 'discarded'
+          AND (? = 1 OR review_status != 'suspect')
           AND ((market_price_pp - listing_price_pp) * 100.0 / market_price_pp) >= ?
         ORDER BY discount_pct DESC, potential_profit_pp DESC, timestamp DESC, listing_id DESC
         LIMIT ?
@@ -97,6 +155,7 @@ def _fetch_deals(
             db_server,
             1 if resolved_only else 0,
             min_price_pp,
+            1 if include_suspect else 0,
             min_discount,
             limit,
         ),
@@ -131,6 +190,9 @@ def _deal_payload(row: sqlite3.Row) -> dict[str, Any]:
         "sample_size": _optional_int(row["sample_size"]),
         "confidence": row["confidence"],
         "resolved": row["item_id"] is not None,
+        "review_status": row["review_status"],
+        "review_reason_code": row["review_reason_code"],
+        "review_note": row["review_note"],
     }
 
 

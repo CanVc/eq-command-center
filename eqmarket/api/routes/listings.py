@@ -3,17 +3,98 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel
 
 from eqmarket.api.db import connect_readonly
+from eqmarket.db import init_db
 
 
 DEFAULT_LIMIT = 100
+DEFAULT_DISCARD_REASON = "manual"
+
+ListingReviewStatus = Literal["active", "discarded", "suspect"]
+
+
+class ListingReviewUpdate(BaseModel):
+    status: ListingReviewStatus
+    reason_code: str | None = None
+    note: str | None = None
+
+
+class ListingReviewAction(BaseModel):
+    reason_code: str | None = None
+    note: str | None = None
 
 
 router = APIRouter()
+
+
+@router.put("/api/listings/{listing_id}/review")
+def update_listing_review(
+    listing_id: int,
+    payload: ListingReviewUpdate,
+    request: Request,
+) -> dict[str, Any]:
+    reason_code = _normalize_optional_text(payload.reason_code)
+    note = _normalize_optional_text(payload.note)
+
+    if payload.status in {"discarded", "suspect"} and reason_code is None:
+        reason_code = DEFAULT_DISCARD_REASON
+
+    with closing(_connect_writable_or_503(request.app.state.db_path)) as connection:
+        review = _upsert_listing_review(
+            connection,
+            listing_id,
+            status=payload.status,
+            reason_code=reason_code,
+            note=note,
+        )
+        connection.commit()
+
+    return review
+
+
+@router.post("/api/listings/{listing_id}/discard")
+def discard_listing(
+    listing_id: int,
+    request: Request,
+    payload: ListingReviewAction | None = None,
+) -> dict[str, Any]:
+    reason_code = _normalize_optional_text(payload.reason_code if payload is not None else None) or DEFAULT_DISCARD_REASON
+    note = _normalize_optional_text(payload.note if payload is not None else None)
+
+    with closing(_connect_writable_or_503(request.app.state.db_path)) as connection:
+        review = _upsert_listing_review(
+            connection,
+            listing_id,
+            status="discarded",
+            reason_code=reason_code,
+            note=note,
+        )
+        connection.commit()
+
+    return review
+
+
+@router.post("/api/listings/{listing_id}/restore")
+def restore_listing(
+    listing_id: int,
+    request: Request,
+) -> dict[str, Any]:
+    with closing(_connect_writable_or_503(request.app.state.db_path)) as connection:
+        review = _upsert_listing_review(
+            connection,
+            listing_id,
+            status="active",
+            reason_code=None,
+            note=None,
+        )
+        connection.commit()
+
+    return review
 
 
 @router.get("/api/listings/recent")
@@ -72,10 +153,15 @@ def _fetch_recent_listings(
             ml.price_raw,
             ml.price_pp,
             ml.source,
-            ml.confidence
+            ml.confidence,
+            COALESCE(mlr.status, 'active') AS review_status,
+            mlr.reason_code AS review_reason_code,
+            mlr.note AS review_note
         FROM market_listings ml
         LEFT JOIN items i
             ON i.item_id = ml.item_id
+        LEFT JOIN market_listing_reviews mlr
+            ON mlr.listing_id = ml.listing_id
         WHERE lower(ml.server) = ?
 {search_filter}
         ORDER BY datetime(ml.timestamp) DESC, ml.timestamp DESC, ml.listing_id DESC
@@ -105,6 +191,73 @@ def _listing_payload(row: sqlite3.Row) -> dict[str, Any]:
         "source": row["source"],
         "confidence": row["confidence"],
         "resolved": item_id is not None,
+        "review_status": row["review_status"],
+        "review_reason_code": row["review_reason_code"],
+        "review_note": row["review_note"],
+    }
+
+
+def _upsert_listing_review(
+    connection: sqlite3.Connection,
+    listing_id: int,
+    *,
+    status: ListingReviewStatus,
+    reason_code: str | None,
+    note: str | None,
+) -> dict[str, Any]:
+    listing = connection.execute(
+        """
+        SELECT listing_id, server
+        FROM market_listings
+        WHERE listing_id = ?
+        """,
+        (listing_id,),
+    ).fetchone()
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+
+    connection.execute(
+        """
+        INSERT INTO market_listing_reviews (listing_id, status, reason_code, note, updated_at)
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(listing_id) DO UPDATE SET
+            status = excluded.status,
+            reason_code = excluded.reason_code,
+            note = excluded.note,
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (listing_id, status, reason_code, note),
+    )
+
+    row = connection.execute(
+        """
+        SELECT
+            mlr.listing_id,
+            ml.server,
+            mlr.status,
+            mlr.reason_code,
+            mlr.note,
+            mlr.created_at,
+            mlr.updated_at
+        FROM market_listing_reviews mlr
+        JOIN market_listings ml
+            ON ml.listing_id = mlr.listing_id
+        WHERE mlr.listing_id = ?
+        """,
+        (listing_id,),
+    ).fetchone()
+    return _listing_review_payload(row)
+
+
+def _listing_review_payload(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "listing_id": int(row["listing_id"]),
+        "server": row["server"],
+        "status": row["status"],
+        "reason_code": row["reason_code"],
+        "note": row["note"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
     }
 
 
@@ -128,11 +281,30 @@ def _like_pattern(value: str) -> str:
     return f"%{escaped}%"
 
 
+def _normalize_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
 def _connect_or_503(db_path: str | Path) -> sqlite3.Connection:
     try:
         return connect_readonly(db_path)
     except sqlite3.OperationalError as exc:
         raise HTTPException(status_code=503, detail=f"SQLite database is not readable: {exc}") from exc
+
+
+def _connect_writable_or_503(db_path: str | Path) -> sqlite3.Connection:
+    try:
+        resolved_path = Path(db_path)
+        init_db(resolved_path)
+        connection = sqlite3.connect(resolved_path)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
+    except sqlite3.Error as exc:
+        raise HTTPException(status_code=503, detail=f"SQLite database is not writable: {exc}") from exc
 
 
 def _optional_int(value: Any) -> int | None:

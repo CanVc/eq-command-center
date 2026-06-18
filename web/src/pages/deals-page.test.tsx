@@ -36,12 +36,14 @@ describe("DealsPage helpers", () => {
         minPricePp: "-50",
         limit: "750",
         resolvedOnly: false,
+        includeSuspect: true,
       })
     ).toEqual({
       minDiscount: 100,
       minPricePp: 0,
       limit: 500,
       resolvedOnly: false,
+      includeSuspect: true,
     })
 
     expect(
@@ -50,12 +52,14 @@ describe("DealsPage helpers", () => {
         minPricePp: "not-a-number",
         limit: "",
         resolvedOnly: true,
+        includeSuspect: false,
       })
     ).toEqual({
       minDiscount: 30,
       minPricePp: 0,
       limit: 100,
       resolvedOnly: true,
+      includeSuspect: false,
     })
   })
 

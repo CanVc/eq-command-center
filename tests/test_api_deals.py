@@ -90,6 +90,104 @@ class ApiDealsTests(unittest.TestCase):
             self.assertNotIn(listing_ids["missing_market_price"], listing_ids_seen)
             self.assertNotIn(listing_ids["unresolved"], listing_ids_seen)
 
+    def test_deals_exclude_discarded_and_hide_suspect_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            listing_ids = _seed_deals_fixture(db_path)
+            _review_listing(db_path, listing_ids["median"], "discarded", "wrong_unit")
+            _review_listing(db_path, listing_ids["p25_fallback"], "suspect", "bare_price_extreme_discount")
+            app = create_app(db_path)
+
+            with TestClient(app) as client:
+                default_response = client.get("/api/deals", params={"server": "frostreaver", "min_discount": 30})
+                suspect_response = client.get(
+                    "/api/deals",
+                    params={"server": "frostreaver", "min_discount": 30, "include_suspect": "true"},
+                )
+
+            self.assertEqual(default_response.status_code, 200, default_response.text)
+            self.assertEqual(suspect_response.status_code, 200, suspect_response.text)
+
+            default_ids = {deal["listing_id"] for deal in default_response.json()}
+            suspect_ids = {deal["listing_id"] for deal in suspect_response.json()}
+            self.assertNotIn(listing_ids["median"], default_ids)
+            self.assertNotIn(listing_ids["p25_fallback"], default_ids)
+            self.assertNotIn(listing_ids["median"], suspect_ids)
+            self.assertIn(listing_ids["p25_fallback"], suspect_ids)
+
+    def test_deals_auto_hide_bare_prices_that_look_like_missing_krono_unit(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            _seed_deals_fixture(db_path)
+            suspicious_listing_id = _seed_suspicious_missing_krono_listing(db_path)
+            app = create_app(db_path)
+
+            with TestClient(app) as client:
+                default_response = client.get("/api/deals", params={"server": "frostreaver", "min_discount": 0})
+                suspect_response = client.get(
+                    "/api/deals",
+                    params={"server": "frostreaver", "min_discount": 0, "include_suspect": "true"},
+                )
+
+            self.assertEqual(default_response.status_code, 200, default_response.text)
+            self.assertEqual(suspect_response.status_code, 200, suspect_response.text)
+
+            default_ids = {deal["listing_id"] for deal in default_response.json()}
+            self.assertNotIn(suspicious_listing_id, default_ids)
+
+            suspect_deals = {deal["listing_id"]: deal for deal in suspect_response.json()}
+            self.assertEqual(suspect_deals[suspicious_listing_id]["review_status"], "suspect")
+            self.assertEqual(suspect_deals[suspicious_listing_id]["review_reason_code"], "likely_krono_price_missing_unit")
+
+
+def _review_listing(db_path: Path, listing_id: int, status: str, reason_code: str) -> None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute(
+            """
+            INSERT INTO market_listing_reviews (listing_id, status, reason_code)
+            VALUES (?, ?, ?)
+            """,
+            (listing_id, status, reason_code),
+        )
+        connection.commit()
+
+
+def _seed_suspicious_missing_krono_listing(db_path: Path) -> int:
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(
+            """
+            INSERT INTO items (item_id, name, normalized_name)
+            VALUES (109, 'Bo Staff of Trorsmang', 'bo staff of trorsmang')
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO market_prices (
+                item_id, server, median_pp, p25_pp, avg_pp, sample_size, confidence, last_refresh_at, source
+            ) VALUES (109, 'frostreaver', 120817, 118000, 121500, 8, 'high', CURRENT_TIMESTAMP, 'fixture')
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO krono_prices (server, price_pp, source, confidence, last_refresh_at)
+            VALUES ('frostreaver', 2875, 'fixture', 'high', CURRENT_TIMESTAMP)
+            """
+        )
+        cursor = connection.execute(
+            """
+            INSERT INTO market_listings (
+                server, timestamp, seller, item_name, normalized_item_name, item_id,
+                price_raw, price_amount, price_currency, price_pp, source, confidence
+            ) VALUES ('frostreaver', datetime('now'), 'TypoSeller', 'Bo Staff of Trorsmang',
+                      'bo staff of trorsmang', 109, '42', 42, 'pp', 42, 'eq_log', 'parsed')
+            """
+        )
+        connection.commit()
+        return int(cursor.lastrowid)
+
 
 def _seed_deals_fixture(db_path: Path) -> dict[str, int]:
     listing_ids: dict[str, int] = {}

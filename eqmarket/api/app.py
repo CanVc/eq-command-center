@@ -17,6 +17,7 @@ from eqmarket.api.routes.listings import router as listings_router
 from eqmarket.api.routes.prices import router as prices_router
 from eqmarket.api.routes.runtime import router as runtime_router
 from eqmarket.api.routes.settings import router as settings_router
+from eqmarket.db import init_db
 from eqmarket.log_watcher import LogWatcher
 
 
@@ -30,6 +31,8 @@ LOCAL_WEB_ORIGINS = (
 
 def create_app(db_path: str | Path | None = None) -> FastAPI:
     resolved_db_path = resolve_db_path(db_path)
+    if resolved_db_path.exists():
+        init_db(resolved_db_path)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:

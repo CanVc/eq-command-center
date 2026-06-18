@@ -16,6 +16,7 @@ import {
 import {
   DEFAULT_DEAL_FILTERS,
   DEFAULT_MARKET_LISTING_FILTERS,
+  discardListing,
   fetchDashboardSummary,
   fetchDeals,
   fetchInterfacePageData,
@@ -27,6 +28,7 @@ import {
   fetchTlpPriceRefreshJob,
   markTlpPricesStale,
   refreshKronoPrice,
+  restoreListing,
   startTlpPriceRefreshJob,
   type DashboardSummary,
   type DealFilters,
@@ -368,6 +370,30 @@ function App() {
     setMarketListingFilters(nextFilters)
   }, [])
 
+  const discardMarketListing = useCallback(async (listingId: number, reasonCode = "manual") => {
+    try {
+      await discardListing(listingId, reasonCode)
+      setRefreshKey((current) => current + 1)
+    } catch (error) {
+      setPageState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Unable to discard listing",
+      })
+    }
+  }, [])
+
+  const restoreMarketListing = useCallback(async (listingId: number) => {
+    try {
+      await restoreListing(listingId)
+      setRefreshKey((current) => current + 1)
+    } catch (error) {
+      setPageState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Unable to restore listing",
+      })
+    }
+  }, [])
+
   return (
     <AppLayout
       activePage={activePage}
@@ -415,6 +441,8 @@ function App() {
             onTlpAutoRefreshIntervalMinutesChange={changeTlpAutoRefreshIntervalMinutes}
             onTlpRefresh={refreshTlpMarketPrices}
             onFullTlpRescan={fullTlpRescan}
+            onDiscardListing={discardMarketListing}
+            onRestoreListing={restoreMarketListing}
           />
         )}
       </section>
@@ -610,6 +638,8 @@ function PageContent({
   onTlpAutoRefreshIntervalMinutesChange,
   onTlpRefresh,
   onFullTlpRescan,
+  onDiscardListing,
+  onRestoreListing,
 }: {
   data: PageData
   server: string
@@ -627,6 +657,8 @@ function PageContent({
   onTlpAutoRefreshIntervalMinutesChange: (intervalMinutes: number) => number
   onTlpRefresh: (options?: { maxAgeMinutes?: number; refreshKronoWhenEmpty?: boolean }) => void
   onFullTlpRescan: () => Promise<MarkTlpPricesStaleResult>
+  onDiscardListing: (listingId: number, reasonCode?: string) => Promise<void>
+  onRestoreListing: (listingId: number) => Promise<void>
 }) {
   switch (data.page) {
     case "dashboard":
@@ -638,6 +670,8 @@ function PageContent({
           server={server}
           filters={dealFilters}
           onFiltersChange={onDealFiltersChange}
+          onDiscardListing={onDiscardListing}
+          onRestoreListing={onRestoreListing}
         />
       )
     case "market":
@@ -647,6 +681,8 @@ function PageContent({
           server={server}
           filters={marketListingFilters}
           onFiltersChange={onMarketListingFiltersChange}
+          onDiscardListing={onDiscardListing}
+          onRestoreListing={onRestoreListing}
         />
       )
     case "items":

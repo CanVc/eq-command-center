@@ -135,6 +135,9 @@ function buildListing(overrides: Partial<ItemListing>): ItemListing {
     source: "eq_log",
     confidence: "parsed",
     resolved: true,
+    review_status: "active",
+    review_reason_code: null,
+    review_note: null,
     ...overrides,
   }
 }

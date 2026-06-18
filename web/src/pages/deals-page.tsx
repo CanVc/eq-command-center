@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import type { FormEvent } from "react"
-import { Copy, SlidersHorizontal } from "lucide-react"
+import { Ban, Check, Copy, SlidersHorizontal } from "lucide-react"
 
 import { ItemLink } from "@/components/item-link"
 import { Button } from "@/components/ui/button"
@@ -30,13 +30,23 @@ type DealsPageProps = {
   server: string
   filters: DealFilters
   onFiltersChange: (filters: DealFilters) => void
+  onDiscardListing: (listingId: number, reasonCode?: string) => Promise<void>
+  onRestoreListing: (listingId: number) => Promise<void>
 }
 
 const numberInputClassName =
   "h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
 
-export function DealsPage({ deals, server, filters, onFiltersChange }: DealsPageProps) {
+export function DealsPage({
+  deals,
+  server,
+  filters,
+  onFiltersChange,
+  onDiscardListing,
+  onRestoreListing,
+}: DealsPageProps) {
   const [copiedListingId, setCopiedListingId] = useState<number | null>(null)
+  const [reviewingListingId, setReviewingListingId] = useState<number | null>(null)
 
   useEffect(() => {
     if (copiedListingId === null) {
@@ -55,6 +65,24 @@ export function DealsPage({ deals, server, filters, onFiltersChange }: DealsPage
   const copyTell = async (deal: DealPreview) => {
     await copyText(buildTellMessage(deal))
     setCopiedListingId(deal.listing_id)
+  }
+
+  const discardDeal = async (deal: DealPreview) => {
+    setReviewingListingId(deal.listing_id)
+    try {
+      await onDiscardListing(deal.listing_id, "wrong_unit")
+    } finally {
+      setReviewingListingId(null)
+    }
+  }
+
+  const trustDeal = async (deal: DealPreview) => {
+    setReviewingListingId(deal.listing_id)
+    try {
+      await onRestoreListing(deal.listing_id)
+    } finally {
+      setReviewingListingId(null)
+    }
   }
 
   return (
@@ -80,7 +108,10 @@ export function DealsPage({ deals, server, filters, onFiltersChange }: DealsPage
           deals={deals}
           server={server}
           copiedListingId={copiedListingId}
+          reviewingListingId={reviewingListingId}
           onCopyTell={copyTell}
+          onDiscardDeal={discardDeal}
+          onTrustDeal={trustDeal}
         />
       ) : (
         <EmptyState />
@@ -111,7 +142,7 @@ function DealFiltersForm({
     <form
       aria-label="Deal filters"
       onSubmit={applyFilters}
-      className="grid gap-3 rounded-lg border bg-card p-3 md:grid-cols-[repeat(4,minmax(0,1fr))_auto]"
+      className="grid gap-3 rounded-lg border bg-card p-3 md:grid-cols-[repeat(5,minmax(0,1fr))_auto]"
     >
       <label className="grid gap-1.5 text-sm">
         <span className="text-xs font-medium text-muted-foreground">Min discount</span>
@@ -165,6 +196,17 @@ function DealFiltersForm({
         <span>Resolved only</span>
       </label>
 
+      <label className="flex h-full min-h-14 items-center gap-2 rounded-lg border bg-background px-3 text-sm">
+        <input
+          aria-label="Show suspect listings"
+          className="size-4 accent-foreground"
+          type="checkbox"
+          checked={draftFilters.includeSuspect}
+          onChange={(event) => updateDraftFilter("includeSuspect", event.target.checked)}
+        />
+        <span>Show suspect</span>
+      </label>
+
       <div className="flex items-end">
         <Button type="submit" className="w-full md:w-auto">
           <SlidersHorizontal aria-hidden="true" />
@@ -179,12 +221,18 @@ function DealsTable({
   deals,
   server,
   copiedListingId,
+  reviewingListingId,
   onCopyTell,
+  onDiscardDeal,
+  onTrustDeal,
 }: {
   deals: DealPreview[]
   server: string
   copiedListingId: number | null
+  reviewingListingId: number | null
   onCopyTell: (deal: DealPreview) => void
+  onDiscardDeal: (deal: DealPreview) => void
+  onTrustDeal: (deal: DealPreview) => void
 }) {
   return (
     <div className="overflow-x-auto rounded-lg border">
@@ -205,18 +253,25 @@ function DealsTable({
           {deals.map((deal) => (
             <TableRow key={deal.listing_id}>
               <TableCell className="min-w-[14rem] whitespace-normal">
-                <ItemLink
-                  itemId={deal.item_id}
-                  name={deal.item_name}
-                  server={server}
-                  details={[
-                    { label: "Seen", value: deal.price_raw ?? formatPrice(deal.listing_price_pp) },
-                    { label: "Market", value: formatPrice(deal.market_price_pp) },
-                    { label: "Discount", value: formatPercent(deal.discount_pct) },
-                    { label: "Seller", value: deal.seller },
-                    { label: "Date", value: formatDateTime(deal.timestamp) },
-                  ]}
-                />
+                <div className="grid gap-1">
+                  <ItemLink
+                    itemId={deal.item_id}
+                    name={deal.item_name}
+                    server={server}
+                    details={[
+                      { label: "Seen", value: deal.price_raw ?? formatPrice(deal.listing_price_pp) },
+                      { label: "Market", value: formatPrice(deal.market_price_pp) },
+                      { label: "Discount", value: formatPercent(deal.discount_pct) },
+                      { label: "Seller", value: deal.seller },
+                      { label: "Date", value: formatDateTime(deal.timestamp) },
+                    ]}
+                  />
+                  {deal.review_status === "suspect" ? (
+                    <Badge variant="outline" className="w-fit rounded-md border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                      Suspect · {formatReviewReason(deal.review_reason_code)}
+                    </Badge>
+                  ) : null}
+                </div>
               </TableCell>
               <TableCell>{deal.price_raw ?? formatPrice(deal.listing_price_pp)}</TableCell>
               <TableCell>
@@ -234,16 +289,42 @@ function DealsTable({
               <TableCell>{formatDateTime(deal.timestamp)}</TableCell>
               <TableCell>{formatScore(deal.score)}</TableCell>
               <TableCell>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  aria-label={`Copy tell for ${deal.item_name}`}
-                  onClick={() => void onCopyTell(deal)}
-                >
-                  <Copy aria-hidden="true" />
-                  {copiedListingId === deal.listing_id ? "Copied" : "Tell"}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    aria-label={`Copy tell for ${deal.item_name}`}
+                    onClick={() => void onCopyTell(deal)}
+                  >
+                    <Copy aria-hidden="true" />
+                    {copiedListingId === deal.listing_id ? "Copied" : "Tell"}
+                  </Button>
+                  {deal.review_status === "suspect" ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      aria-label={`Trust ${deal.item_name}`}
+                      disabled={reviewingListingId === deal.listing_id}
+                      onClick={() => void onTrustDeal(deal)}
+                    >
+                      <Check aria-hidden="true" />
+                      Keep
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    aria-label={`Discard ${deal.item_name}`}
+                    disabled={reviewingListingId === deal.listing_id}
+                    onClick={() => void onDiscardDeal(deal)}
+                  >
+                    <Ban aria-hidden="true" />
+                    {reviewingListingId === deal.listing_id ? "Saving" : "Discard"}
+                  </Button>
+                </div>
               </TableCell>
             </TableRow>
           ))}
@@ -259,6 +340,21 @@ function DiscountBadge({ value }: { value: number }) {
       {formatPercent(value)}
     </Badge>
   )
+}
+
+function formatReviewReason(reasonCode: string | null): string {
+  switch (reasonCode) {
+    case "likely_krono_price_missing_unit":
+      return "missing kr"
+    case "bare_price_extreme_discount":
+      return "bare price"
+    case "wrong_unit":
+      return "wrong unit"
+    case "manual":
+      return "manual"
+    default:
+      return reasonCode ?? "review"
+  }
 }
 
 function EmptyState() {

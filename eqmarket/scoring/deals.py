@@ -70,6 +70,7 @@ def score_market_listings(
                 ml.item_id,
                 ml.item_name,
                 ml.price_pp,
+                ml.price_amount,
                 ml.raw_line,
                 mp.median_pp,
                 mp.p25_pp,
@@ -81,7 +82,8 @@ def score_market_listings(
                 mpo.confidence AS override_confidence,
                 kp.price_pp AS krono_price_pp,
                 wi.alert_below_pp,
-                wi.min_deal_score
+                wi.min_deal_score,
+                mlr.status AS review_status
             FROM market_listings ml
             LEFT JOIN market_prices mp
                 ON mp.item_id = ml.item_id AND lower(mp.server) = lower(ml.server)
@@ -91,9 +93,12 @@ def score_market_listings(
                 ON lower(kp.server) = lower(ml.server)
             LEFT JOIN watchlist_items wi
                 ON wi.item_id = ml.item_id AND lower(wi.server) = lower(ml.server) AND wi.enabled = 1
+            LEFT JOIN market_listing_reviews mlr
+                ON mlr.listing_id = ml.listing_id
             WHERE lower(ml.server) = ?
               AND ml.item_id IS NOT NULL
               AND ml.price_pp IS NOT NULL
+              AND COALESCE(mlr.status, 'active') = 'active'
               AND (
                     mp.median_pp IS NOT NULL
                     OR mpo.item_id IS NOT NULL
@@ -108,7 +113,7 @@ def score_market_listings(
         for row in rows:
             stats.listings_seen += 1
             score = _score_row(row, min_discount_pct)
-            if score is None:
+            if score is None or _is_auto_suspect_deal(row, score.reference_pp):
                 continue
             _write_score(connection, score)
             stats.scores_written += 1
@@ -194,6 +199,26 @@ def _score_row(row: sqlite3.Row, min_discount_pct: float) -> DealScore | None:
         reason="; ".join(reason_parts),
         raw_line=row["raw_line"],
     )
+
+
+def _is_auto_suspect_deal(row: sqlite3.Row, reference_pp: int | None) -> bool:
+    if row["review_status"] is not None:
+        return False
+    if reference_pp is None or reference_pp < 10000:
+        return False
+
+    price_pp = _as_int(row["price_pp"])
+    if price_pp is None or price_pp <= 0 or price_pp >= reference_pp * 0.05:
+        return False
+
+    if _as_float(row["price_amount"]) is None:
+        return False
+
+    price_raw = str(row["price_raw"] or "").strip()
+    if not price_raw or any(character.isalpha() for character in price_raw):
+        return False
+
+    return True
 
 
 def _reference_price(row: sqlite3.Row) -> tuple[int | None, str | None, str | None]:

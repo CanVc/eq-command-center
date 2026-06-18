@@ -149,6 +149,24 @@ export type DashboardDealPreview = {
   confidence: string | null
 }
 
+export type ListingReviewStatus = "active" | "discarded" | "suspect"
+
+export type ListingReview = {
+  listing_id: number
+  server: string
+  status: ListingReviewStatus
+  reason_code: string | null
+  note: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type ListingReviewUpdate = {
+  status: ListingReviewStatus
+  reasonCode?: string | null
+  note?: string | null
+}
+
 export type DealPreview = DashboardDealPreview & {
   item: {
     item_id: number | null
@@ -158,6 +176,9 @@ export type DealPreview = DashboardDealPreview & {
   score: number
   deal_score: number
   resolved: boolean
+  review_status: ListingReviewStatus
+  review_reason_code: string | null
+  review_note: string | null
 }
 
 export type DealFilters = {
@@ -165,6 +186,7 @@ export type DealFilters = {
   minPricePp: number
   limit: number
   resolvedOnly: boolean
+  includeSuspect: boolean
 }
 
 export const DEFAULT_DEAL_FILTERS: DealFilters = {
@@ -172,6 +194,7 @@ export const DEFAULT_DEAL_FILTERS: DealFilters = {
   minPricePp: 0,
   limit: 100,
   resolvedOnly: true,
+  includeSuspect: false,
 }
 
 export type ListingPreview = {
@@ -185,6 +208,9 @@ export type ListingPreview = {
   source: string
   confidence: string | null
   resolved: boolean
+  review_status: ListingReviewStatus
+  review_reason_code: string | null
+  review_note: string | null
 }
 
 export type KronoLatest = {
@@ -613,6 +639,7 @@ export async function fetchDeals(
       min_price_pp: filters.minPricePp,
       limit: filters.limit,
       resolved_only: filters.resolvedOnly,
+      include_suspect: filters.includeSuspect,
     }),
     fetcher
   )
@@ -811,6 +838,44 @@ export async function fetchInterfacePageData(
   ])
 
   return { tlpErrors, logParseIssues }
+}
+
+export async function updateListingReview(
+  listingId: number,
+  review: ListingReviewUpdate,
+  fetcher: Fetcher = fetch
+): Promise<ListingReview> {
+  return fetchJson<ListingReview>(
+    `/api/listings/${listingId}/review`,
+    fetcher,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        status: review.status,
+        reason_code: review.reasonCode,
+        note: review.note,
+      }),
+    }
+  )
+}
+
+export async function discardListing(
+  listingId: number,
+  reasonCode = "manual",
+  note: string | null = null,
+  fetcher: Fetcher = fetch
+): Promise<ListingReview> {
+  return updateListingReview(listingId, { status: "discarded", reasonCode, note }, fetcher)
+}
+
+export async function restoreListing(
+  listingId: number,
+  fetcher: Fetcher = fetch
+): Promise<ListingReview> {
+  return updateListingReview(listingId, { status: "active" }, fetcher)
 }
 
 export async function markTlpPricesStale(

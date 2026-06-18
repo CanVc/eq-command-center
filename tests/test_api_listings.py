@@ -72,6 +72,38 @@ class ApiListingsTests(unittest.TestCase):
             self.assertEqual(paged_response.status_code, 200)
             self.assertEqual([listing["listing_id"] for listing in paged_response.json()], [listing_ids["canonical"]])
 
+    def test_listing_review_can_discard_and_restore_listing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            listing_ids = _seed_listings_fixture(db_path)
+            app = create_app(db_path)
+            listing_id = listing_ids["resolved"]
+
+            with TestClient(app) as client:
+                discard_response = client.put(
+                    f"/api/listings/{listing_id}/review",
+                    json={"status": "discarded", "reason_code": "wrong_unit", "note": "42 was probably 42kr"},
+                )
+                listings_response = client.get("/api/listings/recent", params={"server": "frostreaver", "q": "shield"})
+                restore_response = client.post(f"/api/listings/{listing_id}/restore")
+                missing_response = client.put("/api/listings/999999/review", json={"status": "discarded"})
+
+            self.assertEqual(discard_response.status_code, 200, discard_response.text)
+            self.assertEqual(discard_response.json()["status"], "discarded")
+            self.assertEqual(discard_response.json()["reason_code"], "wrong_unit")
+
+            self.assertEqual(listings_response.status_code, 200, listings_response.text)
+            listing_payload = listings_response.json()[0]
+            self.assertEqual(listing_payload["review_status"], "discarded")
+            self.assertEqual(listing_payload["review_reason_code"], "wrong_unit")
+            self.assertEqual(listing_payload["review_note"], "42 was probably 42kr")
+
+            self.assertEqual(restore_response.status_code, 200, restore_response.text)
+            self.assertEqual(restore_response.json()["status"], "active")
+            self.assertIsNone(restore_response.json()["reason_code"])
+            self.assertEqual(missing_response.status_code, 404)
+
 
 def _seed_listings_fixture(db_path: Path) -> dict[str, int]:
     listing_ids: dict[str, int] = {}
