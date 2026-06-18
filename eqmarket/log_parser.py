@@ -22,7 +22,10 @@ TRAILING_NOISE_RE = re.compile(r"(?:[-,;/|<>~\\=`\[\]{}()\s.]+|\b(?:ea|each|obo|
 ITEM_SEPARATOR_RE = re.compile(r"\s*(?:<>|\.{2,}|[,;/|<>~\\=]|[\[\]{}()]|\s+-+\s+|\s+I\s+)\s*")
 EQ_ITEM_LINK_PREFIX_RE = re.compile(r"(?:Q[0-9A-F]{91}|[0-9A-F]{91})")
 ZERO_LINK_TRAILER_RE = re.compile(r"\b0+\s*(?:pp|p|plats?|platinums?)\b$", re.IGNORECASE)
-PAREN_PRICE_RE = re.compile(r"\(\s*(\d+(?:[.,]\d+)?\s*(?:kronos?|kr|k|pp|p|plats?|platinums?))\s*\)", re.IGNORECASE)
+PAREN_PRICE_RE = re.compile(
+    r"\(\s*((?:\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)\s*(?:kronos?|kr|kpp|kp|k|pp|p|plats?|platinums?))\s*\)",
+    re.IGNORECASE,
+)
 PAREN_CONTENT_RE = re.compile(r"\([^)]*\)")
 BUNDLE_LABEL_RE = re.compile(r"^(?:wis|int|str|sta|agi|dex|cha|resist)\s+sets?\b\s*", re.IGNORECASE)
 LEADING_QUANTITY_RE = re.compile(r"^\d+\s*x\s+", re.IGNORECASE)
@@ -31,10 +34,14 @@ TRAILING_QUANTITY_RE = re.compile(r"\s+x\s*\d+\s*(?:for|each|ea|stack)?$", re.IG
 TRAILING_MQ_RE = re.compile(r"\s+MQ$", re.IGNORECASE)
 PRICE_RE = re.compile(
     r"(?:(?<![\w.])|(?<=[a-z)'`]))"
-    r"(?P<amount>\d+(?:[.,]\d+)?)"
+    r"(?P<amount>(?:\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?))"
     r"\s*(?P<unit>kronos?|kr|kpp|kp|k|pp|p|plats?|platinums?)?\b",
     re.IGNORECASE,
 )
+THOUSANDS_AMOUNT_RE = re.compile(r"^\d{1,3}(?:[.,]\d{3})+$")
+PLATINUM_UNITS = {"pp", "p", "plat", "plats", "platinum", "platinums"}
+THOUSAND_PLATINUM_UNITS = {"k", "kp", "kpp"}
+KRONO_UNITS = {"krono", "kronos", "kr"}
 
 
 @dataclass(frozen=True)
@@ -129,13 +136,42 @@ def _split_item_text(text: str) -> list[str]:
     return [item for part in ITEM_SEPARATOR_RE.split(text) if (item := _clean_item_text(part))]
 
 
+def _parse_price_amount(amount_raw: str, unit: str) -> float | None:
+    if THOUSANDS_AMOUNT_RE.fullmatch(amount_raw):
+        return float(re.sub(r"[,.]", "", amount_raw))
+
+    if unit in PLATINUM_UNITS or not unit:
+        # Platinum amounts are integers; comma/dot are thousands separators, not decimals.
+        if "," in amount_raw or "." in amount_raw:
+            return None
+
+    try:
+        return float(amount_raw.replace(",", "."))
+    except ValueError:
+        return None
+
+
+def _match_amount_is_non_positive(match: re.Match[str]) -> bool:
+    amount_raw = match.group("amount")
+    unit = (match.group("unit") or "").lower()
+    amount = _parse_price_amount(amount_raw, unit)
+    if amount is None:
+        try:
+            amount = float(amount_raw.replace(",", "."))
+        except ValueError:
+            return False
+    return amount <= 0
+
+
+def _price_applies_to_all_split_items(following_text: str) -> bool:
+    return bool(re.match(r"\s*(?:ea|each|apiece)\b", following_text, re.IGNORECASE))
+
+
 def _price_from_match(match: re.Match[str], following_text: str) -> tuple[str, float, str, int | None] | None:
     amount_raw = match.group("amount")
     unit = (match.group("unit") or "").lower()
-
-    try:
-        amount = float(amount_raw.replace(",", "."))
-    except ValueError:
+    amount = _parse_price_amount(amount_raw, unit)
+    if amount is None:
         return None
 
     before = match.string[: match.start()].rstrip()
@@ -156,13 +192,13 @@ def _price_from_match(match: re.Match[str], following_text: str) -> tuple[str, f
 
     price_raw = match.group(0).strip()
 
-    if unit in {"k", "kp", "kpp", "pp", "p", "plat", "plats", "platinum", "platinums"}:
+    if unit in THOUSAND_PLATINUM_UNITS or unit in PLATINUM_UNITS:
         # k/K/kp/kpp mean thousands of platinum: 4k => 4000pp.
-        multiplier = 1000 if unit in {"k", "kp", "kpp"} else 1
+        multiplier = 1000 if unit in THOUSAND_PLATINUM_UNITS else 1
         price_pp = int(round(amount * multiplier))
         return price_raw, amount, "pp", price_pp
 
-    if unit in {"krono", "kronos", "kr"}:
+    if unit in KRONO_UNITS:
         return price_raw, amount, "krono", None
 
     return None
@@ -183,11 +219,11 @@ def parse_sale_listings(auction: AuctionMessage) -> list[ParsedListing]:
     saw_price_candidate = False
 
     for match in PRICE_RE.finditer(message):
-        price = _price_from_match(match, message[match.end() :])
+        following_text = message[match.end() :]
+        price = _price_from_match(match, following_text)
         if price is None:
-            amount_text = match.group("amount").replace(",", ".")
             unit_text = (match.group("unit") or "").lower()
-            if unit_text and float(amount_text) <= 0:
+            if unit_text and _match_amount_is_non_positive(match):
                 for item_name in _split_item_text(message[cursor : match.start()]):
                     listings.append(
                         ParsedListing(
@@ -212,7 +248,8 @@ def parse_sale_listings(auction: AuctionMessage) -> list[ParsedListing]:
             continue
 
         price_raw, price_amount, price_currency, price_pp = price
-        for item_name in item_names:
+        priced_item_names = item_names if _price_applies_to_all_split_items(following_text) else item_names[-1:]
+        for item_name in priced_item_names:
             listings.append(
                 ParsedListing(
                     timestamp=auction.timestamp,

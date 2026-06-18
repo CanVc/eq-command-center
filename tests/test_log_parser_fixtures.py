@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from eqmarket.log_importer import parse_log_file
-from eqmarket.log_parser import normalize_item_name
+from eqmarket.log_parser import normalize_item_name, parse_auction_line, parse_sale_listings
 
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "logs"
@@ -29,6 +29,49 @@ class LogParserFixtureTests(unittest.TestCase):
         listings = parse_log_file(FIXTURES_DIR / "auction_sample_01.txt")
 
         self.assertNotIn("Cloak of Flames", [listing.item_name for listing in listings])
+
+    def test_price_after_separator_applies_only_to_nearest_item(self) -> None:
+        auction = parse_auction_line(
+            "[Thu Jun 18 11:38:58 2026] Cimed auctions, 'WTS Truesight Helmet , "
+            "Staff of Elemental Mastery: Water 3kr, Shroud of Longevity , Mask of Venom 1kr'"
+        )
+        self.assertIsNotNone(auction)
+
+        listings = parse_sale_listings(auction)
+
+        self.assertEqual(
+            [(listing.item_name, listing.price_raw, listing.price_currency, listing.price_pp) for listing in listings],
+            [
+                ("Staff of Elemental Mastery: Water", "3kr", "krono", None),
+                ("Mask of Venom", "1kr", "krono", None),
+            ],
+        )
+
+    def test_platinum_price_supports_thousands_separators(self) -> None:
+        for separator in (",", "."):
+            with self.subTest(separator=separator):
+                auction = parse_auction_line(
+                    f"[Thu Jun 18 09:18:40 2026] Zanglo auctions, 'WTS Fungus Covered Scale Tunic 12{separator}000p "
+                    "Woodsman's Staff 500p Sword of Pain 500p obo PST!'"
+                )
+                self.assertIsNotNone(auction)
+
+                listings = parse_sale_listings(auction)
+
+                self.assertEqual(listings[0].item_name, "Fungus Covered Scale Tunic")
+                self.assertEqual(listings[0].price_raw, f"12{separator}000p")
+                self.assertEqual(listings[0].price_amount, 12000)
+                self.assertEqual(listings[0].price_pp, 12000)
+
+    def test_k_price_with_thousands_separator_keeps_k_multiplier(self) -> None:
+        auction = parse_auction_line("[Thu Jun 18 09:18:40 2026] Seller auctions, 'WTS Rare Sword 12,000k'")
+        self.assertIsNotNone(auction)
+
+        listings = parse_sale_listings(auction)
+
+        self.assertEqual(listings[0].price_raw, "12,000k")
+        self.assertEqual(listings[0].price_amount, 12000)
+        self.assertEqual(listings[0].price_pp, 12_000_000)
 
     def test_normalize_item_name_collapses_case_spacing_and_backticks(self) -> None:
         self.assertEqual(normalize_item_name("  Hierophant`s   Cloak  "), "hierophant's cloak")
