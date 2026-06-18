@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from eqmarket.db import init_db
+from eqmarket.item_resolution import resolve_item_id_for_listing
 from eqmarket.log_parser import normalize_item_name
 from eqmarket.sources.lucy import LucyClient, LucyLookupError, as_float, as_int, raw_payload
 from eqmarket.sources.lucy import PARSER_VERSION as LUCY_PARSER_VERSION
@@ -86,31 +87,33 @@ def enrich_pending_items(db_path: Path, limit: int = 25, source_server: str = "L
         for pending in pending_items:
             stats.pending_seen += 1
             try:
-                existing_item_id = _find_existing_item_id(connection, pending.normalized_name)
-                if existing_item_id is not None:
-                    linked = _link_existing_listings(connection, pending.normalized_name, existing_item_id)
-                    stats.listings_linked += linked
-                    _mark_pending_resolved(connection, pending, existing_item_id)
-                    stats.local_items_resolved += 1
-                    continue
-
-                item_id = client.lookup_item_id_by_exact_name(pending.display_name)
-                if item_id is None:
+                lucy_item_ids = _lookup_lucy_item_ids_by_exact_name(client, pending.display_name)
+                if not lucy_item_ids:
+                    existing_item_ids = _find_existing_item_ids(connection, pending.normalized_name)
+                    if existing_item_ids:
+                        linked = _link_existing_listings(connection, pending.normalized_name)
+                        stats.listings_linked += linked
+                        _mark_pending_resolved(connection, pending, existing_item_ids)
+                        stats.local_items_resolved += 1
+                        continue
                     _mark_pending_not_found(connection, pending, "Lucy exact lookup returned no result")
                     stats.not_found += 1
                     continue
 
-                item = client.fetch_item_raw(item_id)
-                imported_item_id = upsert_lucy_item(connection, item.fields)
-                stats.items_imported += 1
+                imported_item_ids: list[int] = []
+                for item_id in lucy_item_ids:
+                    item = client.fetch_item_raw(item_id)
+                    imported_item_id = upsert_lucy_item(connection, item.fields)
+                    imported_item_ids.append(imported_item_id)
+                    stats.items_imported += 1
 
-                spells, effects = import_item_effect_spells(connection, client, item.fields, imported_item_id)
-                stats.spells_imported += spells
-                stats.item_effects_imported += effects
+                    spells, effects = import_item_effect_spells(connection, client, item.fields, imported_item_id)
+                    stats.spells_imported += spells
+                    stats.item_effects_imported += effects
 
-                linked = _link_existing_listings(connection, pending.normalized_name, imported_item_id)
+                linked = _link_existing_listings(connection, pending.normalized_name)
                 stats.listings_linked += linked
-                _mark_pending_resolved(connection, pending, imported_item_id)
+                _mark_pending_resolved(connection, pending, imported_item_ids)
             except LucyLookupError as exc:
                 _mark_pending_failed(connection, pending, str(exc))
                 stats.failed += 1
@@ -276,6 +279,15 @@ def upsert_lucy_spell(connection: sqlite3.Connection, fields: dict[str, str]) ->
     return spell_id
 
 
+def _lookup_lucy_item_ids_by_exact_name(client: LucyClient, display_name: str) -> list[int]:
+    lookup_many = getattr(client, "lookup_item_ids_by_exact_name", None)
+    if lookup_many is not None:
+        return list(lookup_many(display_name))
+
+    item_id = client.lookup_item_id_by_exact_name(display_name)
+    return [item_id] if item_id is not None else []
+
+
 def _load_pending_items(connection: sqlite3.Connection, limit: int) -> list[PendingItem]:
     rows = connection.execute(
         """
@@ -290,34 +302,76 @@ def _load_pending_items(connection: sqlite3.Connection, limit: int) -> list[Pend
     return [PendingItem(normalized_name=row[0], display_name=row[1]) for row in rows]
 
 
-def _find_existing_item_id(connection: sqlite3.Connection, normalized_name: str) -> int | None:
-    row = connection.execute(
-        "SELECT item_id FROM items WHERE normalized_name = ?",
+def _find_existing_item_ids(connection: sqlite3.Connection, normalized_name: str) -> list[int]:
+    rows = connection.execute(
+        "SELECT item_id FROM items WHERE normalized_name = ? ORDER BY item_id",
         (normalized_name,),
-    ).fetchone()
-    return int(row[0]) if row else None
+    ).fetchall()
+    return [int(row[0]) for row in rows]
 
 
-def _link_existing_listings(connection: sqlite3.Connection, normalized_name: str, item_id: int) -> int:
-    cursor = connection.execute(
+def _link_existing_listings(connection: sqlite3.Connection, normalized_name: str) -> int:
+    linked = 0
+    rows = connection.execute(
         """
-        UPDATE market_listings
-        SET item_id = ?
+        SELECT DISTINCT server
+        FROM market_listings
         WHERE normalized_item_name = ? AND item_id IS NULL
         """,
-        (item_id, normalized_name),
-    )
-    return cursor.rowcount
+        (normalized_name,),
+    ).fetchall()
+    for row in rows:
+        server = str(row[0])
+        item_id = resolve_item_id_for_listing(connection, server, normalized_name)
+        if item_id is None:
+            continue
+        cursor = connection.execute(
+            """
+            UPDATE market_listings
+            SET item_id = ?
+            WHERE lower(server) = lower(?)
+              AND normalized_item_name = ?
+              AND item_id IS NULL
+            """,
+            (item_id, server, normalized_name),
+        )
+        linked += cursor.rowcount
+
+    watchlist_rows = connection.execute(
+        """
+        SELECT DISTINCT server
+        FROM watchlist_items
+        WHERE normalized_item_name = ? AND item_id IS NULL
+        """,
+        (normalized_name,),
+    ).fetchall()
+    for row in watchlist_rows:
+        server = str(row[0])
+        item_id = resolve_item_id_for_listing(connection, server, normalized_name)
+        if item_id is None:
+            continue
+        connection.execute(
+            """
+            UPDATE watchlist_items
+            SET item_id = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE lower(server) = lower(?)
+              AND normalized_item_name = ?
+              AND item_id IS NULL
+            """,
+            (item_id, server, normalized_name),
+        )
+    return linked
 
 
-def _mark_pending_resolved(connection: sqlite3.Connection, pending: PendingItem, item_id: int) -> None:
+def _mark_pending_resolved(connection: sqlite3.Connection, pending: PendingItem, item_ids: list[int]) -> None:
+    item_id_list = ",".join(str(item_id) for item_id in sorted(set(item_ids)))
     connection.execute(
         """
         UPDATE pending_items
         SET status = 'resolved', notes = ?, last_seen_at = CURRENT_TIMESTAMP
         WHERE normalized_name = ?
         """,
-        (f"Resolved to Lucy item_id={item_id}", pending.normalized_name),
+        (f"Resolved to Lucy item_id(s)={item_id_list}", pending.normalized_name),
     )
 
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from eqmarket.db import init_db
+from eqmarket.item_resolution import load_item_candidates, resolve_item_id_for_listing
 from eqmarket.log_parser import normalize_item_name
 from eqmarket.sources.tlp_auctions import (
     CatalogItem,
@@ -36,8 +37,15 @@ class TlpPriceImportStats:
 
 
 @dataclass(frozen=True)
+class _HistoryPriceRefreshTarget:
+    item_id: int
+    tlp_item_id: int
+
+
+@dataclass(frozen=True)
 class _HistoryPriceRefreshResult:
     item_id: int
+    tlp_item_id: int
     price_stats: PriceStats | None = None
     error: Exception | None = None
 
@@ -131,6 +139,36 @@ def mark_tlp_prices_stale(db_path: Path, server: str) -> int:
     return affected_count
 
 
+def count_unresolved_priced_listing_names(db_path: Path, server: str) -> int:
+    """Return unresolved priced listing/watchlist names that TLP catalog matching can resolve."""
+    db_server = db_server_name(server)
+    with closing(sqlite3.connect(db_path)) as connection:
+        row = connection.execute(
+            """
+            SELECT count(*)
+            FROM (
+                SELECT normalized_item_name
+                FROM market_listings
+                WHERE lower(server) = ?
+                  AND item_id IS NULL
+                  AND normalized_item_name IS NOT NULL
+                  AND price_pp IS NOT NULL
+                GROUP BY normalized_item_name
+                UNION
+                SELECT normalized_item_name
+                FROM watchlist_items
+                WHERE lower(server) = ?
+                  AND item_id IS NULL
+                  AND normalized_item_name IS NOT NULL
+                  AND enabled = 1
+                GROUP BY normalized_item_name
+            ) unresolved_names
+            """,
+            (db_server, db_server),
+        ).fetchone()
+    return int(row[0]) if row else 0
+
+
 def count_stale_listing_item_ids(
     db_path: Path,
     server: str,
@@ -220,47 +258,58 @@ def import_tlp_prices(
         catalog = client.get_catalog(api_server)
         stats.catalog_items_seen = len(catalog)
         catalog_by_id = {item.item_id: item for item in catalog}
+        catalog_by_normalized_name = _catalog_by_normalized_name(catalog)
 
         wanted_normalized_names = _load_wanted_normalized_names(connection, db_server)
         explicit_item_ids = set(item_id_list or [])
+        initial_target_item_ids = _load_target_item_ids(connection, db_server, item_id_list)
+        target_normalized_names = _load_normalized_names_for_item_ids(connection, initial_target_item_ids)
+        relevant_normalized_names = wanted_normalized_names | set(target_normalized_names.values())
+
         matched_catalog = [
             item
             for item in catalog
             if all_catalog
             or item.item_id in explicit_item_ids
-            or normalize_item_name(item.name) in wanted_normalized_names
+            or normalize_item_name(item.name) in relevant_normalized_names
         ]
 
         for item in matched_catalog:
             if _upsert_minimal_item(connection, item):
                 stats.items_upserted += 1
-            canonical_item_id = _canonical_item_id_for_catalog_item(connection, item)
-            if canonical_item_id is not None:
-                stats.listings_linked += _link_listings_by_name(connection, db_server, item, canonical_item_id)
 
-        target_item_ids = _load_target_item_ids(connection, db_server, item_id_list)
-        if all_catalog:
-            target_item_ids.update(item.item_id for item in catalog)
+        target_item_ids = _expand_target_item_ids(
+            connection,
+            catalog_by_normalized_name,
+            initial_target_item_ids,
+            relevant_normalized_names,
+            all_catalog=all_catalog,
+        )
         target_item_ids = {item_id for item_id in target_item_ids if _item_exists(connection, item_id)}
         if limit is not None:
             target_item_ids = set(sorted(target_item_ids)[:limit])
 
         sorted_target_item_ids = sorted(target_item_ids)
         progress_phase = "history" if fetch_history else "catalog_prices"
-        _notify_price_import_progress(
-            progress_callback,
-            phase=progress_phase,
-            completed=0,
-            total=len(sorted_target_item_ids),
-        )
 
         if fetch_history:
+            history_targets = _build_history_refresh_targets(
+                connection,
+                catalog_by_normalized_name,
+                sorted_target_item_ids,
+            )
+            _notify_price_import_progress(
+                progress_callback,
+                phase=progress_phase,
+                completed=0,
+                total=len(history_targets),
+            )
             _refresh_history_prices(
                 connection,
                 client,
                 db_server,
                 api_server,
-                sorted_target_item_ids,
+                history_targets,
                 stats.krono_price_pp,
                 history_days,
                 max(1, concurrency),
@@ -269,6 +318,12 @@ def import_tlp_prices(
                 progress_phase,
             )
         else:
+            _notify_price_import_progress(
+                progress_callback,
+                phase=progress_phase,
+                completed=0,
+                total=len(sorted_target_item_ids),
+            )
             for completed, item_id in enumerate(sorted_target_item_ids, start=1):
                 item = catalog_by_id.get(item_id)
                 if item is not None and item.price is not None and item.price > 0:
@@ -284,6 +339,12 @@ def import_tlp_prices(
                     item_id=item_id,
                 )
 
+        refreshed_names = relevant_normalized_names | set(
+            _load_normalized_names_for_item_ids(connection, target_item_ids).values()
+        )
+        for normalized_name in sorted(refreshed_names):
+            stats.listings_linked += _link_listings_by_name(connection, db_server, normalized_name)
+
         _record_tlp_price_import_run(connection, db_server, stats, fetch_history, history_days)
         connection.commit()
 
@@ -295,7 +356,7 @@ def _refresh_history_prices(
     client: TlpAuctionsClient,
     db_server: str,
     api_server: str,
-    item_ids: list[int],
+    targets: list[_HistoryPriceRefreshTarget],
     krono_price_pp: int | None,
     history_days: int | None,
     concurrency: int,
@@ -303,14 +364,14 @@ def _refresh_history_prices(
     progress_callback: PriceImportProgressCallback | None,
     progress_phase: str,
 ) -> None:
-    total = len(item_ids)
+    total = len(targets)
     if total == 0:
         return
 
     if concurrency <= 1 or total == 1:
         results = (
-            _fetch_history_price_stats(client, item_id, api_server, krono_price_pp, history_days)
-            for item_id in item_ids
+            _fetch_history_price_stats(client, target, api_server, krono_price_pp, history_days)
+            for target in targets
         )
         for completed, result in enumerate(results, start=1):
             _record_history_refresh_result(
@@ -328,15 +389,19 @@ def _refresh_history_prices(
     max_workers = min(concurrency, total)
     with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="tlp-item-history") as executor:
         futures = {
-            executor.submit(_fetch_history_price_stats, client, item_id, api_server, krono_price_pp, history_days): item_id
-            for item_id in item_ids
+            executor.submit(_fetch_history_price_stats, client, target, api_server, krono_price_pp, history_days): target
+            for target in targets
         }
         for completed, future in enumerate(as_completed(futures), start=1):
-            item_id = futures[future]
+            target = futures[future]
             try:
                 result = future.result()
             except Exception as exc:
-                result = _HistoryPriceRefreshResult(item_id=item_id, error=exc)
+                result = _HistoryPriceRefreshResult(
+                    item_id=target.item_id,
+                    tlp_item_id=target.tlp_item_id,
+                    error=exc,
+                )
             _record_history_refresh_result(
                 connection,
                 db_server,
@@ -351,18 +416,18 @@ def _refresh_history_prices(
 
 def _fetch_history_price_stats(
     client: TlpAuctionsClient,
-    item_id: int,
+    target: _HistoryPriceRefreshTarget,
     api_server: str,
     krono_price_pp: int | None,
     history_days: int | None,
 ) -> _HistoryPriceRefreshResult:
     try:
-        points = client.get_item_history(item_id, api_server)
+        points = client.get_item_history(target.tlp_item_id, api_server)
     except (OSError, TlpAuctionsError) as exc:
-        return _HistoryPriceRefreshResult(item_id=item_id, error=exc)
+        return _HistoryPriceRefreshResult(item_id=target.item_id, tlp_item_id=target.tlp_item_id, error=exc)
 
     price_stats = compute_price_stats(points, krono_price_pp, max_age_days=history_days)
-    return _HistoryPriceRefreshResult(item_id=item_id, price_stats=price_stats)
+    return _HistoryPriceRefreshResult(item_id=target.item_id, tlp_item_id=target.tlp_item_id, price_stats=price_stats)
 
 
 def _record_history_refresh_result(
@@ -379,12 +444,12 @@ def _record_history_refresh_result(
 
     if result.error is not None:
         stats.price_refresh_failed += 1
-        _record_price_refresh_failure(connection, db_server, result.item_id, result.error)
+        _record_price_refresh_failure(connection, db_server, result.item_id, result.tlp_item_id, result.error)
     elif result.price_stats is None:
-        _upsert_price_refresh_marker(connection, db_server, result.item_id, "no_data", None)
+        _upsert_price_refresh_marker(connection, db_server, result.item_id, "no_data", None, result.tlp_item_id)
         stats.no_price_data += 1
     else:
-        _upsert_history_price(connection, db_server, result.item_id, result.price_stats)
+        _upsert_history_price(connection, db_server, result.item_id, result.price_stats, result.tlp_item_id)
         stats.history_prices_upserted += 1
 
     _notify_price_import_progress(
@@ -393,6 +458,7 @@ def _record_history_refresh_result(
         completed=completed,
         total=total,
         item_id=result.item_id,
+        tlp_item_id=result.tlp_item_id,
     )
 
 
@@ -411,29 +477,24 @@ def _notify_price_import_progress(
 
 
 def _upsert_minimal_item(connection: sqlite3.Connection, item: CatalogItem) -> bool:
-    try:
-        cursor = connection.execute(
-            """
-            INSERT INTO items (
-                item_id, name, normalized_name, source_primary, raw_payload,
-                parser_version, last_imported_at, updated_at
-            ) VALUES (?, ?, ?, 'tlp_auctions', ?, 'tlp_auctions_v3', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            ON CONFLICT(item_id) DO UPDATE SET
-                source_primary = COALESCE(items.source_primary, excluded.source_primary),
-                last_imported_at = CURRENT_TIMESTAMP,
-                updated_at = CURRENT_TIMESTAMP
-            """,
-            (
-                item.item_id,
-                item.name,
-                normalize_item_name(item.name),
-                json.dumps({"source": "tlp_auctions_catalog", "price": item.price}, ensure_ascii=False, sort_keys=True),
-            ),
-        )
-    except sqlite3.IntegrityError:
-        # TLP catalog can contain duplicate normalized names with different ids.
-        # Keep the first item already present because items.normalized_name is canonical locally.
-        return False
+    cursor = connection.execute(
+        """
+        INSERT INTO items (
+            item_id, name, normalized_name, source_primary, raw_payload,
+            parser_version, last_imported_at, updated_at
+        ) VALUES (?, ?, ?, 'tlp_auctions', ?, 'tlp_auctions_v3', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT(item_id) DO UPDATE SET
+            source_primary = COALESCE(items.source_primary, excluded.source_primary),
+            last_imported_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (
+            item.item_id,
+            item.name,
+            normalize_item_name(item.name),
+            json.dumps({"source": "tlp_auctions_catalog", "price": item.price}, ensure_ascii=False, sort_keys=True),
+        ),
+    )
     return cursor.rowcount > 0
 
 
@@ -442,16 +503,85 @@ def _item_exists(connection: sqlite3.Connection, item_id: int) -> bool:
     return row is not None
 
 
-def _canonical_item_id_for_catalog_item(connection: sqlite3.Connection, item: CatalogItem) -> int | None:
-    row = connection.execute("SELECT item_id FROM items WHERE item_id = ?", (item.item_id,)).fetchone()
-    if row is not None:
-        return int(row[0])
+def _catalog_by_normalized_name(catalog: list[CatalogItem]) -> dict[str, list[CatalogItem]]:
+    grouped: dict[str, list[CatalogItem]] = {}
+    for item in catalog:
+        grouped.setdefault(normalize_item_name(item.name), []).append(item)
+    for items in grouped.values():
+        items.sort(key=lambda catalog_item: catalog_item.item_id)
+    return grouped
 
-    row = connection.execute(
+
+def _load_normalized_names_for_item_ids(
+    connection: sqlite3.Connection,
+    item_ids: set[int],
+) -> dict[int, str]:
+    if not item_ids:
+        return {}
+    result: dict[int, str] = {}
+    sorted_item_ids = sorted(item_ids)
+    for start in range(0, len(sorted_item_ids), 500):
+        chunk = sorted_item_ids[start : start + 500]
+        placeholders = ", ".join("?" for _ in chunk)
+        rows = connection.execute(
+            f"SELECT item_id, normalized_name FROM items WHERE item_id IN ({placeholders})",
+            chunk,
+        ).fetchall()
+        result.update({int(row[0]): str(row[1]) for row in rows if row[1]})
+    return result
+
+
+def _load_item_ids_for_normalized_name(connection: sqlite3.Connection, normalized_name: str) -> set[int]:
+    rows = connection.execute(
         "SELECT item_id FROM items WHERE normalized_name = ?",
-        (normalize_item_name(item.name),),
-    ).fetchone()
-    return int(row[0]) if row is not None else None
+        (normalized_name,),
+    ).fetchall()
+    return {int(row[0]) for row in rows}
+
+
+def _expand_target_item_ids(
+    connection: sqlite3.Connection,
+    catalog_by_normalized_name: dict[str, list[CatalogItem]],
+    initial_target_item_ids: set[int],
+    relevant_normalized_names: set[str],
+    *,
+    all_catalog: bool,
+) -> set[int]:
+    target_item_ids = set(initial_target_item_ids)
+    if all_catalog:
+        for catalog_items in catalog_by_normalized_name.values():
+            target_item_ids.update(item.item_id for item in catalog_items)
+
+    for normalized_name in relevant_normalized_names:
+        target_item_ids.update(_load_item_ids_for_normalized_name(connection, normalized_name))
+        target_item_ids.update(item.item_id for item in catalog_by_normalized_name.get(normalized_name, []))
+    return target_item_ids
+
+
+def _build_history_refresh_targets(
+    connection: sqlite3.Connection,
+    catalog_by_normalized_name: dict[str, list[CatalogItem]],
+    item_ids: list[int],
+) -> list[_HistoryPriceRefreshTarget]:
+    item_names = _load_normalized_names_for_item_ids(connection, set(item_ids))
+    targets: dict[tuple[int, int], _HistoryPriceRefreshTarget] = {}
+
+    for item_id in item_ids:
+        normalized_name = item_names.get(item_id)
+        catalog_items = catalog_by_normalized_name.get(normalized_name or "", [])
+        catalog_item_ids = {item.item_id for item in catalog_items}
+        for catalog_item in catalog_items:
+            if _item_exists(connection, catalog_item.item_id):
+                target = _HistoryPriceRefreshTarget(item_id=catalog_item.item_id, tlp_item_id=catalog_item.item_id)
+                targets[(target.item_id, target.tlp_item_id)] = target
+
+        # Also try the currently linked/local id when TLP's catalog uses a
+        # different id. A 204/empty history will become a no_data marker, not a failure.
+        if item_id not in catalog_item_ids:
+            target = _HistoryPriceRefreshTarget(item_id=item_id, tlp_item_id=item_id)
+            targets[(target.item_id, target.tlp_item_id)] = target
+
+    return [targets[key] for key in sorted(targets)]
 
 
 def _upsert_krono_price(
@@ -551,6 +681,7 @@ def _record_price_refresh_failure(
     connection: sqlite3.Connection,
     db_server: str,
     item_id: int,
+    tlp_item_id: int,
     exc: Exception,
 ) -> None:
     connection.execute(
@@ -558,7 +689,7 @@ def _record_price_refresh_failure(
         INSERT INTO import_runs (source_name, source_url, status, error, finished_at)
         VALUES ('tlp_auctions_history', ?, 'failed', ?, CURRENT_TIMESTAMP)
         """,
-        (f"item_id={item_id};server={db_server}", str(exc)[:1000]),
+        (f"item_id={item_id};tlp_item_id={tlp_item_id};server={db_server}", str(exc)[:1000]),
     )
 
 
@@ -568,9 +699,10 @@ def _upsert_price_refresh_marker(
     item_id: int,
     status: str,
     error: str | None,
+    tlp_item_id: int,
 ) -> None:
     raw_payload = json.dumps(
-        {"source": "tlp_auctions_history", "status": status, "error": error},
+        {"source": "tlp_auctions_history", "status": status, "error": error, "tlp_item_id": tlp_item_id},
         ensure_ascii=False,
         sort_keys=True,
     )
@@ -597,7 +729,23 @@ def _upsert_price_refresh_marker(
     )
 
 
-def _upsert_history_price(connection: sqlite3.Connection, db_server: str, item_id: int, stats) -> None:
+def _history_raw_payload_with_tlp_item_id(raw_payload: str, tlp_item_id: int) -> str:
+    try:
+        payload = json.loads(raw_payload)
+    except json.JSONDecodeError:
+        payload = {"raw_payload": raw_payload}
+    payload["tlp_item_id"] = tlp_item_id
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _upsert_history_price(
+    connection: sqlite3.Connection,
+    db_server: str,
+    item_id: int,
+    stats: PriceStats,
+    tlp_item_id: int,
+) -> None:
+    raw_payload = _history_raw_payload_with_tlp_item_id(stats.raw_payload, tlp_item_id)
     connection.execute(
         """
         INSERT INTO market_prices (
@@ -628,7 +776,7 @@ def _upsert_history_price(connection: sqlite3.Connection, db_server: str, item_i
             stats.max_pp,
             stats.sample_size,
             stats.confidence,
-            stats.raw_payload,
+            raw_payload,
         ),
     )
 
@@ -670,19 +818,38 @@ def _load_target_item_ids(connection: sqlite3.Connection, db_server: str, item_i
 def _link_listings_by_name(
     connection: sqlite3.Connection,
     db_server: str,
-    item: CatalogItem,
-    canonical_item_id: int,
+    normalized_name: str,
 ) -> int:
-    normalized_name = normalize_item_name(item.name)
+    item_id = resolve_item_id_for_listing(connection, db_server, normalized_name)
+    if item_id is None:
+        return 0
+
+    candidate_ids = [candidate.item_id for candidate in load_item_candidates(connection, normalized_name, server=db_server)]
+    if not candidate_ids:
+        return 0
+
+    candidate_placeholders = ", ".join("?" for _ in candidate_ids)
     cursor = connection.execute(
-        """
+        f"""
         UPDATE market_listings
         SET item_id = ?
         WHERE lower(server) = ?
-          AND item_id IS NULL
           AND normalized_item_name = ?
+          AND (
+                item_id IS NULL
+                OR (
+                    item_id IN ({candidate_placeholders})
+                    AND item_id != ?
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM market_prices_override mpo
+                        WHERE mpo.item_id = market_listings.item_id
+                          AND lower(mpo.server) = ?
+                    )
+                )
+              )
         """,
-        (canonical_item_id, db_server, normalized_name),
+        (item_id, db_server, normalized_name, *candidate_ids, item_id, db_server),
     )
     linked = cursor.rowcount
     connection.execute(
@@ -693,7 +860,7 @@ def _link_listings_by_name(
           AND item_id IS NULL
           AND normalized_item_name = ?
         """,
-        (canonical_item_id, db_server, normalized_name),
+        (item_id, db_server, normalized_name),
     )
     return linked
 

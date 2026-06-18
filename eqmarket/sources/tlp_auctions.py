@@ -32,6 +32,10 @@ class TlpAuctionsNotFoundError(TlpAuctionsError):
     pass
 
 
+class TlpAuctionsNoDataError(TlpAuctionsError):
+    pass
+
+
 @dataclass(frozen=True)
 class CatalogItem:
     item_id: int
@@ -169,7 +173,7 @@ class TlpAuctionsClient:
     def get_item_history(self, item_id: int, server_name: str) -> list[PricePoint]:
         try:
             payload = self._get_json(f"/api/items/{item_id}/history/{api_server_name(server_name)}")
-        except TlpAuctionsNotFoundError:
+        except (TlpAuctionsNotFoundError, TlpAuctionsNoDataError):
             return []
         points = payload.get("points") or []
         result: list[PricePoint] = []
@@ -200,7 +204,10 @@ class TlpAuctionsClient:
         for attempt in range(1, 4):
             try:
                 with urlopen(request, timeout=self.timeout_seconds) as response:
+                    status_code = response.getcode()
                     body = response.read().decode("utf-8", errors="replace")
+                if status_code == 204:
+                    raise TlpAuctionsNoDataError(f"TLP Auctions returned no data for {path}")
                 if not body.strip():
                     raise TlpAuctionsError(f"TLP Auctions returned an empty response for {path}")
                 try:
@@ -211,10 +218,14 @@ class TlpAuctionsClient:
             except HTTPError as exc:
                 if exc.code == 404:
                     raise TlpAuctionsNotFoundError(f"TLP Auctions returned 404 for {path}") from exc
+                if exc.code == 204:
+                    raise TlpAuctionsNoDataError(f"TLP Auctions returned no data for {path}") from exc
                 body = exc.read().decode("utf-8", errors="replace")[:500]
                 last_error = TlpAuctionsError(f"TLP Auctions HTTP {exc.code} for {path}: {body}")
                 if exc.code not in {429, 500, 502, 503, 504}:
                     break
+            except TlpAuctionsNoDataError:
+                raise
             except (URLError, TimeoutError, TlpAuctionsError) as exc:
                 last_error = exc
 

@@ -204,6 +204,8 @@ def _fetch_active_tlp_errors(
         item_id = _item_id_from_source_url(row["source_url"])
         if item_id is None or item_id not in stale_items:
             continue
+        if _is_no_data_price_marker(stale_items[item_id]):
+            continue
         represented_item_ids.add(item_id)
         errors.append(
             {
@@ -216,6 +218,8 @@ def _fetch_active_tlp_errors(
 
     for item_id, item in stale_items.items():
         if item_id in represented_item_ids:
+            continue
+        if _is_no_data_price_marker(item):
             continue
         if item["price_confidence"] != "failed" and item["price_source"] != "tlp_auctions_history_failed":
             continue
@@ -262,6 +266,10 @@ def _fetch_latest_tlp_import(connection: sqlite3.Connection) -> dict[str, Any] |
         """
     ).fetchone()
     return _import_run_payload(row) if row is not None else None
+
+
+def _is_no_data_price_marker(item: dict[str, Any]) -> bool:
+    return item.get("price_confidence") == "no_data" or item.get("price_source") == "tlp_auctions_history_no_data"
 
 
 def _stale_item_error_payload(item: dict[str, Any]) -> dict[str, Any]:

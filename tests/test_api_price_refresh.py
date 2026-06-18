@@ -12,12 +12,31 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from eqmarket.api.app import create_app
-from eqmarket.db import init_db
+from eqmarket.db import SCHEMA_PATH, init_db
 from eqmarket.price_importer import TlpPriceImportStats, import_tlp_prices, load_recent_listing_item_ids
 from eqmarket.sources.tlp_auctions import CatalogItem, KronoPrice, PricePoint, TlpAuctionsClient, TlpAuctionsError
 
 
 class TlpAuctionsClientTests(unittest.TestCase):
+    def test_204_item_history_is_no_data_not_failure(self) -> None:
+        class NoContentResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback) -> None:
+                return None
+
+            def getcode(self) -> int:
+                return 204
+
+            def read(self) -> bytes:
+                return b""
+
+        with patch("eqmarket.sources.tlp_auctions.urlopen", return_value=NoContentResponse()):
+            history = TlpAuctionsClient().get_item_history(127527, "frostreaver")
+
+        self.assertEqual(history, [])
+
     def test_krono_price_prefers_one_day_window_used_by_tlp_ui(self) -> None:
         class FakeClient(TlpAuctionsClient):
             def _get_json(self, path: str, params: dict[str, object] | None = None) -> dict[str, object]:
@@ -286,7 +305,63 @@ class ApiPriceRefreshTests(unittest.TestCase):
 
 
 class PriceImporterConcurrencyTests(unittest.TestCase):
-    def test_import_tlp_prices_links_duplicate_catalog_name_to_existing_canonical_item(self) -> None:
+    def test_items_accept_duplicate_normalized_names(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+
+            with closing(sqlite3.connect(db_path)) as connection:
+                connection.executemany(
+                    "INSERT INTO items (item_id, name, normalized_name) VALUES (?, ?, ?)",
+                    [
+                        (4299, "Blazing Vambraces", "blazing vambraces"),
+                        (127527, "Blazing Vambraces", "blazing vambraces"),
+                    ],
+                )
+                rows = connection.execute(
+                    "SELECT item_id FROM items WHERE normalized_name = 'blazing vambraces' ORDER BY item_id"
+                ).fetchall()
+                unique_name_indexes = []
+                for index in connection.execute("PRAGMA index_list('items')").fetchall():
+                    if not index[2]:
+                        continue
+                    index_name = str(index[1])
+                    columns = {row[2] for row in connection.execute(f"PRAGMA index_info('{index_name}')").fetchall()}
+                    if columns & {"name", "normalized_name"}:
+                        unique_name_indexes.append(index_name)
+
+            self.assertEqual([row[0] for row in rows], [4299, 127527])
+            self.assertEqual(unique_name_indexes, [])
+
+    def test_init_db_migrates_legacy_item_name_uniques(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            legacy_schema = SCHEMA_PATH.read_text(encoding="utf-8").replace(
+                "name TEXT NOT NULL,\n    normalized_name TEXT NOT NULL,",
+                "name TEXT NOT NULL UNIQUE,\n    normalized_name TEXT NOT NULL UNIQUE,",
+            )
+            with closing(sqlite3.connect(db_path)) as connection:
+                connection.executescript(legacy_schema)
+                connection.execute(
+                    "INSERT INTO items (item_id, name, normalized_name) VALUES (1, 'Legacy Item', 'legacy item')"
+                )
+                connection.commit()
+
+            init_db(db_path)
+
+            with closing(sqlite3.connect(db_path)) as connection:
+                connection.execute(
+                    "INSERT INTO items (item_id, name, normalized_name) VALUES (2, 'Legacy Item', 'legacy item')"
+                )
+                rows = connection.execute(
+                    "SELECT item_id FROM items WHERE normalized_name = 'legacy item' ORDER BY item_id"
+                ).fetchall()
+                violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+
+            self.assertEqual([row[0] for row in rows], [1, 2])
+            self.assertEqual(violations, [])
+
+    def test_import_tlp_prices_links_duplicate_catalog_name_to_tlp_priced_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "eqmarket.sqlite"
             init_db(db_path)
@@ -300,8 +375,66 @@ class PriceImporterConcurrencyTests(unittest.TestCase):
                 listing_item_id = connection.execute("SELECT item_id FROM market_listings").fetchone()[0]
                 violations = connection.execute("PRAGMA foreign_key_check").fetchall()
 
-            self.assertEqual(listing_item_id, 1)
+            self.assertEqual(listing_item_id, 2)
             self.assertEqual(violations, [])
+
+    def test_blazing_vambraces_uses_tlp_catalog_id_for_history_and_relinks_listing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            _seed_blazing_vambraces_fixture(db_path)
+            fake_client = _BlazingVambracesFakeTlpClient()
+
+            with patch("eqmarket.price_importer.TlpAuctionsClient", return_value=fake_client):
+                stats = import_tlp_prices(
+                    db_path,
+                    "frostreaver",
+                    item_ids=[127527],
+                    history_days=None,
+                    concurrency=1,
+                )
+
+            self.assertEqual(stats.history_prices_upserted, 1)
+            self.assertEqual(stats.no_price_data, 1)
+            self.assertIn(4299, fake_client.history_calls)
+            self.assertIn(127527, fake_client.history_calls)
+            with closing(sqlite3.connect(db_path)) as connection:
+                listing_item_id = connection.execute("SELECT item_id FROM market_listings").fetchone()[0]
+                price_rows = connection.execute(
+                    """
+                    SELECT item_id, median_pp, confidence, source
+                    FROM market_prices
+                    WHERE server = 'frostreaver'
+                    ORDER BY item_id
+                    """
+                ).fetchall()
+
+            self.assertEqual(listing_item_id, 4299)
+            self.assertEqual(
+                price_rows,
+                [
+                    (4299, 5000, "low", "tlp_auctions_history"),
+                    (127527, None, "no_data", "tlp_auctions_history_no_data"),
+                ],
+            )
+
+    def test_interface_tlp_errors_ignores_no_data_markers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            _seed_no_data_interface_fixture(db_path)
+            app = create_app(db_path)
+
+            with TestClient(app) as client:
+                response = client.get(
+                    "/api/interface/tlp-errors",
+                    params={"server": "frostreaver", "max_age_minutes": 0},
+                )
+
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            self.assertEqual(payload["active_error_count"], 0)
+            self.assertEqual(payload["active_errors"], [])
 
     def test_failed_price_marker_counts_as_stale(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -368,6 +501,31 @@ class _DuplicateCatalogFakeTlpClient:
 
     def get_catalog(self, server_name: str) -> list[CatalogItem]:
         return [CatalogItem(item_id=2, name="Duplicate Item", price=1000)]
+
+
+class _BlazingVambracesFakeTlpClient:
+    def __init__(self) -> None:
+        self.history_calls: list[int] = []
+
+    def get_krono_price(self, server_name: str) -> None:
+        return None
+
+    def get_catalog(self, server_name: str) -> list[CatalogItem]:
+        return [CatalogItem(item_id=4299, name="Blazing Vambraces", price=5000)]
+
+    def get_item_history(self, item_id: int, server_name: str) -> list[PricePoint]:
+        self.history_calls.append(item_id)
+        if item_id == 4299:
+            return [
+                PricePoint(
+                    datetime="2026-06-17T10:00:00Z",
+                    plat_price=5000,
+                    krono_price=0,
+                    is_buy=False,
+                    auctioneer="Blazer",
+                )
+            ]
+        return []
 
 
 class _FailingHistoryFakeTlpClient:
@@ -460,6 +618,73 @@ def _seed_duplicate_catalog_name_fixture(db_path: Path) -> None:
                 price_raw, price_pp, source, confidence
             ) VALUES ('frostreaver', CURRENT_TIMESTAMP, 'Seller', 'Duplicate Item',
                       'duplicate item', '1k', 1000, 'eq_log', 'parsed')
+            """
+        )
+        connection.commit()
+
+
+def _seed_blazing_vambraces_fixture(db_path: Path) -> None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(
+            """
+            INSERT INTO items (item_id, name, normalized_name, slot, classes)
+            VALUES (127527, 'Blazing Vambraces', 'blazing vambraces', 'ARMS', 'WAR CLR PAL RNG SHD DRU MNK BRD ROG SHM NEC WIZ MAG ENC BST BER')
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO market_listings (
+                server, timestamp, seller, item_name, normalized_item_name, item_id,
+                price_raw, price_pp, source, confidence
+            ) VALUES ('frostreaver', CURRENT_TIMESTAMP, 'Seller', 'Blazing Vambraces',
+                      'blazing vambraces', 127527, '3k', 3000, 'eq_log', 'parsed')
+            """
+        )
+        connection.commit()
+
+
+def _seed_no_data_interface_fixture(db_path: Path) -> None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(
+            "INSERT INTO items (item_id, name, normalized_name) VALUES (7001, 'No Data Item', 'no data item')"
+        )
+        connection.execute(
+            """
+            INSERT INTO market_listings (
+                server, timestamp, seller, item_name, normalized_item_name, item_id,
+                price_raw, price_pp, source, confidence
+            ) VALUES ('frostreaver', CURRENT_TIMESTAMP, 'Seller', 'No Data Item',
+                      'no data item', 7001, '1k', 1000, 'eq_log', 'parsed')
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO market_prices (
+                item_id, server, sample_size, confidence, last_refresh_at, source, raw_payload
+            ) VALUES (
+                7001,
+                'frostreaver',
+                0,
+                'no_data',
+                datetime('now', '-1 hour'),
+                'tlp_auctions_history_no_data',
+                '{""source"":""tlp_auctions_history"",""status"":""no_data""}'
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO import_runs (source_name, source_url, status, error, started_at, finished_at)
+            VALUES (
+                'tlp_auctions_history',
+                'item_id=7001;server=frostreaver',
+                'failed',
+                'old upstream error',
+                datetime('now', '-2 hours'),
+                datetime('now', '-2 hours')
+            )
             """
         )
         connection.commit()

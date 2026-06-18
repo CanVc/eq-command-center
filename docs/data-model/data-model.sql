@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
 INSERT OR IGNORE INTO schema_version (version, description)
 VALUES (1, 'Initial EQ Market Scanner schema');
 
+INSERT OR IGNORE INTO schema_version (version, description)
+VALUES (2, 'Allow duplicate item display names; item_id is canonical');
+
 -- -----------------------------------------------------------------------------
 -- Items
 -- -----------------------------------------------------------------------------
@@ -28,8 +31,8 @@ CREATE TABLE IF NOT EXISTS items (
     -- and must be supplied by importers/enrichers, not generated locally.
     item_id INTEGER PRIMARY KEY,
 
-    name TEXT NOT NULL UNIQUE,
-    normalized_name TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    normalized_name TEXT NOT NULL,
 
     item_type TEXT,
     slot TEXT,

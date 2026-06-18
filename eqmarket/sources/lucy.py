@@ -42,29 +42,37 @@ class LucyClient:
         self.opener = build_opener(HTTPCookieProcessor(self.cookie_jar))
 
     def lookup_item_id_by_exact_name(self, item_name: str) -> int | None:
+        ids = self.lookup_item_ids_by_exact_name(item_name)
+        return ids[0] if ids else None
+
+    def lookup_item_ids_by_exact_name(self, item_name: str) -> list[int]:
         html_text = self._get(
             "/itemlist.html",
             {"searchtext": item_name, "source": self.source},
         )
 
+        normalized_search = _normalize_name(item_name)
+        result_ids: list[int] = []
+
         title_match = re.search(r"<title>\s*Item Details for\s+(.*?)\s*</title>", html_text, re.IGNORECASE | re.DOTALL)
         ids = [int(value) for value in re.findall(r"item(?:raw)?\.html\?id=(\d+)", html_text, re.IGNORECASE)]
         if title_match and ids:
             title_name = _normalize_space(_strip_tags(title_match.group(1)))
-            if _normalize_name(title_name) == _normalize_name(item_name):
-                return ids[0]
+            if _normalize_name(title_name) == normalized_search:
+                result_ids.append(ids[0])
 
-        # If Lucy returns a result list, take only an exact name match. This avoids
-        # importing a similarly named item by accident.
+        # If Lucy returns a result list, take only exact name matches. This avoids
+        # importing similarly named items by accident while still preserving real
+        # duplicate item ids that share one display name.
         for item_id, linked_name in re.findall(
             r"item\.html\?id=(\d+)[^>]*>(.*?)</a>",
             html_text,
             re.IGNORECASE | re.DOTALL,
         ):
-            if _normalize_name(_strip_tags(linked_name)) == _normalize_name(item_name):
-                return int(item_id)
+            if _normalize_name(_strip_tags(linked_name)) == normalized_search:
+                result_ids.append(int(item_id))
 
-        return None
+        return list(dict.fromkeys(result_ids))
 
     def fetch_item_raw(self, item_id: int) -> LucyItem:
         html_text = self._get("/itemraw.html", {"id": str(item_id), "source": self.source})

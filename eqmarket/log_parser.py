@@ -56,6 +56,7 @@ class ParsedListing:
     price_currency: str | None
     price_pp: int | None
     raw_line: str
+    item_id: int | None = None
     confidence: str = "parsed"
 
 

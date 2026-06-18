@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from eqmarket.price_importer import (
     TlpPriceImportStats,
+    count_unresolved_priced_listing_names,
     import_tlp_prices,
     load_recent_listing_item_ids,
     refresh_krono_price,
@@ -95,7 +96,9 @@ def refresh_tlp_prices(
     effective_max_age_hours = _resolve_max_age_hours(max_age_hours, max_age_minutes)
     item_ids = _load_item_ids_or_503(db_path, db_server, limit, effective_max_age_hours)
 
-    if item_ids:
+    unresolved_name_count = _count_unresolved_names_or_503(db_path, db_server)
+
+    if item_ids or unresolved_name_count:
         stats = _import_prices_or_502(
             db_path,
             db_server,
@@ -226,7 +229,9 @@ def _run_tlp_price_refresh_job(job_id: str) -> None:
             current_item_id=None,
         )
 
-        if item_ids:
+        unresolved_name_count = count_unresolved_priced_listing_names(job.db_path, job.server)
+
+        if item_ids or unresolved_name_count:
             def update_progress(progress: dict[str, object]) -> None:
                 total = _optional_int(progress.get("total"))
                 if total is None:
@@ -263,12 +268,13 @@ def _run_tlp_price_refresh_job(job_id: str) -> None:
             history_days=job.history_days,
             concurrency=job.concurrency,
         )
+        final_count = stats.history_items_checked or len(item_ids)
         _update_job(
             job_id,
             status="completed",
             phase="completed",
-            completed=len(item_ids),
-            total=len(item_ids),
+            completed=final_count,
+            total=final_count,
             current_item_id=None,
             stats=payload,
             finished_at=_utcnow(),
@@ -323,6 +329,17 @@ def _load_item_ids_or_503(
         raise HTTPException(status_code=503, detail=f"SQLite item selection failed: {exc}") from exc
     except sqlite3.Error as exc:
         raise HTTPException(status_code=503, detail=f"SQLite item selection failed: {exc}") from exc
+
+
+def _count_unresolved_names_or_503(db_path: Path, db_server: str) -> int:
+    try:
+        return count_unresolved_priced_listing_names(db_path, db_server)
+    except TlpAuctionsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail=f"SQLite unresolved name selection failed: {exc}") from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(status_code=503, detail=f"SQLite unresolved name selection failed: {exc}") from exc
 
 
 def _import_prices_or_502(

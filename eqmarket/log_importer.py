@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from eqmarket.db import init_db
+from eqmarket.item_resolution import resolve_item_id_for_listing
 from eqmarket.log_parser import (
     ParsedListing,
     is_sale_message,
@@ -103,24 +104,22 @@ def split_listing_by_known_items(listing: ParsedListing, known_items: KnownItemI
             price_currency=listing.price_currency,
             price_pp=listing.price_pp,
             raw_line=listing.raw_line,
+            item_id=listing.item_id,
             confidence=f"{listing.confidence}_dict_split",
         )
         for start, end in spans
     ]
 
 
-def _find_item_id(connection: sqlite3.Connection, normalized_name: str) -> int | None:
-    row = connection.execute(
-        "SELECT item_id FROM items WHERE normalized_name = ?",
-        (normalized_name,),
-    ).fetchone()
-    return int(row[0]) if row else None
-
-
 def insert_listing(connection: sqlite3.Connection, server: str, listing: ParsedListing) -> tuple[bool, bool]:
     """Insert one market listing. Returns (listing_inserted, pending_item_upserted)."""
     normalized_name = normalize_item_name(listing.item_name)
-    item_id = _find_item_id(connection, normalized_name)
+    item_id = resolve_item_id_for_listing(
+        connection,
+        server,
+        normalized_name,
+        exact_item_id=listing.item_id,
+    )
     seen_hash = listing_seen_hash(server, listing)
 
     cursor = connection.execute(
