@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react"
-import type { FormEvent } from "react"
+import type { FormEvent, ReactNode } from "react"
 import { Ban, Check, Copy, ScrollText, SlidersHorizontal } from "lucide-react"
 
 import { ItemLink } from "@/components/item-link"
@@ -14,13 +14,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import type { DealFilters, DealPreview } from "@/lib/api"
+import type { DealFilters, DealPreview, DealSortBy, DealSortDirection } from "@/lib/api"
 import {
   buildTellMessage,
   dealFiltersKey,
   dealFiltersToDraft,
   discountBadgeClassName,
   normalizeDealFilters,
+  todayDateInputValue,
   type DraftDealFilters,
 } from "@/lib/deals"
 import { copyText } from "@/lib/clipboard"
@@ -38,8 +39,18 @@ type DealsPageProps = {
   onRestoreSimilarListings: (listingId: number) => Promise<void>
 }
 
-const numberInputClassName =
+const inputClassName =
   "h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+
+const defaultSortDirectionByColumn: Record<DealSortBy, DealSortDirection> = {
+  item: "asc",
+  seen_price: "desc",
+  market_price: "desc",
+  discount: "desc",
+  seller: "asc",
+  date: "desc",
+  score: "desc",
+}
 
 export function DealsPage({
   deals,
@@ -123,6 +134,8 @@ export function DealsPage({
           server={server}
           copiedListingId={copiedListingId}
           reviewingListingId={reviewingListingId}
+          filters={filters}
+          onFiltersChange={onFiltersChange}
           onCopyTell={copyTell}
           onDiscardDeal={discardDeal}
           onTrustDeal={trustDeal}
@@ -149,20 +162,72 @@ function DealFiltersForm({
 
   const applyFilters = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    onFiltersChange(normalizeDealFilters(draftFilters))
+    onFiltersChange({
+      ...normalizeDealFilters(draftFilters),
+      sortBy: filters.sortBy,
+      sortDir: filters.sortDir,
+    })
   }
 
   return (
     <form
       aria-label="Deal filters"
       onSubmit={applyFilters}
-      className="grid gap-3 rounded-lg border bg-card p-3 md:grid-cols-[repeat(5,minmax(0,1fr))_auto]"
+      className="grid gap-3 rounded-lg border bg-card p-3 md:grid-cols-2 xl:grid-cols-[repeat(6,minmax(0,1fr))_auto]"
     >
+      <label className="grid gap-1.5 text-sm">
+        <span className="text-xs font-medium text-muted-foreground">Item</span>
+        <input
+          aria-label="Item filter"
+          className={inputClassName}
+          type="search"
+          placeholder="Fungi, crown..."
+          value={draftFilters.item}
+          onChange={(event) => updateDraftFilter("item", event.target.value)}
+        />
+      </label>
+
+      <label className="grid gap-1.5 text-sm">
+        <span className="text-xs font-medium text-muted-foreground">Seller</span>
+        <input
+          aria-label="Seller filter"
+          className={inputClassName}
+          type="search"
+          placeholder="Seller name"
+          value={draftFilters.seller}
+          onChange={(event) => updateDraftFilter("seller", event.target.value)}
+        />
+      </label>
+
+      <label className="grid gap-1.5 text-sm md:col-span-2 xl:col-span-2">
+        <span className="text-xs font-medium text-muted-foreground">Since date</span>
+        <div className="flex gap-2">
+          <input
+            aria-label="Deals since date"
+            className={inputClassName}
+            type="date"
+            value={draftFilters.dateFrom}
+            onChange={(event) => updateDraftFilter("dateFrom", event.target.value)}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            onClick={() => updateDraftFilter("dateFrom", todayDateInputValue())}
+          >
+            Today
+          </Button>
+          <Button type="button" variant="outline" size="lg" onClick={() => updateDraftFilter("dateFrom", "")}>
+            All
+          </Button>
+        </div>
+      </label>
+
       <label className="grid gap-1.5 text-sm">
         <span className="text-xs font-medium text-muted-foreground">Min discount</span>
         <input
           aria-label="Minimum discount"
-          className={numberInputClassName}
+          className={inputClassName}
           type="number"
           min={0}
           max={100}
@@ -176,7 +241,7 @@ function DealFiltersForm({
         <span className="text-xs font-medium text-muted-foreground">Min price</span>
         <input
           aria-label="Minimum price"
-          className={numberInputClassName}
+          className={inputClassName}
           type="number"
           min={0}
           step={1}
@@ -189,7 +254,7 @@ function DealFiltersForm({
         <span className="text-xs font-medium text-muted-foreground">Limit</span>
         <input
           aria-label="Limit"
-          className={numberInputClassName}
+          className={inputClassName}
           type="number"
           min={1}
           max={500}
@@ -236,6 +301,8 @@ function DealsTable({
   server,
   copiedListingId,
   reviewingListingId,
+  filters,
+  onFiltersChange,
   onCopyTell,
   onDiscardDeal,
   onTrustDeal,
@@ -244,24 +311,33 @@ function DealsTable({
   server: string
   copiedListingId: number | null
   reviewingListingId: number | null
+  filters: DealFilters
+  onFiltersChange: (filters: DealFilters) => void
   onCopyTell: (deal: DealPreview) => void
   onDiscardDeal: (deal: DealPreview, similar?: boolean) => void
   onTrustDeal: (deal: DealPreview, similar?: boolean) => void
 }) {
   const [rawListingId, setRawListingId] = useState<number | null>(null)
 
+  const changeSort = (sortBy: DealSortBy) => {
+    const sortDir = filters.sortBy === sortBy
+      ? toggleSortDirection(filters.sortDir)
+      : defaultSortDirectionByColumn[sortBy]
+    onFiltersChange({ ...filters, sortBy, sortDir })
+  }
+
   return (
     <div className="overflow-x-auto rounded-lg border">
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Item</TableHead>
-            <TableHead>Seen price</TableHead>
-            <TableHead>Market price</TableHead>
-            <TableHead>Discount</TableHead>
-            <TableHead>Seller</TableHead>
-            <TableHead>Date</TableHead>
-            <TableHead>Score</TableHead>
+            <SortableTableHead filters={filters} sortBy="item" onSortChange={changeSort}>Item</SortableTableHead>
+            <SortableTableHead filters={filters} sortBy="seen_price" onSortChange={changeSort}>Seen price</SortableTableHead>
+            <SortableTableHead filters={filters} sortBy="market_price" onSortChange={changeSort}>Market price</SortableTableHead>
+            <SortableTableHead filters={filters} sortBy="discount" onSortChange={changeSort}>Discount</SortableTableHead>
+            <SortableTableHead filters={filters} sortBy="seller" onSortChange={changeSort}>Seller</SortableTableHead>
+            <SortableTableHead filters={filters} sortBy="date" onSortChange={changeSort}>Date</SortableTableHead>
+            <SortableTableHead filters={filters} sortBy="score" onSortChange={changeSort}>Score</SortableTableHead>
             <TableHead>Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -383,6 +459,44 @@ function DealsTable({
       </Table>
     </div>
   )
+}
+
+function SortableTableHead({
+  filters,
+  sortBy,
+  onSortChange,
+  children,
+}: {
+  filters: DealFilters
+  sortBy: DealSortBy
+  onSortChange: (sortBy: DealSortBy) => void
+  children: ReactNode
+}) {
+  const active = filters.sortBy === sortBy
+  const indicator = active ? (filters.sortDir === "asc" ? "↑" : "↓") : "↕"
+
+  return (
+    <TableHead aria-sort={active ? sortDirectionToAria(filters.sortDir) : undefined}>
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        onClick={() => onSortChange(sortBy)}
+      >
+        <span>{children}</span>
+        <span aria-hidden="true" className={cn("text-xs", active ? "text-foreground" : "text-muted-foreground")}>
+          {indicator}
+        </span>
+      </button>
+    </TableHead>
+  )
+}
+
+function toggleSortDirection(sortDir: DealSortDirection): DealSortDirection {
+  return sortDir === "asc" ? "desc" : "asc"
+}
+
+function sortDirectionToAria(sortDir: DealSortDirection): "ascending" | "descending" {
+  return sortDir === "asc" ? "ascending" : "descending"
 }
 
 function DiscountBadge({ value }: { value: number }) {

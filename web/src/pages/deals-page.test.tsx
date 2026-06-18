@@ -37,6 +37,11 @@ describe("DealsPage helpers", () => {
         limit: "750",
         resolvedOnly: false,
         includeSuspect: true,
+        seller: " BigSeller ",
+        item: " Crown ",
+        dateFrom: "2026-06-18",
+        sortBy: "seller",
+        sortDir: "asc",
       })
     ).toEqual({
       minDiscount: 100,
@@ -44,6 +49,11 @@ describe("DealsPage helpers", () => {
       limit: 500,
       resolvedOnly: false,
       includeSuspect: true,
+      seller: "BigSeller",
+      item: "Crown",
+      dateFrom: "2026-06-18",
+      sortBy: "seller",
+      sortDir: "asc",
     })
 
     expect(
@@ -53,6 +63,11 @@ describe("DealsPage helpers", () => {
         limit: "",
         resolvedOnly: true,
         includeSuspect: false,
+        seller: "",
+        item: "",
+        dateFrom: "",
+        sortBy: "discount",
+        sortDir: "desc",
       })
     ).toEqual({
       minDiscount: 30,
@@ -60,6 +75,11 @@ describe("DealsPage helpers", () => {
       limit: 100,
       resolvedOnly: true,
       includeSuspect: false,
+      seller: "",
+      item: "",
+      dateFrom: "",
+      sortBy: "discount",
+      sortDir: "desc",
     })
   })
 

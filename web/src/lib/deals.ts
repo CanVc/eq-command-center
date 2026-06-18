@@ -1,4 +1,4 @@
-import type { DealFilters, DealPreview } from "@/lib/api"
+import type { DealFilters, DealPreview, DealSortBy, DealSortDirection } from "@/lib/api"
 import { DEFAULT_DEAL_FILTERS } from "@/lib/api"
 import { formatPrice } from "@/lib/format"
 
@@ -8,7 +8,14 @@ export type DraftDealFilters = {
   limit: string
   resolvedOnly: boolean
   includeSuspect: boolean
+  seller: string
+  item: string
+  dateFrom: string
+  sortBy: DealSortBy
+  sortDir: DealSortDirection
 }
+
+const DEAL_SORT_BY_VALUES: DealSortBy[] = ["item", "seen_price", "market_price", "discount", "seller", "date", "score"]
 
 export function buildTellMessage(
   deal: Pick<DealPreview, "seller" | "item_name" | "price_raw" | "listing_price_pp">
@@ -25,6 +32,11 @@ export function normalizeDealFilters(filters: DraftDealFilters): DealFilters {
     limit: Math.round(clampNumber(filters.limit, DEFAULT_DEAL_FILTERS.limit, 1, 500)),
     resolvedOnly: filters.resolvedOnly,
     includeSuspect: filters.includeSuspect,
+    seller: filters.seller.trim(),
+    item: filters.item.trim(),
+    dateFrom: filters.dateFrom.trim(),
+    sortBy: isDealSortBy(filters.sortBy) ? filters.sortBy : DEFAULT_DEAL_FILTERS.sortBy,
+    sortDir: isDealSortDirection(filters.sortDir) ? filters.sortDir : DEFAULT_DEAL_FILTERS.sortDir,
   }
 }
 
@@ -35,6 +47,11 @@ export function dealFiltersToDraft(filters: DealFilters): DraftDealFilters {
     limit: String(filters.limit),
     resolvedOnly: filters.resolvedOnly,
     includeSuspect: filters.includeSuspect,
+    seller: filters.seller,
+    item: filters.item,
+    dateFrom: filters.dateFrom,
+    sortBy: filters.sortBy,
+    sortDir: filters.sortDir,
   }
 }
 
@@ -45,7 +62,17 @@ export function dealFiltersKey(filters: DealFilters): string {
     filters.limit,
     filters.resolvedOnly ? "resolved" : "all",
     filters.includeSuspect ? "suspect" : "active",
+    filters.seller,
+    filters.item,
+    filters.dateFrom,
   ].join(":")
+}
+
+export function todayDateInputValue(now = new Date()): string {
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, "0")
+  const day = String(now.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
 }
 
 export function discountBadgeClassName(value: number): string {
@@ -58,6 +85,14 @@ export function discountBadgeClassName(value: number): string {
   }
 
   return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+}
+
+function isDealSortBy(value: string): value is DealSortBy {
+  return DEAL_SORT_BY_VALUES.includes(value as DealSortBy)
+}
+
+function isDealSortDirection(value: string): value is DealSortDirection {
+  return value === "asc" || value === "desc"
 }
 
 function clampNumber(value: string, fallback: number, min: number, max: number): number {

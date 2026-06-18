@@ -92,7 +92,7 @@ export function AppLayout({
   return (
     <div className="min-h-svh bg-background text-foreground">
       <div className="grid min-h-svh lg:grid-cols-[16rem_1fr]">
-        <aside className="hidden border-r bg-sidebar/70 lg:flex lg:flex-col">
+        <aside className="hidden border-r bg-sidebar/70 lg:sticky lg:top-0 lg:flex lg:h-svh lg:flex-col lg:self-start lg:overflow-y-auto">
           <div className="flex h-16 items-center gap-3 border-b px-5">
             <div className="flex size-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
               <Box aria-hidden="true" className="size-4" />

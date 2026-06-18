@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import closing
+from datetime import UTC, datetime, timedelta
 import sqlite3
 import tempfile
 import unittest
@@ -76,6 +77,68 @@ class ApiDealsTests(unittest.TestCase):
             payload = response.json()
 
             self.assertEqual([deal["listing_id"] for deal in payload], [listing_ids["larger_gain"]])
+
+    def test_seller_item_and_date_from_filter_deals(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            listing_ids = _seed_deals_fixture(db_path)
+            _move_listing_timestamp(db_path, listing_ids["larger_gain"], "-2 days")
+            app = create_app(db_path)
+            date_from = (datetime.now(UTC) - timedelta(days=1)).date().isoformat()
+
+            with TestClient(app) as client:
+                seller_response = client.get("/api/deals", params={"server": "frostreaver", "seller": " big "})
+                item_response = client.get("/api/deals", params={"server": "frostreaver", "item": "crown"})
+                date_response = client.get(
+                    "/api/deals",
+                    params={"server": "frostreaver", "min_discount": 30, "date_from": date_from},
+                )
+
+            self.assertEqual(seller_response.status_code, 200, seller_response.text)
+            self.assertEqual(item_response.status_code, 200, item_response.text)
+            self.assertEqual(date_response.status_code, 200, date_response.text)
+
+            self.assertEqual([deal["listing_id"] for deal in seller_response.json()], [listing_ids["larger_gain"]])
+            self.assertEqual([deal["listing_id"] for deal in item_response.json()], [listing_ids["larger_gain"]])
+
+            recent_ids = {deal["listing_id"] for deal in date_response.json()}
+            self.assertNotIn(listing_ids["larger_gain"], recent_ids)
+            self.assertIn(listing_ids["median"], recent_ids)
+
+    def test_deals_can_be_sorted_by_supported_columns(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            listing_ids = _seed_deals_fixture(db_path)
+            app = create_app(db_path)
+
+            with TestClient(app) as client:
+                seller_response = client.get(
+                    "/api/deals",
+                    params={"server": "frostreaver", "sort_by": "seller", "sort_dir": "asc"},
+                )
+                date_response = client.get(
+                    "/api/deals",
+                    params={"server": "frostreaver", "sort_by": "date", "sort_dir": "asc"},
+                )
+                invalid_response = client.get(
+                    "/api/deals",
+                    params={"server": "frostreaver", "sort_by": "raw_sql"},
+                )
+
+            self.assertEqual(seller_response.status_code, 200, seller_response.text)
+            self.assertEqual(date_response.status_code, 200, date_response.text)
+            self.assertEqual(invalid_response.status_code, 422)
+
+            self.assertEqual(
+                [deal["listing_id"] for deal in seller_response.json()],
+                [listing_ids["larger_gain"], listing_ids["median"], listing_ids["p25_fallback"], listing_ids["avg_fallback"]],
+            )
+            self.assertEqual(
+                [deal["listing_id"] for deal in date_response.json()],
+                [listing_ids["p25_fallback"], listing_ids["larger_gain"], listing_ids["avg_fallback"], listing_ids["median"]],
+            )
 
     def test_deals_exclude_zero_or_missing_listing_and_market_prices(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -154,6 +217,19 @@ def _review_listing(db_path: Path, listing_id: int, status: str, reason_code: st
             VALUES (?, ?, ?)
             """,
             (listing_id, status, reason_code),
+        )
+        connection.commit()
+
+
+def _move_listing_timestamp(db_path: Path, listing_id: int, timestamp_modifier: str) -> None:
+    with closing(sqlite3.connect(db_path)) as connection:
+        connection.execute(
+            """
+            UPDATE market_listings
+            SET timestamp = datetime('now', ?)
+            WHERE listing_id = ?
+            """,
+            (timestamp_modifier, listing_id),
         )
         connection.commit()
 

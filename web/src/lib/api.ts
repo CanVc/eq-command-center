@@ -212,12 +212,20 @@ export type DealPreview = DashboardDealPreview & {
   review_note: string | null
 }
 
+export type DealSortBy = "item" | "seen_price" | "market_price" | "discount" | "seller" | "date" | "score"
+export type DealSortDirection = "asc" | "desc"
+
 export type DealFilters = {
   minDiscount: number
   minPricePp: number
   limit: number
   resolvedOnly: boolean
   includeSuspect: boolean
+  seller: string
+  item: string
+  dateFrom: string
+  sortBy: DealSortBy
+  sortDir: DealSortDirection
 }
 
 export const DEFAULT_DEAL_FILTERS: DealFilters = {
@@ -226,6 +234,11 @@ export const DEFAULT_DEAL_FILTERS: DealFilters = {
   limit: 100,
   resolvedOnly: true,
   includeSuspect: false,
+  seller: "",
+  item: "",
+  dateFrom: "",
+  sortBy: "discount",
+  sortDir: "desc",
 }
 
 export type ListingPreview = {
@@ -666,6 +679,8 @@ export async function fetchDeals(
   filters: DealFilters = DEFAULT_DEAL_FILTERS,
   fetcher: Fetcher = fetch
 ): Promise<DealPreview[]> {
+  const usesDefaultSort = filters.sortBy === DEFAULT_DEAL_FILTERS.sortBy && filters.sortDir === DEFAULT_DEAL_FILTERS.sortDir
+
   return fetchJson<DealPreview[]>(
     buildApiPath("/api/deals", {
       server,
@@ -674,6 +689,11 @@ export async function fetchDeals(
       limit: filters.limit,
       resolved_only: filters.resolvedOnly,
       include_suspect: filters.includeSuspect,
+      seller: filters.seller?.trim() || undefined,
+      item: filters.item?.trim() || undefined,
+      date_from: filters.dateFrom?.trim() || undefined,
+      sort_by: usesDefaultSort ? undefined : filters.sortBy,
+      sort_dir: usesDefaultSort ? undefined : filters.sortDir,
     }),
     fetcher
   )

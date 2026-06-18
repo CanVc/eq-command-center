@@ -84,6 +84,11 @@ describe("page API helpers", () => {
         limit: 25,
         resolvedOnly: false,
         includeSuspect: true,
+        seller: " BigSeller ",
+        item: " crown ",
+        dateFrom: "2026-06-18",
+        sortBy: "seller",
+        sortDir: "asc",
       },
       fetcher
     )
@@ -94,7 +99,7 @@ describe("page API helpers", () => {
 
     expect(fetcher).toHaveBeenNthCalledWith(
       1,
-      "/api/deals?server=mischief&min_discount=45&min_price_pp=5000&limit=25&resolved_only=false&include_suspect=true",
+      "/api/deals?server=mischief&min_discount=45&min_price_pp=5000&limit=25&resolved_only=false&include_suspect=true&seller=BigSeller&item=crown&date_from=2026-06-18&sort_by=seller&sort_dir=asc",
       {
         headers: {
           Accept: "application/json",
