@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from eqmarket.api.db import connect_readonly
 from eqmarket.log_parser import normalize_item_name
+from eqmarket.slot_masks import decode_lucy_slot_mask
 from eqmarket.sources.tlp_auctions import PricePoint, TlpAuctionsClient, TlpAuctionsError
 
 
@@ -128,7 +129,7 @@ def search_items(
             "item_id": int(row["item_id"]),
             "name": row["name"],
             "icon_url": None,
-            "slot": row["slot"],
+            **_slot_payload(row["slot"]),
             "classes": row["classes"],
             "flags": row["flags"],
             "item_preference": row["item_preference"],
@@ -531,7 +532,7 @@ def _item_detail_payload(
         "icon_url": None,
         "icon_id": _optional_int(item["icon_id"]),
         "item_type": item["item_type"],
-        "slot": item["slot"],
+        **_slot_payload(item["slot"]),
         "classes": item["classes"],
         "races": item["races"],
         "flags": item["flags"],
@@ -558,7 +559,7 @@ def _tooltip_payload(connection: sqlite3.Connection, item: sqlite3.Row, db_serve
         "item_id": int(item["item_id"]),
         "name": item["name"],
         "icon_url": None,
-        "slot": item["slot"],
+        **_slot_payload(item["slot"]),
         "classes": item["classes"],
         "races": item["races"],
         "item_type": item["item_type"],
@@ -579,6 +580,16 @@ def _tooltip_payload(connection: sqlite3.Connection, item: sqlite3.Row, db_serve
         **last_seen,
         "effects": effects,
         "item_preference": item_preference,
+    }
+
+
+def _slot_payload(raw_slot: Any) -> dict[str, Any]:
+    decoded = decode_lucy_slot_mask(raw_slot)
+    return {
+        "slot": decoded.slot_display,
+        "slot_mask": decoded.slot_mask,
+        "slot_labels": list(decoded.slot_labels),
+        "slot_display": decoded.slot_display,
     }
 
 

@@ -369,6 +369,9 @@ export type ItemSearchResult = {
   name: string
   icon_url: string | null
   slot: string | null
+  slot_mask: number | null
+  slot_labels: string[]
+  slot_display: string | null
   classes: string | null
   flags: string | null
   item_preference: ItemPreferenceStatus | null
@@ -441,6 +444,9 @@ export type ItemDetail = {
   icon_id: number | null
   item_type: string | null
   slot: string | null
+  slot_mask: number | null
+  slot_labels: string[]
+  slot_display: string | null
   classes: string | null
   races: string | null
   flags: string | null
@@ -501,6 +507,9 @@ export type ItemTooltip = {
   name: string
   icon_url: string | null
   slot: string | null
+  slot_mask: number | null
+  slot_labels: string[]
+  slot_display: string | null
   classes: string | null
   races: string | null
   item_type: string | null

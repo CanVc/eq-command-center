@@ -31,6 +31,10 @@ class ApiItemsTests(unittest.TestCase):
             self.assertEqual(payload[0]["item_id"], 101)
             self.assertEqual(payload[0]["name"], "Stave of Shielding")
             self.assertIsNone(payload[0]["icon_url"])
+            self.assertEqual(payload[0]["slot"], "PRIMARY")
+            self.assertEqual(payload[0]["slot_mask"], 8192)
+            self.assertEqual(payload[0]["slot_labels"], ["PRIMARY"])
+            self.assertEqual(payload[0]["slot_display"], "PRIMARY")
 
     def test_item_preference_can_be_set_listed_and_cleared(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -88,6 +92,9 @@ class ApiItemsTests(unittest.TestCase):
             self.assertEqual(payload["name"], "Stave of Shielding")
             self.assertIsNone(payload["icon_url"])
             self.assertEqual(payload["slot"], "PRIMARY")
+            self.assertEqual(payload["slot_mask"], 8192)
+            self.assertEqual(payload["slot_labels"], ["PRIMARY"])
+            self.assertEqual(payload["slot_display"], "PRIMARY")
             self.assertEqual(payload["stats"]["hp"], 55)
             self.assertEqual(payload["stats"]["str"], 4)
             self.assertEqual(payload["combat"]["damage"], 12)
@@ -95,6 +102,42 @@ class ApiItemsTests(unittest.TestCase):
             self.assertEqual(payload["combat"]["ratio"], 0.4)
             self.assertEqual(payload["effects"][0]["spell"], {"spell_id": 1806, "name": "Fungal Regrowth", "spell_type": "Beneficial", "target_type": "Self", "skill": "Alteration"})
             self.assertEqual(payload["effects"][0]["description"], "Fungal Regrowth")
+
+    def test_item_payloads_decode_multi_and_duplicate_slot_masks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            with closing(sqlite3.connect(db_path)) as connection:
+                connection.executemany(
+                    """
+                    INSERT INTO items (item_id, name, normalized_name, slot)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    [
+                        (201, "Dual Wield Test Sword", "dual wield test sword", "24576"),
+                        (202, "Paired Wrist Test Bracer", "paired wrist test bracer", "1536"),
+                    ],
+                )
+                connection.commit()
+            app = create_app(db_path)
+
+            with TestClient(app) as client:
+                detail_response = client.get("/api/items/201")
+                search_response = client.get("/api/items/search", params={"q": "paired wrist"})
+
+            self.assertEqual(detail_response.status_code, 200, detail_response.text)
+            detail_payload = detail_response.json()
+            self.assertEqual(detail_payload["slot"], "PRIMARY / SECONDARY")
+            self.assertEqual(detail_payload["slot_mask"], 24576)
+            self.assertEqual(detail_payload["slot_labels"], ["PRIMARY", "SECONDARY"])
+            self.assertEqual(detail_payload["slot_display"], "PRIMARY / SECONDARY")
+
+            self.assertEqual(search_response.status_code, 200, search_response.text)
+            search_payload = search_response.json()[0]
+            self.assertEqual(search_payload["slot"], "WRIST")
+            self.assertEqual(search_payload["slot_mask"], 1536)
+            self.assertEqual(search_payload["slot_labels"], ["WRIST"])
+            self.assertEqual(search_payload["slot_display"], "WRIST")
 
     def test_prices_return_market_payload_with_reference_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -223,6 +266,9 @@ class ApiItemsTests(unittest.TestCase):
             self.assertEqual(payload["name"], "Stave of Shielding")
             self.assertIsNone(payload["icon_url"])
             self.assertEqual(payload["slot"], "PRIMARY")
+            self.assertEqual(payload["slot_mask"], 8192)
+            self.assertEqual(payload["slot_labels"], ["PRIMARY"])
+            self.assertEqual(payload["slot_display"], "PRIMARY")
             self.assertEqual(payload["classes"], "WAR PAL RNG SHD MNK BRD ROG")
             self.assertEqual(payload["ac"], 12)
             self.assertEqual(payload["hp"], 55)
@@ -291,7 +337,7 @@ def _seed_items_fixture(db_path: Path) -> dict[str, int]:
                     "Stave of Shielding",
                     "stave of shielding",
                     "weapon",
-                    "PRIMARY",
+                    "8192",
                     "WAR PAL RNG SHD MNK BRD ROG",
                     "ALL",
                     12,
@@ -329,7 +375,7 @@ def _seed_items_fixture(db_path: Path) -> dict[str, int]:
                     "Runed Crown",
                     "runed crown",
                     "armor",
-                    "HEAD",
+                    "4",
                     "ALL",
                     "ALL",
                     20,
@@ -367,7 +413,7 @@ def _seed_items_fixture(db_path: Path) -> dict[str, int]:
                     "Other Server Item",
                     "other server item",
                     "armor",
-                    "CHEST",
+                    "131072",
                     "ALL",
                     "ALL",
                     1,

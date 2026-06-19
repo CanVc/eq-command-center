@@ -136,11 +136,50 @@ class ApiContractTests(unittest.TestCase):
                 }.issubset(listing)
             )
 
-            self.assertTrue({"item_id", "name", "icon_url", "slot", "classes", "flags"}.issubset(search.json()[0]))
-            self.assertTrue({"item_id", "name", "icon_url", "stats", "combat", "levels", "effects"}.issubset(item.json()))
+            self.assertTrue(
+                {
+                    "item_id",
+                    "name",
+                    "icon_url",
+                    "slot",
+                    "slot_mask",
+                    "slot_labels",
+                    "slot_display",
+                    "classes",
+                    "flags",
+                }.issubset(search.json()[0])
+            )
+            self.assertTrue(
+                {
+                    "item_id",
+                    "name",
+                    "icon_url",
+                    "slot",
+                    "slot_mask",
+                    "slot_labels",
+                    "slot_display",
+                    "stats",
+                    "combat",
+                    "levels",
+                    "effects",
+                }.issubset(item.json())
+            )
             self.assertTrue({"item_id", "server", "market_price_pp", "median_pp", "avg_pp", "sample_size"}.issubset(prices.json()))
             self.assertTrue({"listed_item_name", "raw_line", "resolved"}.issubset(item_listings.json()[0]))
-            self.assertTrue({"item_id", "name", "icon_url", "market_price_pp", "last_seen_pp", "effects"}.issubset(tooltip.json()))
+            self.assertTrue(
+                {
+                    "item_id",
+                    "name",
+                    "icon_url",
+                    "slot",
+                    "slot_mask",
+                    "slot_labels",
+                    "slot_display",
+                    "market_price_pp",
+                    "last_seen_pp",
+                    "effects",
+                }.issubset(tooltip.json())
+            )
 
     def test_interface_log_parse_issues_returns_persisted_import_issues(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -170,7 +209,7 @@ def _seed_contract_fixture(db_path: Path) -> None:
         connection.execute(
             """
             INSERT INTO items (item_id, name, normalized_name, slot, classes, flags)
-            VALUES (101, 'Contract Sword', 'contract sword', 'PRIMARY', 'WAR PAL', 'MAGIC')
+            VALUES (101, 'Contract Sword', 'contract sword', '8192', 'WAR PAL', 'MAGIC')
             """
         )
         connection.execute(
