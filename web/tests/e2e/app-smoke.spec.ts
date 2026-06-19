@@ -19,7 +19,7 @@ test("navigates main pages and stores the active server", async ({ page }) => {
   await expect(page).toHaveTitle(/EQ Command Center/)
   await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible()
 
-  for (const label of ["Deals", "Market", "Items", "Interface", "Settings"]) {
+  for (const label of ["Deals", "Market", "Items", "Characters", "Interface", "Settings"]) {
     await page.getByRole("link", { name: label }).click()
     await expect(page.getByRole("heading", { name: label, exact: true })).toBeVisible()
   }
@@ -675,6 +675,14 @@ async function fulfillApi(route: Route) {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify(buildDeals(url)),
+    })
+    return
+  }
+
+  if (url.pathname === "/api/characters") {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify([]),
     })
     return
   }

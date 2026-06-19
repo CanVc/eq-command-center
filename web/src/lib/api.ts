@@ -502,6 +502,168 @@ export type ItemDetailPageData = {
   kronoLatest: KronoLatest
 }
 
+export type CharacterInventoryArea = "carried" | "bank" | "shared_bank" | "all"
+
+export type CharacterImport = {
+  inventory_import_id: number
+  character_name: string
+  server: string | null
+  source_file: string | null
+  source_hash: string | null
+  source_size_bytes: number | null
+  parser_version: string | null
+  rows_seen: number
+  rows_imported: number
+  equipment_items_imported: number
+  inventory_items_imported: number
+  starter_items_seen: number
+  empty_rows_skipped: number
+  status: string
+  error: string | null
+  imported_at: string
+  age_seconds: number | null
+}
+
+export type CharacterSummary = {
+  character_name: string
+  name: string
+  server: string | null
+  character_class: string | null
+  level: number | null
+  notes: string | null
+  created_at: string | null
+  updated_at: string | null
+  last_imported_at: string | null
+  last_import: CharacterImport | null
+  freshness: {
+    imported: boolean
+    last_imported_at: string | null
+    age_seconds: number | null
+  }
+  equipment_item_count: number
+  inventory_item_count: number
+  inventory_quantity: number
+  starter_item_count: number
+  distinct_item_count: number
+  unenriched_item_count: number
+  unpriced_item_count: number
+}
+
+export type CharacterItemPrice = {
+  market_price_pp: number | null
+  market_price_source: string | null
+  median_pp: number | null
+  p25_pp: number | null
+  p75_pp: number | null
+  avg_pp: number | null
+  min_pp: number | null
+  max_pp: number | null
+  sample_size: number | null
+  confidence: string | null
+  last_refresh_at: string | null
+  source: string | null
+}
+
+export type CharacterInventoryItemDetail = {
+  item_id: number | null
+  name: string
+  raw_item_name: string | null
+  imported_name: string | null
+  normalized_name: string | null
+  icon_url: string | null
+  icon_id: number | null
+  item_type: string | null
+  slot: string | null
+  slot_mask: number | null
+  slot_labels: string[]
+  slot_display: string | null
+  classes: string | null
+  races: string | null
+  flags: string | null
+  quantity: number
+  stats: ItemStats
+  combat: ItemCombat
+  levels: ItemLevels
+  source_primary: string | null
+  last_imported_at: string | null
+  enriched: boolean
+  enrichment_status: string
+  is_starter_item: boolean
+  is_no_trade_import: boolean
+  is_container?: boolean
+  is_augment: boolean
+  augment_parent_location: string | null
+  has_price: boolean
+  price: CharacterItemPrice
+}
+
+export type CharacterEquipmentItem = CharacterInventoryItemDetail & {
+  raw_location: string | null
+}
+
+export type CharacterEquipmentSlot = {
+  slot_key: string
+  slot: string
+  slot_index: number
+  label: string
+  item: CharacterEquipmentItem | null
+}
+
+export type CharacterEquipmentResponse = {
+  character_name: string
+  server: string | null
+  last_import: CharacterImport | null
+  slot_order: string[]
+  slots: Record<string, CharacterEquipmentSlot>
+}
+
+export type CharacterInventoryLocation = {
+  inventory_item_id: number
+  area: CharacterInventoryArea
+  raw_location: string | null
+  parent_location: string | null
+  location_index: number | null
+  location_slot_index: number | null
+  quantity: number
+  raw_item_name: string | null
+  is_container: boolean
+  is_starter_item: boolean
+  is_augment: boolean
+  augment_parent_location: string | null
+}
+
+export type CharacterInventoryGroup = {
+  item_id: number | null
+  item_name: string
+  name: string
+  quantity: number
+  areas: CharacterInventoryArea[]
+  area_quantities: Partial<Record<CharacterInventoryArea, number>>
+  raw_item_names: string[]
+  is_starter_item: boolean
+  is_no_trade_import: boolean
+  is_container: boolean
+  is_augment: boolean
+  has_price: boolean
+  enriched: boolean
+  enrichment_status: string
+  locations: CharacterInventoryLocation[] | null
+  item: CharacterInventoryItemDetail
+}
+
+export type CharacterInventoryResponse = {
+  character_name: string
+  server: string | null
+  area: CharacterInventoryArea
+  available_areas: Exclude<CharacterInventoryArea, "all">[]
+  include_locations: boolean
+  last_import: CharacterImport | null
+  item_count: number
+  location_count: number
+  total_quantity: number
+  items: CharacterInventoryGroup[]
+}
+
 export type ItemTooltip = {
   item_id: number
   name: string
@@ -859,6 +1021,41 @@ export async function fetchItemDetailPageData(
   ])
 
   return { item, price, listings, tlpHistory, kronoLatest }
+}
+
+export async function fetchCharacters(
+  server: string,
+  fetcher: Fetcher = fetch
+): Promise<CharacterSummary[]> {
+  return fetchJson<CharacterSummary[]>(
+    buildApiPath("/api/characters", {
+      server,
+    }),
+    fetcher
+  )
+}
+
+export async function fetchCharacterEquipment(
+  characterName: string,
+  fetcher: Fetcher = fetch
+): Promise<CharacterEquipmentResponse> {
+  return fetchJson<CharacterEquipmentResponse>(
+    `/api/characters/${encodeURIComponent(characterName)}/equipment`,
+    fetcher
+  )
+}
+
+export async function fetchCharacterInventory(
+  characterName: string,
+  area: CharacterInventoryArea = "all",
+  fetcher: Fetcher = fetch
+): Promise<CharacterInventoryResponse> {
+  return fetchJson<CharacterInventoryResponse>(
+    buildApiPath(`/api/characters/${encodeURIComponent(characterName)}/inventory`, {
+      area,
+    }),
+    fetcher
+  )
 }
 
 export async function fetchItemTooltip(

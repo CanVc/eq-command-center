@@ -11,6 +11,7 @@ import {
   Settings,
   SlidersHorizontal,
   Sun,
+  UsersRound,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -53,6 +54,7 @@ const NAV_ICONS: Record<AppPageId, ReactNode> = {
   deals: <BarChart3 aria-hidden="true" />,
   market: <ListFilter aria-hidden="true" />,
   items: <Search aria-hidden="true" />,
+  characters: <UsersRound aria-hidden="true" />,
   interface: <SlidersHorizontal aria-hidden="true" />,
   settings: <Settings aria-hidden="true" />,
 }

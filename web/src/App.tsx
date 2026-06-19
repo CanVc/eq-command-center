@@ -18,6 +18,7 @@ import {
   DEFAULT_MARKET_LISTING_FILTERS,
   discardListing,
   discardSimilarListings,
+  fetchCharacters,
   fetchDashboardSummary,
   fetchDeals,
   fetchInterfacePageData,
@@ -34,6 +35,7 @@ import {
   startTlpPriceRefreshJob,
   updateItemPreference,
   updateListingItemPreference,
+  type CharacterSummary,
   type DashboardSummary,
   type DealFilters,
   type DealPreview,
@@ -76,6 +78,7 @@ import {
   saveTlpMaxAgeMinutes,
 } from "@/lib/tlp-refresh-preference"
 import { formatTime } from "@/lib/format"
+import { CharactersPage } from "@/pages/characters-page"
 import { DashboardPage } from "@/pages/dashboard-page"
 import { DealsPage } from "@/pages/deals-page"
 import { InterfacePage } from "@/pages/interface-page"
@@ -88,6 +91,7 @@ type PageData =
   | { page: "deals"; payload: DealPreview[] }
   | { page: "market"; payload: ListingPreview[] }
   | { page: "items"; payload: ItemSearchResult[] }
+  | { page: "characters"; payload: CharacterSummary[] }
   | { page: "interface"; payload: InterfacePageData }
   | { page: "item-detail"; payload: ItemDetailPageData }
   | { page: "settings"; payload: SettingsStatusResponse }
@@ -532,6 +536,8 @@ async function fetchPageData(
       return { page, payload: await fetchMarketListings(server, marketListingFilters) }
     case "items":
       return { page, payload: await fetchItemSearchPreview(server) }
+    case "characters":
+      return { page, payload: await fetchCharacters(server) }
     case "interface":
       return { page, payload: await fetchInterfacePageData(server, tlpMaxAgeMinutes) }
     case "settings":
@@ -758,6 +764,8 @@ function PageContent({
       )
     case "items":
       return <ItemsPage items={data.payload} server={server} />
+    case "characters":
+      return <CharactersPage characters={data.payload} server={server} />
     case "interface":
       return (
         <InterfacePage

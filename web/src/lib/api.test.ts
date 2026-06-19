@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from "vitest"
 import {
   browseEqLogPath,
   buildApiPath,
+  fetchCharacterEquipment,
+  fetchCharacterInventory,
+  fetchCharacters,
   fetchDeals,
   fetchDashboardSummary,
   fetchHealth,
@@ -602,6 +605,78 @@ describe("page API helpers", () => {
         },
       }
     )
+  })
+
+  it("fetches characters, equipment, and filtered inventory", async () => {
+    const charactersPayload = [
+      {
+        character_name: "Dreadbank",
+        name: "Dreadbank",
+        server: "frostreaver",
+        character_class: "Shadow Knight",
+        level: 60,
+        notes: null,
+        created_at: "2026-06-16T09:00:00",
+        updated_at: "2026-06-16T10:00:00",
+        last_imported_at: "2026-06-16T10:00:00",
+        last_import: null,
+        freshness: { imported: true, last_imported_at: "2026-06-16T10:00:00", age_seconds: 60 },
+        equipment_item_count: 2,
+        inventory_item_count: 3,
+        inventory_quantity: 12,
+        starter_item_count: 1,
+        distinct_item_count: 4,
+        unenriched_item_count: 1,
+        unpriced_item_count: 2,
+      },
+    ]
+    const equipmentPayload = {
+      character_name: "Dreadbank",
+      server: "frostreaver",
+      last_import: null,
+      slot_order: ["EAR_1", "EAR_2"],
+      slots: {
+        EAR_1: { slot_key: "EAR_1", slot: "EAR", slot_index: 1, label: "Ear 1", item: null },
+        EAR_2: { slot_key: "EAR_2", slot: "EAR", slot_index: 2, label: "Ear 2", item: null },
+      },
+    }
+    const inventoryPayload = {
+      character_name: "Dreadbank",
+      server: "frostreaver",
+      area: "bank",
+      available_areas: ["carried", "bank", "shared_bank"],
+      include_locations: false,
+      last_import: null,
+      item_count: 1,
+      location_count: 1,
+      total_quantity: 10,
+      items: [],
+    }
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(charactersPayload))
+      .mockResolvedValueOnce(jsonResponse(equipmentPayload))
+      .mockResolvedValueOnce(jsonResponse(inventoryPayload))
+
+    await expect(fetchCharacters("mischief", fetcher)).resolves.toEqual(charactersPayload)
+    await expect(fetchCharacterEquipment("Dread Bank", fetcher)).resolves.toEqual(equipmentPayload)
+    await expect(fetchCharacterInventory("Dread Bank", "bank", fetcher)).resolves.toEqual(inventoryPayload)
+
+    expect(fetcher).toHaveBeenNthCalledWith(1, "/api/characters?server=mischief", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/characters/Dread%20Bank/equipment", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(3, "/api/characters/Dread%20Bank/inventory?area=bank", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
   })
 
   it("fetches item detail page data from item, price, listings, and Krono endpoints", async () => {
