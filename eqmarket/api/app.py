@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from eqmarket.api.db import resolve_db_path
+from eqmarket.api.routes.characters import router as characters_router
 from eqmarket.api.routes.dashboard import router as dashboard_router
 from eqmarket.api.routes.deals import router as deals_router
 from eqmarket.api.routes.interface import router as interface_router
@@ -65,6 +66,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             "db_path": str(app.state.db_path),
         }
 
+    app.include_router(characters_router)
     app.include_router(dashboard_router)
     app.include_router(deals_router)
     app.include_router(interface_router)

@@ -54,6 +54,7 @@ def main() -> int:
         ("listings", "/api/listings/recent", {"server": args.server, "limit": 5}),
         ("deals", "/api/deals", {"server": args.server, "limit": 5}),
         ("item_search", "/api/items/search", {"q": args.search}),
+        ("characters", "/api/characters", {}),
     ]
 
     app = create_app(db_path)
