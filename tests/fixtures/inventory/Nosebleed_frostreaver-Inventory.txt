@@ -1,0 +1,30 @@
+Location	Name	ID	Count	Slots
+Charm	Empty	0	0	0
+Ear	Empty	0	0	0
+Head	Empty	0	0	0
+Face	Empty	0	0	0
+Ear	Empty	0	0	0
+Neck	Empty	0	0	0
+Shoulders	Empty	0	0	0
+Arms	Empty	0	0	0
+Back	Empty	0	0	0
+Wrist	Empty	0	0	0
+Wrist	Empty	0	0	0
+Range	Empty	0	0	0
+Hands	Empty	0	0	0
+Primary	Empty	0	0	0
+Secondary	Empty	0	0	0
+Fingers	Empty	0	0	0
+Fingers	Empty	0	0	0
+Chest	Empty	0	0	0
+Legs	Empty	0	0	0
+Feet	Empty	0	0	0
+Waist	Empty	0	0	0
+Power Source	Empty	0	0	0
+Ammo	Empty	0	0	0
+General 1	Empty	0	0	0
+General 1-Slot1	Empty	0	0	0
+Bank1	Empty	0	0	0
+Bank1-Slot1	Empty	0	0	0
+SharedBank1	Empty	0	0	0
+SharedBank1-Slot1	Empty	0	0	0

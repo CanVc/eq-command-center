@@ -21,6 +21,10 @@ def init_db(db_path: Path) -> None:
 
     with closing(sqlite3.connect(db_path)) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
+        # Legacy databases may already have character_equipment without the
+        # inventory columns. Add them before replaying the full schema because
+        # the schema now creates an index on inventory_import_id.
+        _ensure_character_equipment_inventory_columns(connection)
         connection.executescript(schema_sql)
         connection.commit()
 
@@ -30,7 +34,23 @@ def init_db(db_path: Path) -> None:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.executescript(schema_sql)
 
+        _ensure_character_equipment_inventory_columns(connection)
+
         connection.commit()
+
+
+CHARACTER_EQUIPMENT_INVENTORY_COLUMNS = {
+    "raw_item_name": "TEXT",
+    "normalized_item_name": "TEXT",
+    "inventory_import_id": "INTEGER",
+    "server": "TEXT",
+    "raw_location": "TEXT",
+    "quantity": "INTEGER NOT NULL DEFAULT 1",
+    "slots": "TEXT",
+    "is_starter_item": "INTEGER NOT NULL DEFAULT 0",
+    "is_augment": "INTEGER NOT NULL DEFAULT 0",
+    "augment_parent_location": "TEXT",
+}
 
 
 def _items_table_has_name_uniques(connection: sqlite3.Connection) -> bool:
@@ -100,6 +120,29 @@ def _rebuild_items_table_without_name_uniques(connection: sqlite3.Connection, sc
         raise
     finally:
         connection.execute("PRAGMA foreign_keys = ON")
+
+
+def _ensure_character_equipment_inventory_columns(connection: sqlite3.Connection) -> None:
+    row = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'character_equipment'"
+    ).fetchone()
+    if row is None:
+        return
+
+    existing_columns = set(_table_columns(connection, "character_equipment"))
+    for column_name, column_definition in CHARACTER_EQUIPMENT_INVENTORY_COLUMNS.items():
+        if column_name in existing_columns:
+            continue
+        connection.execute(
+            f"ALTER TABLE character_equipment ADD COLUMN {_quote_identifier(column_name)} {column_definition}"
+        )
+
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_character_equipment_import_id
+            ON character_equipment(inventory_import_id)
+        """
+    )
 
 
 def _items_create_table_sql(schema_sql: str, table_name: str) -> str:

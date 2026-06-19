@@ -31,6 +31,9 @@ VALUES (4, 'Add persistent market listing discard rules');
 INSERT OR IGNORE INTO schema_version (version, description)
 VALUES (5, 'Add per-server item interest preferences');
 
+INSERT OR IGNORE INTO schema_version (version, description)
+VALUES (6, 'Add character inventory dump imports and current inventory state');
+
 -- -----------------------------------------------------------------------------
 -- Items
 -- -----------------------------------------------------------------------------
@@ -470,6 +473,39 @@ CREATE TABLE IF NOT EXISTS characters (
     updated_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS inventory_imports (
+    inventory_import_id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    character_name TEXT NOT NULL,
+    server TEXT NOT NULL,
+    source_file TEXT NOT NULL,
+    source_hash TEXT NOT NULL,
+    source_size_bytes INTEGER,
+    parser_version TEXT NOT NULL,
+
+    rows_seen INTEGER NOT NULL DEFAULT 0,
+    rows_imported INTEGER NOT NULL DEFAULT 0,
+    equipment_items_imported INTEGER NOT NULL DEFAULT 0,
+    inventory_items_imported INTEGER NOT NULL DEFAULT 0,
+    starter_items_seen INTEGER NOT NULL DEFAULT 0,
+    empty_rows_skipped INTEGER NOT NULL DEFAULT 0,
+
+    status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('completed', 'failed')),
+    error TEXT,
+    imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (character_name) REFERENCES characters(character_name) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_imports_character_imported
+    ON inventory_imports(character_name, imported_at);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_imports_server_character
+    ON inventory_imports(server, character_name);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_imports_source_hash
+    ON inventory_imports(source_hash);
+
 -- slot_index handles duplicate slots: WRIST, FINGER, EAR, etc.
 CREATE TABLE IF NOT EXISTS character_equipment (
     character_name TEXT NOT NULL,
@@ -478,6 +514,17 @@ CREATE TABLE IF NOT EXISTS character_equipment (
 
     item_id INTEGER,
     item_name TEXT,
+    raw_item_name TEXT,
+    normalized_item_name TEXT,
+
+    inventory_import_id INTEGER,
+    server TEXT,
+    raw_location TEXT,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    slots TEXT,
+    is_starter_item INTEGER NOT NULL DEFAULT 0,
+    is_augment INTEGER NOT NULL DEFAULT 0,
+    augment_parent_location TEXT,
 
     ac INTEGER,
     hp INTEGER,
@@ -507,11 +554,59 @@ CREATE TABLE IF NOT EXISTS character_equipment (
 
     PRIMARY KEY (character_name, slot, slot_index),
     FOREIGN KEY (character_name) REFERENCES characters(character_name) ON DELETE CASCADE,
+    FOREIGN KEY (inventory_import_id) REFERENCES inventory_imports(inventory_import_id) ON DELETE SET NULL,
     FOREIGN KEY (item_id) REFERENCES items(item_id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_character_equipment_item_id
     ON character_equipment(item_id);
+
+CREATE INDEX IF NOT EXISTS idx_character_equipment_import_id
+    ON character_equipment(inventory_import_id);
+
+CREATE TABLE IF NOT EXISTS character_inventory_items (
+    inventory_item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    character_name TEXT NOT NULL,
+    server TEXT NOT NULL,
+    inventory_import_id INTEGER NOT NULL,
+
+    area TEXT NOT NULL CHECK (area IN ('carried', 'bank', 'shared_bank', 'equipped')),
+    raw_location TEXT NOT NULL,
+    parent_location TEXT,
+    location_index INTEGER,
+    location_slot_index INTEGER,
+
+    item_id INTEGER NOT NULL,
+    item_name TEXT NOT NULL,
+    raw_item_name TEXT NOT NULL,
+    normalized_item_name TEXT NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    slots TEXT,
+
+    is_container INTEGER NOT NULL DEFAULT 0,
+    is_starter_item INTEGER NOT NULL DEFAULT 0,
+    is_augment INTEGER NOT NULL DEFAULT 0,
+    augment_parent_location TEXT,
+
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (character_name) REFERENCES characters(character_name) ON DELETE CASCADE,
+    FOREIGN KEY (inventory_import_id) REFERENCES inventory_imports(inventory_import_id) ON DELETE CASCADE,
+    FOREIGN KEY (item_id) REFERENCES items(item_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_character_inventory_items_character_area
+    ON character_inventory_items(character_name, area);
+
+CREATE INDEX IF NOT EXISTS idx_character_inventory_items_server_character
+    ON character_inventory_items(server, character_name);
+
+CREATE INDEX IF NOT EXISTS idx_character_inventory_items_item_id
+    ON character_inventory_items(item_id);
+
+CREATE INDEX IF NOT EXISTS idx_character_inventory_items_import_id
+    ON character_inventory_items(inventory_import_id);
 
 CREATE TABLE IF NOT EXISTS scoring_profiles (
     profile_name TEXT PRIMARY KEY,

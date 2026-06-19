@@ -5,6 +5,7 @@ from pathlib import Path
 
 from eqmarket.db import init_db
 from eqmarket.enrichment import enrich_pending_items
+from eqmarket.inventory_importer import import_inventory_dump
 from eqmarket.local_settings import get_configured_log_path
 from eqmarket.log_importer import import_log_file, parse_log_file
 from eqmarket.price_importer import import_tlp_prices, load_recent_listing_item_ids
@@ -27,6 +28,12 @@ def build_parser() -> argparse.ArgumentParser:
     api_parser.add_argument("--db", help="SQLite database path (default: data/eqmarket.sqlite or EQMARKET_DB_PATH)")
     api_parser.add_argument("--host", default="127.0.0.1", help="Loopback host to bind")
     api_parser.add_argument("--port", type=int, default=8000, help="TCP port to bind")
+
+    inventory_parser = subparsers.add_parser("import-inventory", help="Import an EverQuest inventory dump")
+    inventory_parser.add_argument("--file", required=True, help="Path to <Character>_<server>-Inventory.txt")
+    inventory_parser.add_argument("--db", default="data/eqmarket.sqlite", help="SQLite database path")
+    inventory_parser.add_argument("--character", help="Character name (defaults to the inventory filename prefix)")
+    inventory_parser.add_argument("--server", help="Server name (defaults to the inventory filename suffix)")
 
     log_parser = subparsers.add_parser("import-log", help="Parse an EverQuest log file into market listings")
     log_parser.add_argument("--log", help="Path to eqlog_*.txt (defaults to the path saved in Settings)")
@@ -116,6 +123,25 @@ def main() -> None:
         app = create_app(args.db)
         print(f"Serving API on http://{args.host}:{args.port} with database: {app.state.db_path}")
         uvicorn.run(app, host=args.host, port=args.port)
+    elif args.command == "import-inventory":
+        try:
+            stats = import_inventory_dump(
+                Path(args.db),
+                Path(args.file),
+                character_name=args.character,
+                server=args.server,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+        print(
+            "Imported inventory: "
+            f"import_id={stats.inventory_import_id}, character={stats.character_name}, server={stats.server}, "
+            f"rows_seen={stats.rows_seen}, rows_imported={stats.rows_imported}, "
+            f"empty_rows_skipped={stats.empty_rows_skipped}, starter_items={stats.starter_items_seen}, "
+            f"equipment={stats.equipment_items_imported}, inventory={stats.inventory_items_imported}, "
+            f"item_stubs={stats.item_stubs_upserted}, pending_items={stats.pending_items_upserted}, "
+            f"source_hash={stats.source_hash}"
+        )
     elif args.command == "import-log":
         db_path = Path(args.db)
         log_path = _resolve_required_log_path(args.log, db_path, parser)

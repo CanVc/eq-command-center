@@ -1,0 +1,18 @@
+Location	Name	ID	Count	Slots
+Head	Nathsar Helm	5732	1	6
+Ear	Pearl Earring*	1001	1	18
+Ear	Black Sapphire Electrum Earring	1002	1	18
+Wrist	Bracelet of Woven Grass	1003	1	1536
+Wrist	Runed Bone Bracelet	1004	1	1536
+Fingers	Golden Ring	1005	1	98304
+Fingers	Silver Ring	1006	1	98304
+Primary	Fine Steel Long Sword	1007	1	8192
+General 1	Ethereal Dreamweave Satchel	52141	1	20
+General 1-Slot1	Coral Crescent	25817	2	6
+General 1-Slot2	Training Dagger*	9001	1	8192
+Bank1	Raw Hide	97860	6	6
+Bank1-Slot1	Banked Gem	97861	3	6
+SharedBank1	Shared Satchel	7001	1	10
+SharedBank1-Slot1	Shared Gem	7002	4	6
+Head-Aug1	Tiny Augment	8001	1	0
+General 1-Slot3	Empty	0	0	0

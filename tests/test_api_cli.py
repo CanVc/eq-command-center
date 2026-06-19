@@ -11,3 +11,10 @@ class ApiCliTests(unittest.TestCase):
 
         self.assertEqual(args.host, "127.0.0.1")
         self.assertEqual(args.port, 8000)
+
+    def test_import_inventory_accepts_file_with_optional_character_server(self) -> None:
+        args = build_parser().parse_args(["import-inventory", "--file", "Dreadnought_frostreaver-Inventory.txt"])
+
+        self.assertEqual(args.file, "Dreadnought_frostreaver-Inventory.txt")
+        self.assertIsNone(args.character)
+        self.assertIsNone(args.server)
