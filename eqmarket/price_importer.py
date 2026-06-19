@@ -35,6 +35,7 @@ class TlpPriceImportStats:
     krono_updated: bool = False
     krono_price_pp: int | None = None
     krono_listings_converted: int = 0
+    inventory_items_targeted: int = 0
 
 
 @dataclass(frozen=True)
@@ -106,6 +107,25 @@ COALESCE(
 )
 """
 
+INVENTORY_EXCLUDED_NORMALIZED_NAMES = {
+    "water flask",
+    "ration",
+    "iron ration",
+    "muffin",
+    "loaf of bread",
+    "bottle of milk",
+    "short beer",
+}
+
+INVENTORY_EXCLUDED_NAME_PATTERNS = (
+    "% ration",
+    "% rations",
+    "%water flask%",
+    "%fish rolls%",
+)
+
+INVENTORY_EXCLUDED_ITEM_TYPES = {"food", "drink", "container", "bag"}
+
 
 def refresh_krono_price(db_path: Path, server: str) -> TlpPriceImportStats:
     """Refresh only the cached Krono price for a server from TLP Auctions."""
@@ -136,31 +156,103 @@ def load_recent_listing_item_ids(
     *,
     max_age_hours: float | None = None,
 ) -> list[int]:
-    """Return recent listing item ids, optionally only missing/stale TLP prices."""
+    """Return recent listing then inventory item ids needing TLP price refresh.
+
+    Market-listing ordering is kept first for backward compatibility; inventory
+    ownership targets fill any remaining slots up to ``limit``.
+    """
+    if limit <= 0:
+        return []
+
     db_server = db_server_name(server)
+    with closing(sqlite3.connect(db_path)) as connection:
+        listing_item_ids = _load_recent_market_listing_item_ids(
+            connection,
+            db_server,
+            limit,
+            max_age_hours=max_age_hours,
+        )
+        remaining = max(limit - len(listing_item_ids), 0)
+        if remaining == 0:
+            return listing_item_ids
+
+        inventory_item_ids = _load_recent_inventory_item_ids(
+            connection,
+            db_server,
+            remaining,
+            max_age_hours=max_age_hours,
+            exclude_item_ids=set(listing_item_ids),
+        )
+    return [*listing_item_ids, *inventory_item_ids]
+
+
+def _load_recent_market_listing_item_ids(
+    connection: sqlite3.Connection,
+    db_server: str,
+    limit: int,
+    *,
+    max_age_hours: float | None,
+) -> list[int]:
     freshness_filter, freshness_params = _stale_price_filter(max_age_hours)
     params: list[object] = [db_server, *freshness_params, limit]
-
-    with closing(sqlite3.connect(db_path)) as connection:
-        rows = connection.execute(
-            f"""
-            SELECT ml.item_id
-            FROM market_listings ml
-            LEFT JOIN items i
-                ON i.item_id = ml.item_id
-            LEFT JOIN market_prices mp
-                ON mp.item_id = ml.item_id AND lower(mp.server) = lower(ml.server)
-            WHERE lower(ml.server) = ?
-              AND ml.item_id IS NOT NULL
-              AND ml.price_pp IS NOT NULL
-              AND COALESCE({LISTING_ITEM_PREFERENCE_EXPRESSION}, 'neutral') != 'ignored'
+    rows = connection.execute(
+        f"""
+        SELECT ml.item_id
+        FROM market_listings ml
+        LEFT JOIN items i
+            ON i.item_id = ml.item_id
+        LEFT JOIN market_prices mp
+            ON mp.item_id = ml.item_id AND lower(mp.server) = lower(ml.server)
+        WHERE lower(ml.server) = ?
+          AND ml.item_id IS NOT NULL
+          AND ml.price_pp IS NOT NULL
+          AND COALESCE({LISTING_ITEM_PREFERENCE_EXPRESSION}, 'neutral') != 'ignored'
 {freshness_filter}
-            GROUP BY ml.item_id
-            ORDER BY max(ml.timestamp) DESC, max(ml.listing_id) DESC
-            LIMIT ?
-            """,
-            params,
-        ).fetchall()
+        GROUP BY ml.item_id
+        ORDER BY max(ml.timestamp) DESC, max(ml.listing_id) DESC
+        LIMIT ?
+        """,
+        params,
+    ).fetchall()
+    return [int(row[0]) for row in rows]
+
+
+def _load_recent_inventory_item_ids(
+    connection: sqlite3.Connection,
+    db_server: str,
+    limit: int,
+    *,
+    max_age_hours: float | None,
+    exclude_item_ids: set[int] | None = None,
+) -> list[int]:
+    if limit <= 0:
+        return []
+
+    freshness_filter, freshness_params = _stale_price_filter(max_age_hours)
+    exclusions = sorted(exclude_item_ids or set())
+    exclusion_filter = ""
+    if exclusions:
+        placeholders = ", ".join("?" for _ in exclusions)
+        exclusion_filter = f"AND inv.item_id NOT IN ({placeholders})"
+
+    rows = connection.execute(
+        f"""
+        {_inventory_targets_cte()}
+        SELECT inv.item_id
+        FROM inventory_targets inv
+        LEFT JOIN items i
+            ON i.item_id = inv.item_id
+        LEFT JOIN market_prices mp
+            ON mp.item_id = inv.item_id AND lower(mp.server) = ?
+        WHERE {_inventory_refreshable_where_clause()}
+{freshness_filter}
+          {exclusion_filter}
+        GROUP BY inv.item_id
+        ORDER BY max(inv.seen_at) DESC, lower(COALESCE(NULLIF(i.name, ''), inv.item_name)), inv.item_id
+        LIMIT ?
+        """,
+        [db_server, db_server, db_server, db_server, *freshness_params, *exclusions, limit],
+    ).fetchall()
     return [int(row[0]) for row in rows]
 
 
@@ -229,14 +321,14 @@ def count_stale_listing_item_ids(
     *,
     max_age_hours: float | None = None,
 ) -> int:
-    """Return the approximate number of local listing item ids needing TLP price refresh."""
+    """Return the approximate number of local listing/inventory ids needing TLP price refresh."""
     db_server = db_server_name(server)
     freshness_filter, freshness_params = _stale_price_filter(max_age_hours)
-    params: list[object] = [db_server, *freshness_params]
 
     with closing(sqlite3.connect(db_path)) as connection:
         row = connection.execute(
             f"""
+            {_inventory_targets_cte()}
             SELECT count(*)
             FROM (
                 SELECT ml.item_id
@@ -251,9 +343,27 @@ def count_stale_listing_item_ids(
                   AND COALESCE({LISTING_ITEM_PREFERENCE_EXPRESSION}, 'neutral') != 'ignored'
 {freshness_filter}
                 GROUP BY ml.item_id
+                UNION
+                SELECT inv.item_id
+                FROM inventory_targets inv
+                LEFT JOIN items i
+                    ON i.item_id = inv.item_id
+                LEFT JOIN market_prices mp
+                    ON mp.item_id = inv.item_id AND lower(mp.server) = ?
+                WHERE {_inventory_refreshable_where_clause()}
+{freshness_filter}
+                GROUP BY inv.item_id
             ) stale_items
             """,
-            params,
+            [
+                db_server,
+                db_server,
+                db_server,
+                *freshness_params,
+                db_server,
+                db_server,
+                *freshness_params,
+            ],
         ).fetchone()
     return int(row[0]) if row else 0
 
@@ -273,6 +383,71 @@ def _stale_price_filter(max_age_hours: float | None) -> tuple[str, list[object]]
         """,
         [f"-{max_age_hours:g} hours"],
     )
+
+
+def _inventory_targets_cte() -> str:
+    return """
+        WITH inventory_targets AS (
+            SELECT
+                cii.item_id,
+                cii.normalized_item_name,
+                cii.item_name,
+                cii.created_at AS seen_at,
+                cii.is_starter_item,
+                cii.is_container
+            FROM character_inventory_items cii
+            WHERE lower(cii.server) = ?
+              AND cii.item_id IS NOT NULL
+            UNION ALL
+            SELECT
+                ce.item_id,
+                ce.normalized_item_name,
+                ce.item_name,
+                COALESCE(ii.imported_at, CURRENT_TIMESTAMP) AS seen_at,
+                ce.is_starter_item,
+                0 AS is_container
+            FROM character_equipment ce
+            LEFT JOIN inventory_imports ii
+                ON ii.inventory_import_id = ce.inventory_import_id
+            WHERE lower(ce.server) = ?
+              AND ce.item_id IS NOT NULL
+        )
+    """
+
+
+def _inventory_refreshable_where_clause() -> str:
+    ignored_name_placeholders = ", ".join(_quote_sql_literal(name) for name in sorted(INVENTORY_EXCLUDED_NORMALIZED_NAMES))
+    ignored_type_placeholders = ", ".join(_quote_sql_literal(item_type) for item_type in sorted(INVENTORY_EXCLUDED_ITEM_TYPES))
+    pattern_filters = "\n          ".join(
+        f"AND lower(COALESCE(NULLIF(i.normalized_name, ''), inv.normalized_item_name, '')) NOT LIKE {_quote_sql_literal(pattern)}"
+        for pattern in INVENTORY_EXCLUDED_NAME_PATTERNS
+    )
+    return f"""
+        inv.item_id IS NOT NULL
+          AND COALESCE(inv.is_starter_item, 0) = 0
+          AND COALESCE(inv.is_container, 0) = 0
+          AND instr(',' || COALESCE(i.flags, '') || ',', ',STARTER,') = 0
+          AND lower(COALESCE(i.item_type, '')) NOT IN ({ignored_type_placeholders})
+          AND lower(COALESCE(NULLIF(i.normalized_name, ''), inv.normalized_item_name, '')) NOT IN ({ignored_name_placeholders})
+          {pattern_filters}
+          AND NOT EXISTS (
+                SELECT 1
+                FROM item_preferences ip
+                WHERE ip.server = ?
+                  AND ip.status = 'ignored'
+                  AND (
+                        (ip.preference_key_kind = 'item_id' AND ip.preference_key = CAST(inv.item_id AS TEXT))
+                        OR (
+                            ip.preference_key_kind = 'name'
+                            AND ip.preference_key = COALESCE(NULLIF(i.normalized_name, ''), inv.normalized_item_name)
+                        )
+                  )
+              )
+    """
+
+
+def _quote_sql_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
 
 
 def import_tlp_prices(
@@ -321,6 +496,11 @@ def import_tlp_prices(
         wanted_normalized_names = _load_wanted_normalized_names(connection, db_server)
         explicit_item_ids = set(item_id_list or [])
         initial_target_item_ids = _load_target_item_ids(connection, db_server, item_id_list)
+        stats.inventory_items_targeted = _count_inventory_target_item_ids(
+            connection,
+            db_server,
+            initial_target_item_ids,
+        )
         target_normalized_names = _load_normalized_names_for_item_ids(connection, initial_target_item_ids)
         relevant_normalized_names = wanted_normalized_names | set(target_normalized_names.values())
 
@@ -870,6 +1050,7 @@ def _load_target_item_ids(connection: sqlite3.Connection, db_server: str, item_i
         return set(item_ids)
     rows = connection.execute(
         f"""
+        {_inventory_targets_cte()}
         SELECT ml.item_id
         FROM market_listings ml
         LEFT JOIN items i
@@ -883,10 +1064,50 @@ def _load_target_item_ids(connection: sqlite3.Connection, db_server: str, item_i
         WHERE lower(wi.server) = ?
           AND wi.item_id IS NOT NULL
           AND COALESCE({WATCHLIST_ITEM_PREFERENCE_EXPRESSION}, 'neutral') != 'ignored'
+        UNION
+        SELECT inv.item_id
+        FROM inventory_targets inv
+        LEFT JOIN items i
+            ON i.item_id = inv.item_id
+        WHERE {_inventory_refreshable_where_clause()}
+        GROUP BY inv.item_id
         """,
-        (db_server, db_server),
+        (db_server, db_server, db_server, db_server, db_server),
     ).fetchall()
     return {int(row[0]) for row in rows if row[0] is not None}
+
+
+def _count_inventory_target_item_ids(
+    connection: sqlite3.Connection,
+    db_server: str,
+    item_ids: set[int],
+) -> int:
+    if not item_ids:
+        return 0
+
+    sorted_item_ids = sorted(item_ids)
+    total = 0
+    for start in range(0, len(sorted_item_ids), 500):
+        chunk = sorted_item_ids[start : start + 500]
+        placeholders = ", ".join("?" for _ in chunk)
+        row = connection.execute(
+            f"""
+            {_inventory_targets_cte()}
+            SELECT count(*)
+            FROM (
+                SELECT inv.item_id
+                FROM inventory_targets inv
+                LEFT JOIN items i
+                    ON i.item_id = inv.item_id
+                WHERE {_inventory_refreshable_where_clause()}
+                  AND inv.item_id IN ({placeholders})
+                GROUP BY inv.item_id
+            ) inventory_items
+            """,
+            [db_server, db_server, db_server, *chunk],
+        ).fetchone()
+        total += int(row[0]) if row else 0
+    return total
 
 
 def _link_listings_by_name(

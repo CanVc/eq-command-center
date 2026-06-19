@@ -178,7 +178,8 @@ def main() -> None:
         stats = enrich_pending_items(Path(args.db), limit=args.limit, source_server=args.source_server)
         print(
             "Enriched pending items: "
-            f"seen={stats.pending_seen}, local_items_resolved={stats.local_items_resolved}, "
+            f"seen={stats.pending_seen}, inventory_items={stats.inventory_items_seen}, "
+            f"local_items_resolved={stats.local_items_resolved}, "
             f"items_imported={stats.items_imported}, spells_imported={stats.spells_imported}, "
             f"item_effects={stats.item_effects_imported}, "
             f"listings_linked={stats.listings_linked}, not_found={stats.not_found}, failed={stats.failed}"
@@ -198,6 +199,7 @@ def main() -> None:
         print(
             "Imported TLP Auctions prices: "
             f"catalog_items_seen={stats.catalog_items_seen}, items_upserted={stats.items_upserted}, "
+            f"inventory_items_targeted={stats.inventory_items_targeted}, "
             f"listings_linked={stats.listings_linked}, catalog_prices={stats.catalog_prices_upserted}, "
             f"history_checked={stats.history_items_checked}, history_prices={stats.history_prices_upserted}, "
             f"no_price_data={stats.no_price_data}, price_refresh_failed={stats.price_refresh_failed}, "
@@ -260,7 +262,8 @@ def main() -> None:
             enrich_stats = enrich_pending_items(db_path, limit=args.enrich_limit)
             print(
                 "Enriched pending items: "
-                f"seen={enrich_stats.pending_seen}, items_imported={enrich_stats.items_imported}, "
+                f"seen={enrich_stats.pending_seen}, inventory_items={enrich_stats.inventory_items_seen}, "
+                f"items_imported={enrich_stats.items_imported}, "
                 f"listings_linked={enrich_stats.listings_linked}, not_found={enrich_stats.not_found}, failed={enrich_stats.failed}"
             )
 
@@ -289,6 +292,7 @@ def main() -> None:
                 print(
                     "Imported TLP Auctions prices: "
                     f"window={price_window}, target_items={len(recent_item_ids)}, "
+                    f"inventory_items_targeted={price_stats.inventory_items_targeted}, "
                     f"history_checked={price_stats.history_items_checked}, "
                     f"history_prices={price_stats.history_prices_upserted}, catalog_prices={price_stats.catalog_prices_upserted}, "
                     f"no_price_data={price_stats.no_price_data}, price_refresh_failed={price_stats.price_refresh_failed}, "

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,12 +23,21 @@ class EnrichPendingStats:
     listings_linked: int = 0
     not_found: int = 0
     failed: int = 0
+    inventory_items_seen: int = 0
 
 
 @dataclass(frozen=True)
 class PendingItem:
     normalized_name: str
     display_name: str
+
+
+@dataclass(frozen=True)
+class EnrichmentTarget:
+    normalized_name: str
+    display_name: str
+    item_id: int | None = None
+    source: str = "pending"
 
 
 ITEM_INT_FIELDS = {
@@ -75,24 +85,58 @@ SPELL_INT_FIELDS = {
     "durationformula": "duration_formula",
 }
 
+EQUIPMENT_ITEM_STAT_COLUMNS = (
+    "ac",
+    "hp",
+    "mana",
+    "endurance",
+    "hp_regen",
+    "mana_regen",
+    "endurance_regen",
+    "astr",
+    "asta",
+    "aagi",
+    "adex",
+    "awis",
+    "aint",
+    "acha",
+    "heroic_str",
+    "heroic_sta",
+    "heroic_agi",
+    "heroic_dex",
+    "heroic_wis",
+    "heroic_int",
+    "heroic_cha",
+)
+
 
 def enrich_pending_items(db_path: Path, limit: int = 25, source_server: str = "Live") -> EnrichPendingStats:
     init_db(db_path)
     stats = EnrichPendingStats()
     client = LucyClient(source=source_server)
 
-    with sqlite3.connect(db_path) as connection:
+    with closing(sqlite3.connect(db_path)) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
-        pending_items = _load_pending_items(connection, limit)
+        targets = _load_enrichment_targets(connection, limit)
 
-        for pending in pending_items:
+        for target in targets:
             stats.pending_seen += 1
+            if target.source == "inventory":
+                stats.inventory_items_seen += 1
+            pending = PendingItem(normalized_name=target.normalized_name, display_name=target.display_name)
             try:
-                lucy_item_ids = _lookup_lucy_item_ids_by_exact_name(client, pending.display_name)
+                if target.item_id is not None:
+                    imported_item_id = _import_lucy_item_by_id(connection, client, target.item_id, stats)
+                    for normalized_name in _target_link_names(target, imported_item_id, connection):
+                        stats.listings_linked += _link_existing_listings(connection, normalized_name)
+                    _mark_pending_resolved(connection, pending, [imported_item_id])
+                    continue
+
+                lucy_item_ids = _lookup_lucy_item_ids_by_exact_name(client, target.display_name)
                 if not lucy_item_ids:
-                    existing_item_ids = _find_existing_item_ids(connection, pending.normalized_name)
+                    existing_item_ids = _find_existing_item_ids(connection, target.normalized_name)
                     if existing_item_ids:
-                        linked = _link_existing_listings(connection, pending.normalized_name)
+                        linked = _link_existing_listings(connection, target.normalized_name)
                         stats.listings_linked += linked
                         _mark_pending_resolved(connection, pending, existing_item_ids)
                         stats.local_items_resolved += 1
@@ -103,16 +147,10 @@ def enrich_pending_items(db_path: Path, limit: int = 25, source_server: str = "L
 
                 imported_item_ids: list[int] = []
                 for item_id in lucy_item_ids:
-                    item = client.fetch_item_raw(item_id)
-                    imported_item_id = upsert_lucy_item(connection, item.fields)
+                    imported_item_id = _import_lucy_item_by_id(connection, client, item_id, stats)
                     imported_item_ids.append(imported_item_id)
-                    stats.items_imported += 1
 
-                    spells, effects = import_item_effect_spells(connection, client, item.fields, imported_item_id)
-                    stats.spells_imported += spells
-                    stats.item_effects_imported += effects
-
-                linked = _link_existing_listings(connection, pending.normalized_name)
+                linked = _link_existing_listings(connection, target.normalized_name)
                 stats.listings_linked += linked
                 _mark_pending_resolved(connection, pending, imported_item_ids)
             except LucyLookupError as exc:
@@ -122,6 +160,8 @@ def enrich_pending_items(db_path: Path, limit: int = 25, source_server: str = "L
                 # Network / TLS / timeout: keep it retryable.
                 _mark_pending_failed(connection, pending, f"Network error: {exc}")
                 stats.failed += 1
+
+        connection.commit()
 
     return stats
 
@@ -146,7 +186,7 @@ def upsert_lucy_item(connection: sqlite3.Connection, fields: dict[str, str]) -> 
         "classes": fields.get("classes"),
         "races": fields.get("races"),
         "ratio": ratio,
-        "flags": _item_flags(fields),
+        "flags": _merge_flag_values(_load_existing_item_flags(connection, item_id), _item_flags(fields)),
         "source_primary": "lucy",
         "raw_payload": raw_payload(fields),
         "parser_version": LUCY_PARSER_VERSION,
@@ -280,6 +320,55 @@ def upsert_lucy_spell(connection: sqlite3.Connection, fields: dict[str, str]) ->
     return spell_id
 
 
+def _import_lucy_item_by_id(
+    connection: sqlite3.Connection,
+    client: LucyClient,
+    item_id: int,
+    stats: EnrichPendingStats,
+) -> int:
+    item = client.fetch_item_raw(item_id)
+    fields = dict(item.fields)
+    fields.setdefault("id", str(item_id))
+    imported_item_id = upsert_lucy_item(connection, fields)
+    stats.items_imported += 1
+
+    spells, effects = import_item_effect_spells(connection, client, fields, imported_item_id)
+    stats.spells_imported += spells
+    stats.item_effects_imported += effects
+    _sync_equipment_stats_from_item(connection, imported_item_id)
+    return imported_item_id
+
+
+def _target_link_names(
+    target: EnrichmentTarget,
+    imported_item_id: int,
+    connection: sqlite3.Connection,
+) -> list[str]:
+    names = {target.normalized_name}
+    row = connection.execute(
+        "SELECT normalized_name FROM items WHERE item_id = ?",
+        (imported_item_id,),
+    ).fetchone()
+    if row and row[0]:
+        names.add(str(row[0]))
+    return sorted(name for name in names if name)
+
+
+def _sync_equipment_stats_from_item(connection: sqlite3.Connection, item_id: int) -> None:
+    row = connection.execute(
+        f"SELECT {', '.join(EQUIPMENT_ITEM_STAT_COLUMNS)} FROM items WHERE item_id = ?",
+        (item_id,),
+    ).fetchone()
+    if row is None:
+        return
+
+    assignments = ", ".join(f"{column} = ?" for column in EQUIPMENT_ITEM_STAT_COLUMNS)
+    connection.execute(
+        f"UPDATE character_equipment SET {assignments} WHERE item_id = ?",
+        (*row, item_id),
+    )
+
+
 def _lookup_lucy_item_ids_by_exact_name(client: LucyClient, display_name: str) -> list[int]:
     lookup_many = getattr(client, "lookup_item_ids_by_exact_name", None)
     if lookup_many is not None:
@@ -289,16 +378,104 @@ def _lookup_lucy_item_ids_by_exact_name(client: LucyClient, display_name: str) -
     return [item_id] if item_id is not None else []
 
 
-def _load_pending_items(connection: sqlite3.Connection, limit: int) -> list[PendingItem]:
+def _load_enrichment_targets(connection: sqlite3.Connection, limit: int) -> list[EnrichmentTarget]:
+    if limit <= 0:
+        return []
+
+    inventory_targets = _load_inventory_enrichment_targets(connection, limit)
+    if len(inventory_targets) >= limit:
+        return inventory_targets
+
+    pending_items = _load_pending_items(
+        connection,
+        limit - len(inventory_targets),
+        exclude_normalized_names={target.normalized_name for target in inventory_targets},
+    )
+    return [
+        *inventory_targets,
+        *(EnrichmentTarget(item.normalized_name, item.display_name) for item in pending_items),
+    ]
+
+
+def _load_inventory_enrichment_targets(connection: sqlite3.Connection, limit: int) -> list[EnrichmentTarget]:
     rows = connection.execute(
         """
-        SELECT normalized_name, display_name
-        FROM pending_items
-        WHERE status = 'pending'
-        ORDER BY first_seen_at, normalized_name
+        WITH inventory_targets AS (
+            SELECT
+                cii.item_id,
+                cii.normalized_item_name,
+                cii.item_name,
+                cii.created_at AS seen_at
+            FROM character_inventory_items cii
+            WHERE cii.is_starter_item = 0
+              AND cii.item_id IS NOT NULL
+            UNION ALL
+            SELECT
+                ce.item_id,
+                ce.normalized_item_name,
+                ce.item_name,
+                COALESCE(ii.imported_at, CURRENT_TIMESTAMP) AS seen_at
+            FROM character_equipment ce
+            LEFT JOIN inventory_imports ii
+                ON ii.inventory_import_id = ce.inventory_import_id
+            WHERE ce.is_starter_item = 0
+              AND ce.item_id IS NOT NULL
+        )
+        SELECT
+            inv.item_id,
+            COALESCE(NULLIF(i.normalized_name, ''), inv.normalized_item_name) AS normalized_name,
+            COALESCE(NULLIF(i.name, ''), inv.item_name) AS display_name
+        FROM inventory_targets inv
+        JOIN items i
+            ON i.item_id = inv.item_id
+        WHERE lower(COALESCE(i.source_primary, '')) != 'lucy'
+          AND instr(',' || COALESCE(i.flags, '') || ',', ',STARTER,') = 0
+        GROUP BY inv.item_id
+        ORDER BY max(inv.seen_at) DESC, lower(display_name), inv.item_id
         LIMIT ?
         """,
         (limit,),
+    ).fetchall()
+    return [
+        EnrichmentTarget(
+            normalized_name=str(row[1]),
+            display_name=str(row[2]),
+            item_id=int(row[0]),
+            source="inventory",
+        )
+        for row in rows
+        if row[0] is not None and row[1] and row[2]
+    ]
+
+
+def _load_pending_items(
+    connection: sqlite3.Connection,
+    limit: int,
+    *,
+    exclude_normalized_names: set[str] | None = None,
+) -> list[PendingItem]:
+    if limit <= 0:
+        return []
+
+    exclusions = sorted(exclude_normalized_names or set())
+    exclusion_filter = ""
+    params: list[object] = []
+    if exclusions:
+        placeholders = ", ".join("?" for _ in exclusions)
+        exclusion_filter = f"AND normalized_name NOT IN ({placeholders})"
+        params.extend(exclusions)
+    params.append(limit)
+
+    rows = connection.execute(
+        f"""
+        SELECT normalized_name, display_name
+        FROM pending_items
+        WHERE status = 'pending'
+          {exclusion_filter}
+        ORDER BY first_seen_at, normalized_name
+        LIMIT ?
+        """,
+        params,
     ).fetchall()
     return [PendingItem(normalized_name=row[0], display_name=row[1]) for row in rows]
 
@@ -400,6 +577,26 @@ def _mark_pending_failed(connection: sqlite3.Connection, pending: PendingItem, n
     )
 
 
+def _load_existing_item_flags(connection: sqlite3.Connection, item_id: int) -> str | None:
+    row = connection.execute("SELECT flags FROM items WHERE item_id = ?", (item_id,)).fetchone()
+    return str(row[0]) if row and row[0] is not None else None
+
+
+def _merge_flag_values(*flag_values: str | None) -> str | None:
+    flags: list[str] = []
+    seen: set[str] = set()
+    for value in flag_values:
+        if not value:
+            continue
+        for part in str(value).split(","):
+            flag = part.strip()
+            if not flag or flag in seen:
+                continue
+            flags.append(flag)
+            seen.add(flag)
+    return ",".join(flags) if flags else None
+
+
 def _item_flags(fields: dict[str, str]) -> str | None:
     flags: list[str] = []
     for key, label in [
@@ -408,6 +605,11 @@ def _item_flags(fields: dict[str, str]) -> str | None:
         ("norent", "NO_RENT"),
         ("attuneable", "ATTUNEABLE"),
         ("artifact", "ARTIFACT"),
+        ("heirloom", "HEIRLOOM"),
+        ("notransfer", "NO_TRANSFER"),
+        ("questitem", "QUEST_ITEM"),
+        ("placeable", "PLACEABLE"),
+        ("epicitem", "EPIC_ITEM"),
     ]:
         if as_int(fields, key):
             flags.append(label)
