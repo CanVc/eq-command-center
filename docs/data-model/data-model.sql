@@ -34,6 +34,9 @@ VALUES (5, 'Add per-server item interest preferences');
 INSERT OR IGNORE INTO schema_version (version, description)
 VALUES (6, 'Add character inventory dump imports and current inventory state');
 
+INSERT OR IGNORE INTO schema_version (version, description)
+VALUES (7, 'Add manual inventory sell valuation decisions');
+
 -- -----------------------------------------------------------------------------
 -- Items
 -- -----------------------------------------------------------------------------
@@ -458,6 +461,41 @@ CREATE INDEX IF NOT EXISTS idx_item_preferences_item_id
 
 CREATE INDEX IF NOT EXISTS idx_item_preferences_name
     ON item_preferences(server, normalized_item_name);
+
+-- Manual sell valuation decisions for owned inventory. Character-scoped
+-- decisions override global item decisions for the same server.
+CREATE TABLE IF NOT EXISTS inventory_item_decisions (
+    decision_id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    server TEXT NOT NULL,
+    scope TEXT NOT NULL CHECK (scope IN ('global', 'character')),
+    scope_key TEXT NOT NULL,
+    character_name TEXT,
+
+    item_id INTEGER NOT NULL,
+    item_name TEXT NOT NULL,
+    normalized_item_name TEXT NOT NULL,
+
+    status TEXT NOT NULL CHECK (status IN ('keep', 'sell', 'ignore')),
+    notes TEXT,
+
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE (server, scope, scope_key, item_id),
+    CHECK (
+        (scope = 'global' AND scope_key = '*' AND character_name IS NULL)
+        OR (scope = 'character' AND character_name IS NOT NULL AND scope_key = lower(character_name))
+    ),
+    FOREIGN KEY (character_name) REFERENCES characters(character_name) ON DELETE CASCADE,
+    FOREIGN KEY (item_id) REFERENCES items(item_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_item_decisions_status
+    ON inventory_item_decisions(server, status);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_item_decisions_item
+    ON inventory_item_decisions(server, item_id);
 
 -- -----------------------------------------------------------------------------
 -- Characters and gear finder

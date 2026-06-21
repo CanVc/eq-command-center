@@ -44,6 +44,24 @@ class InventoryDumpParserTests(unittest.TestCase):
         self.assertEqual(augment.augment_parent_location, "Head")
         self.assertFalse(augment.is_equipment)
 
+    def test_parser_ignores_trailing_keyring_section_header(self) -> None:
+        dump = (
+            "Location\tName\tID\tCount\tSlots\n"
+            "Head\tKylong War Helm\t3213\t1\t6\n"
+            "\n"
+            "KeyRing\tName\tID\t\n"
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dump_path = Path(temp_dir) / "Amphetamin_frostreaver-Inventory.txt"
+            dump_path.write_text(dump, encoding="utf-8")
+
+            parsed = parse_inventory_dump(dump_path)
+
+        self.assertEqual(parsed.rows_seen, 1)
+        self.assertEqual(len(parsed.items), 1)
+        self.assertEqual(parsed.items[0].item_name, "Kylong War Helm")
+
 
 class InventoryImportTests(unittest.TestCase):
     def test_empty_dump_imports_without_current_items(self) -> None:

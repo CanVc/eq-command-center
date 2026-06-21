@@ -3,8 +3,11 @@ import { describe, expect, it, vi } from "vitest"
 import {
   browseEqLogPath,
   buildApiPath,
+  clearCharacterInventoryItemDecision,
+  clearGlobalInventoryItemDecision,
   fetchCharacterEquipment,
   fetchCharacterInventory,
+  fetchCharacterInventorySellCandidates,
   fetchCharacters,
   fetchDeals,
   fetchDashboardSummary,
@@ -14,6 +17,7 @@ import {
   fetchItemDetailPageData,
   fetchItemTooltip,
   fetchItemSearchPreview,
+  fetchInventorySellCandidates,
   fetchListingsPreview,
   fetchMarketListings,
   fetchRuntimeStatus,
@@ -27,6 +31,8 @@ import {
   fetchTlpPriceRefreshJob,
   restoreSimilarListings,
   updateEqLogPath,
+  updateCharacterInventoryItemDecision,
+  updateGlobalInventoryItemDecision,
   updateItemPreference,
   updateListingItemPreference,
 } from "./api"
@@ -673,6 +679,110 @@ describe("page API helpers", () => {
       },
     })
     expect(fetcher).toHaveBeenNthCalledWith(3, "/api/characters/Dread%20Bank/inventory?area=bank", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
+  })
+
+  it("fetches sell candidates and updates inventory decisions", async () => {
+    const sellPayload = {
+      scope: "global",
+      character_name: null,
+      server: "mischief",
+      local_listing_max_age_days: 30,
+      item_count: 0,
+      total_quantity: 0,
+      sellable_total_value_pp: 0,
+      categories: {
+        sellable: [],
+        keep: [],
+        ignored: [],
+        no_drop: [],
+        unpriced: [],
+        excluded: [],
+      },
+      items: [],
+      global_items: [],
+    }
+    const decisionPayload = {
+      decision_id: 10,
+      server: "mischief",
+      scope: "global",
+      scope_key: "*",
+      character_name: null,
+      item_id: 101,
+      item_name: "Sell Gem",
+      normalized_item_name: "sell gem",
+      status: "sell",
+      notes: "Move tonight",
+      created_at: "2026-06-16T10:00:00",
+      updated_at: "2026-06-16T10:00:00",
+    }
+    const clearPayload = { ...decisionPayload, decision_id: null, status: null, notes: null, created_at: null, updated_at: null }
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(sellPayload))
+      .mockResolvedValueOnce(jsonResponse({ ...sellPayload, scope: "character", character_name: "Dread Bank" }))
+      .mockResolvedValueOnce(jsonResponse(decisionPayload))
+      .mockResolvedValueOnce(jsonResponse(clearPayload))
+      .mockResolvedValueOnce(jsonResponse({ ...decisionPayload, scope: "character", character_name: "Dread Bank", status: "keep" }))
+      .mockResolvedValueOnce(jsonResponse({ ...clearPayload, scope: "character", character_name: "Dread Bank" }))
+
+    await expect(fetchInventorySellCandidates("mischief", fetcher)).resolves.toEqual(sellPayload)
+    await expect(fetchCharacterInventorySellCandidates("Dread Bank", fetcher)).resolves.toEqual({
+      ...sellPayload,
+      scope: "character",
+      character_name: "Dread Bank",
+    })
+    await expect(updateGlobalInventoryItemDecision(101, "mischief", "sell", "Move tonight", fetcher)).resolves.toEqual(decisionPayload)
+    await expect(clearGlobalInventoryItemDecision(101, "mischief", fetcher)).resolves.toEqual(clearPayload)
+    await expect(updateCharacterInventoryItemDecision("Dread Bank", 101, "keep", null, fetcher)).resolves.toEqual({
+      ...decisionPayload,
+      scope: "character",
+      character_name: "Dread Bank",
+      status: "keep",
+    })
+    await expect(clearCharacterInventoryItemDecision("Dread Bank", 101, fetcher)).resolves.toEqual({
+      ...clearPayload,
+      scope: "character",
+      character_name: "Dread Bank",
+    })
+
+    expect(fetcher).toHaveBeenNthCalledWith(1, "/api/inventory/sell-candidates?server=mischief", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/characters/Dread%20Bank/sell-candidates", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(3, "/api/inventory/items/101/decision?server=mischief", {
+      method: "PUT",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ status: "sell", notes: "Move tonight" }),
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(4, "/api/inventory/items/101/decision?server=mischief", {
+      method: "DELETE",
+      headers: {
+        Accept: "application/json",
+      },
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(5, "/api/characters/Dread%20Bank/inventory/items/101/decision", {
+      method: "PUT",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ status: "keep", notes: null }),
+    })
+    expect(fetcher).toHaveBeenNthCalledWith(6, "/api/characters/Dread%20Bank/inventory/items/101/decision", {
+      method: "DELETE",
       headers: {
         Accept: "application/json",
       },

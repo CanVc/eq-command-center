@@ -13,6 +13,7 @@ from eqmarket.api.routes.characters import router as characters_router
 from eqmarket.api.routes.dashboard import router as dashboard_router
 from eqmarket.api.routes.deals import router as deals_router
 from eqmarket.api.routes.interface import router as interface_router
+from eqmarket.api.routes.inventory import router as inventory_router
 from eqmarket.api.routes.items import router as items_router
 from eqmarket.api.routes.listings import router as listings_router
 from eqmarket.api.routes.preferences import router as preferences_router
@@ -55,7 +56,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(LOCAL_WEB_ORIGINS),
-        allow_methods=["GET", "PUT", "POST"],
+        allow_methods=["GET", "PUT", "POST", "DELETE"],
         allow_headers=["*"],
     )
 
@@ -70,6 +71,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     app.include_router(dashboard_router)
     app.include_router(deals_router)
     app.include_router(interface_router)
+    app.include_router(inventory_router)
     app.include_router(preferences_router)
     app.include_router(items_router)
     app.include_router(listings_router)

@@ -664,6 +664,98 @@ export type CharacterInventoryResponse = {
   items: CharacterInventoryGroup[]
 }
 
+export type InventorySellDecisionStatus = "keep" | "sell" | "ignore"
+export type InventorySellDecisionScope = "character" | "global"
+export type InventorySellCandidateCategory = "sellable" | "keep" | "ignored" | "no_drop" | "unpriced" | "excluded"
+
+export type InventorySellDecision = {
+  decision_id: number | null
+  scope: InventorySellDecisionScope
+  status: InventorySellDecisionStatus | null
+  notes: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type InventorySellDecisionRecord = InventorySellDecision & {
+  server: string
+  scope_key: string
+  character_name: string | null
+  item_id: number
+  item_name: string
+  normalized_item_name: string
+}
+
+export type InventorySellCandidate = {
+  character_name: string
+  server: string
+  item_id: number
+  item_name: string
+  name: string
+  normalized_item_name: string
+  quantity: number
+  areas: Exclude<CharacterInventoryArea, "all">[]
+  area_quantities: Partial<Record<Exclude<CharacterInventoryArea, "all">, number>>
+  location_count: number
+  raw_item_names: string[]
+  item_type: string | null
+  flags: string | null
+  source_primary: string | null
+  icon_id: number | null
+  last_imported_at: string | null
+  is_starter_item: boolean
+  is_no_trade_import: boolean
+  is_no_drop: boolean
+  is_container: boolean
+  is_consumable: boolean
+  is_augment: boolean
+  default_exclusion_reasons: string[]
+  decision_status: InventorySellDecisionStatus | null
+  decision: InventorySellDecision | null
+  estimated_unit_price_pp: number | null
+  estimated_total_pp: number | null
+  price_source: string | null
+  price_source_detail: string | null
+  confidence: string | null
+  price_sample_size: number | null
+  price_last_seen_at: string | null
+  category: InventorySellCandidateCategory
+}
+
+export type InventorySellGlobalItem = {
+  server: string
+  item_id: number
+  item_name: string
+  name: string
+  normalized_item_name: string
+  quantity: number
+  characters: Array<{
+    character_name: string
+    quantity: number
+    category: InventorySellCandidateCategory
+    decision_status: InventorySellDecisionStatus | null
+  }>
+  estimated_unit_price_pp: number | null
+  estimated_total_pp: number | null
+  price_source: string | null
+  price_source_detail: string | null
+  confidence: string | null
+  categories: InventorySellCandidateCategory[]
+}
+
+export type InventorySellCandidatesResponse = {
+  scope: InventorySellDecisionScope
+  character_name: string | null
+  server: string | null
+  local_listing_max_age_days: number
+  item_count: number
+  total_quantity: number
+  sellable_total_value_pp: number
+  categories: Record<InventorySellCandidateCategory, InventorySellCandidate[]>
+  items: InventorySellCandidate[]
+  global_items: InventorySellGlobalItem[]
+}
+
 export type ItemTooltip = {
   item_id: number
   name: string
@@ -1055,6 +1147,96 @@ export async function fetchCharacterInventory(
       area,
     }),
     fetcher
+  )
+}
+
+export async function fetchInventorySellCandidates(
+  server: string,
+  fetcher: Fetcher = fetch
+): Promise<InventorySellCandidatesResponse> {
+  return fetchJson<InventorySellCandidatesResponse>(
+    buildApiPath("/api/inventory/sell-candidates", {
+      server,
+    }),
+    fetcher
+  )
+}
+
+export async function fetchCharacterInventorySellCandidates(
+  characterName: string,
+  fetcher: Fetcher = fetch
+): Promise<InventorySellCandidatesResponse> {
+  return fetchJson<InventorySellCandidatesResponse>(
+    `/api/characters/${encodeURIComponent(characterName)}/sell-candidates`,
+    fetcher
+  )
+}
+
+export async function updateGlobalInventoryItemDecision(
+  itemId: number,
+  server: string,
+  status: InventorySellDecisionStatus,
+  notes: string | null = null,
+  fetcher: Fetcher = fetch
+): Promise<InventorySellDecisionRecord> {
+  return fetchJson<InventorySellDecisionRecord>(
+    buildApiPath(`/api/inventory/items/${itemId}/decision`, {
+      server,
+    }),
+    fetcher,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ status, notes }),
+    }
+  )
+}
+
+export async function clearGlobalInventoryItemDecision(
+  itemId: number,
+  server: string,
+  fetcher: Fetcher = fetch
+): Promise<InventorySellDecisionRecord> {
+  return fetchJson<InventorySellDecisionRecord>(
+    buildApiPath(`/api/inventory/items/${itemId}/decision`, {
+      server,
+    }),
+    fetcher,
+    { method: "DELETE" }
+  )
+}
+
+export async function updateCharacterInventoryItemDecision(
+  characterName: string,
+  itemId: number,
+  status: InventorySellDecisionStatus,
+  notes: string | null = null,
+  fetcher: Fetcher = fetch
+): Promise<InventorySellDecisionRecord> {
+  return fetchJson<InventorySellDecisionRecord>(
+    `/api/characters/${encodeURIComponent(characterName)}/inventory/items/${itemId}/decision`,
+    fetcher,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ status, notes }),
+    }
+  )
+}
+
+export async function clearCharacterInventoryItemDecision(
+  characterName: string,
+  itemId: number,
+  fetcher: Fetcher = fetch
+): Promise<InventorySellDecisionRecord> {
+  return fetchJson<InventorySellDecisionRecord>(
+    `/api/characters/${encodeURIComponent(characterName)}/inventory/items/${itemId}/decision`,
+    fetcher,
+    { method: "DELETE" }
   )
 }
 

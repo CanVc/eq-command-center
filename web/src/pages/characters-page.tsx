@@ -39,6 +39,7 @@ import {
 } from "@/lib/characters"
 import { formatDateTime, formatNumber, formatPrice } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { SellInventoryPage } from "@/pages/sell-inventory-page"
 
 type CharactersPageProps = {
   characters: CharacterSummary[]
@@ -51,48 +52,47 @@ type RemoteState<T> =
   | { status: "ready"; data: T }
   | { status: "error"; message: string }
 
+type CharacterPageView = "inventory" | "sell"
+
 export function CharactersPage({ characters, server }: CharactersPageProps) {
   const [selectedCharacterName, setSelectedCharacterName] = useState<string | null>(
     () => characters[0]?.character_name ?? null
   )
+  const [activeView, setActiveView] = useState<CharacterPageView>("inventory")
   const [inventoryArea, setInventoryArea] = useState<CharacterInventoryArea>("all")
   const [detailRefreshKey, setDetailRefreshKey] = useState(0)
-  const [equipmentState, setEquipmentState] = useState<RemoteState<CharacterEquipmentResponse>>({
-    status: "idle",
-  })
-  const [inventoryState, setInventoryState] = useState<RemoteState<CharacterInventoryResponse>>({
-    status: "idle",
-  })
+  const [equipmentState, setEquipmentState] = useState<RemoteState<CharacterEquipmentResponse>>(
+    () => characters.length > 0 ? { status: "loading" } : { status: "idle" }
+  )
+  const [inventoryState, setInventoryState] = useState<RemoteState<CharacterInventoryResponse>>(
+    () => characters.length > 0 ? { status: "loading" } : { status: "idle" }
+  )
 
-  useEffect(() => {
-    setSelectedCharacterName((current) => {
-      if (characters.length === 0) {
-        return null
-      }
+  const activeCharacterName = useMemo(() => {
+    if (characters.length === 0) {
+      return null
+    }
 
-      if (current && characters.some((character) => character.character_name === current)) {
-        return current
-      }
+    if (selectedCharacterName && characters.some((character) => character.character_name === selectedCharacterName)) {
+      return selectedCharacterName
+    }
 
-      return characters[0].character_name
-    })
-  }, [characters])
+    return characters[0].character_name
+  }, [characters, selectedCharacterName])
 
   const selectedCharacter = useMemo(
-    () => characters.find((character) => character.character_name === selectedCharacterName) ?? null,
-    [characters, selectedCharacterName]
+    () => characters.find((character) => character.character_name === activeCharacterName) ?? null,
+    [activeCharacterName, characters]
   )
 
   useEffect(() => {
-    if (!selectedCharacterName) {
-      setEquipmentState({ status: "idle" })
+    if (!activeCharacterName) {
       return undefined
     }
 
     let isActive = true
-    setEquipmentState({ status: "loading" })
 
-    fetchCharacterEquipment(selectedCharacterName)
+    fetchCharacterEquipment(activeCharacterName)
       .then((equipment) => {
         if (isActive) {
           setEquipmentState({ status: "ready", data: equipment })
@@ -110,18 +110,16 @@ export function CharactersPage({ characters, server }: CharactersPageProps) {
     return () => {
       isActive = false
     }
-  }, [detailRefreshKey, selectedCharacterName])
+  }, [activeCharacterName, detailRefreshKey])
 
   useEffect(() => {
-    if (!selectedCharacterName) {
-      setInventoryState({ status: "idle" })
+    if (!activeCharacterName) {
       return undefined
     }
 
     let isActive = true
-    setInventoryState({ status: "loading" })
 
-    fetchCharacterInventory(selectedCharacterName, inventoryArea)
+    fetchCharacterInventory(activeCharacterName, inventoryArea)
       .then((inventory) => {
         if (isActive) {
           setInventoryState({ status: "ready", data: inventory })
@@ -139,19 +137,30 @@ export function CharactersPage({ characters, server }: CharactersPageProps) {
     return () => {
       isActive = false
     }
-  }, [detailRefreshKey, inventoryArea, selectedCharacterName])
+  }, [activeCharacterName, detailRefreshKey, inventoryArea])
 
   const selectCharacter = (characterName: string) => {
-    if (characterName === selectedCharacterName) {
+    if (characterName === activeCharacterName) {
       return
     }
 
+    setEquipmentState({ status: "loading" })
+    setInventoryState({ status: "loading" })
     setSelectedCharacterName(characterName)
     setInventoryArea("all")
   }
 
   const retryDetails = () => {
+    if (activeCharacterName) {
+      setEquipmentState({ status: "loading" })
+      setInventoryState({ status: "loading" })
+    }
     setDetailRefreshKey((current) => current + 1)
+  }
+
+  const changeInventoryArea = (area: CharacterInventoryArea) => {
+    setInventoryState({ status: "loading" })
+    setInventoryArea(area)
   }
 
   if (characters.length === 0) {
@@ -172,28 +181,39 @@ export function CharactersPage({ characters, server }: CharactersPageProps) {
         </Badge>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[18rem_minmax(0,1fr)]">
-        <div className="grid gap-4 content-start">
-          <CharacterRoster
-            characters={characters}
-            selectedCharacterName={selectedCharacterName}
-            onSelect={selectCharacter}
-          />
-          {selectedCharacter ? <CharacterSummaryCard character={selectedCharacter} /> : null}
-        </div>
+      <Tabs value={activeView} onValueChange={(value) => setActiveView(value as CharacterPageView)}>
+        <TabsList className="flex h-auto w-fit flex-wrap justify-start" aria-label="Character views">
+          <TabsTrigger value="inventory">Inventory</TabsTrigger>
+          <TabsTrigger value="sell">Sell</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
-        <div className="grid min-w-0 gap-4">
-          {selectedCharacter ? <ImportFreshnessNotice character={selectedCharacter} /> : null}
-          <EquipmentSection state={equipmentState} server={server} onRetry={retryDetails} />
-          <InventorySection
-            state={inventoryState}
-            area={inventoryArea}
-            server={server}
-            onAreaChange={setInventoryArea}
-            onRetry={retryDetails}
-          />
+      {activeView === "inventory" ? (
+        <div className="grid gap-4 xl:grid-cols-[18rem_minmax(0,1fr)]">
+          <div className="grid gap-4 content-start">
+            <CharacterRoster
+              characters={characters}
+              selectedCharacterName={activeCharacterName}
+              onSelect={selectCharacter}
+            />
+            {selectedCharacter ? <CharacterSummaryCard character={selectedCharacter} /> : null}
+          </div>
+
+          <div className="grid min-w-0 gap-4">
+            {selectedCharacter ? <ImportFreshnessNotice character={selectedCharacter} /> : null}
+            <EquipmentSection state={equipmentState} server={server} onRetry={retryDetails} />
+            <InventorySection
+              state={inventoryState}
+              area={inventoryArea}
+              server={server}
+              onAreaChange={changeInventoryArea}
+              onRetry={retryDetails}
+            />
+          </div>
         </div>
-      </div>
+      ) : (
+        <SellInventoryPage characters={characters} server={server} />
+      )}
     </section>
   )
 }

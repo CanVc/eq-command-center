@@ -200,13 +200,16 @@ def parse_inventory_dump(path: Path) -> InventoryDumpParseResult:
             if _row_is_blank(row):
                 continue
 
-            rows_seen += 1
             raw_location = _row_value(row, field_map, "location")
             raw_item_name = _row_value(row, field_map, "name")
             id_text = _row_value(row, field_map, "id")
             count_text = _row_value(row, field_map, "count")
             slots = _optional_row_value(row, field_map, "slots")
 
+            if _is_section_header_row(raw_item_name, id_text):
+                continue
+
+            rows_seen += 1
             if _is_empty_inventory_row(raw_item_name, id_text):
                 empty_rows_skipped += 1
                 continue
@@ -454,6 +457,10 @@ def _is_empty_inventory_row(raw_item_name: str, id_text: str) -> bool:
     if not lowered_name and not id_text.strip():
         return True
     return False
+
+
+def _is_section_header_row(raw_item_name: str, id_text: str) -> bool:
+    return raw_item_name.strip().lower() == "name" and id_text.strip().lower() == "id"
 
 
 def _parse_positive_int(value: str, field_name: str, line_number: int) -> int:

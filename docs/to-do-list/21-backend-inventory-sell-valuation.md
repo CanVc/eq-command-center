@@ -1,6 +1,6 @@
 # Story — Valorisation vente des inventaires
 
-- **Statut** : À faire
+- **Statut** : Terminé
 - **Date de création** : 2026-06-19
 - **Spec liée** : [docs/data-model/data-model.sql](../data-model/data-model.sql)
 
@@ -23,18 +23,18 @@ Une fois les inventaires importés, l'application doit aider à identifier ce qu
 
 ## Tâches
 
-- [ ] Ajouter une table de décisions personnelles, par exemple `inventory_item_decisions`, pour `keep`, `sell`, `ignore`, notes et scope.
-- [ ] Ajouter un endpoint `GET /api/characters/{character_name}/sell-candidates`.
-- [ ] Ajouter un endpoint global `GET /api/inventory/sell-candidates`.
-- [ ] Ajouter des endpoints pour modifier le statut manuel d'un item.
-- [ ] Calculer quantité, prix unitaire estimé, valeur totale, source du prix et confiance.
-- [ ] Séparer les items vendables, ignorés, à garder, no-drop probables et sans prix.
-- [ ] Garder les containers/nourriture/eau hors des recommandations par défaut quand identifiable.
-- [ ] Ajouter des tests pour le grouping, les exclusions starter/no-drop et les statuts manuels.
+- [x] Ajouter une table de décisions personnelles, par exemple `inventory_item_decisions`, pour `keep`, `sell`, `ignore`, notes et scope.
+- [x] Ajouter un endpoint `GET /api/characters/{character_name}/sell-candidates`.
+- [x] Ajouter un endpoint global `GET /api/inventory/sell-candidates`.
+- [x] Ajouter des endpoints pour modifier le statut manuel d'un item.
+- [x] Calculer quantité, prix unitaire estimé, valeur totale, source du prix et confiance.
+- [x] Séparer les items vendables, ignorés, à garder, no-drop probables et sans prix.
+- [x] Garder les containers/nourriture/eau hors des recommandations par défaut quand identifiable.
+- [x] Ajouter des tests pour le grouping, les exclusions starter/no-drop et les statuts manuels.
 
 ## Critères d'acceptation
 
-- [ ] L'utilisateur peut obtenir une liste triée des items potentiellement vendables.
-- [ ] Les items `*` et `NO_DROP` ne polluent pas la valeur vendable par défaut.
-- [ ] Les quantités stackées sont correctement agrégées.
-- [ ] Un statut manuel `keep`, `sell` ou `ignore` influence les réponses suivantes.
+- [x] L'utilisateur peut obtenir une liste triée des items potentiellement vendables.
+- [x] Les items `*` et `NO_DROP` ne polluent pas la valeur vendable par défaut.
+- [x] Les quantités stackées sont correctement agrégées.
+- [x] Un statut manuel `keep`, `sell` ou `ignore` influence les réponses suivantes.
