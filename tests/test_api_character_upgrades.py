@@ -103,6 +103,33 @@ class ApiCharacterUpgradesTests(unittest.TestCase):
                 {"Obsidian Sword"},
             )
 
+    def test_unknown_character_class_does_not_filter_every_lucy_numeric_class(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            _seed_upgrade_fixture(db_path)
+            with closing(sqlite3.connect(db_path)) as connection:
+                connection.execute(
+                    "UPDATE characters SET character_class = 'UNKNOWN' WHERE character_name = 'Dreadnought'"
+                )
+                connection.commit()
+            app = create_app(db_path)
+
+            with TestClient(app) as client:
+                response = client.get(
+                    "/api/characters/Dreadnought/upgrades",
+                    params={"slot": "LEGS", "source": "market", "profile": "tank"},
+                )
+
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            self.assertEqual(payload["character_class"], "UNKNOWN")
+            self.assertGreater(payload["candidate_count"], 0)
+            self.assertIn(
+                "Auction Greaves",
+                {candidate["candidate"]["name"] for candidate in payload["candidates"]},
+            )
+
     def test_missing_character_upgrade_lookup_returns_clean_404(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "eqmarket.sqlite"
@@ -129,15 +156,15 @@ def _seed_upgrade_fixture(db_path: Path) -> None:
             ) VALUES (?, ?, ?, 'armor', ?, ?, 'ALL', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                (100, "Rusted Greaves", "rusted greaves", "262144", "SHD", 5, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, None, None, None, None, 1001, "MAGIC", "lucy", "2026-06-20 10:00:00"),
-                (101, "Bronze Sword", "bronze sword", "8192", "SHD", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 30, 0.333, 0, 1002, "MAGIC", "lucy", "2026-06-20 10:00:00"),
-                (201, "Banked Cobalt Greaves", "banked cobalt greaves", "262144", "WAR PAL SHD", 18, 55, 5, 0, 1, 2, 3, 4, 0, 0, 0, 5, 5, 5, 5, 5, None, None, None, None, 1003, "MAGIC", "lucy", "2026-06-20 10:00:00"),
-                (202, "Necromancer Greaves", "necromancer greaves", "262144", "NEC", 50, 200, 200, 0, 0, 0, 0, 0, 0, 0, 0, 20, 20, 20, 20, 20, None, None, None, None, 1004, "MAGIC", "lucy", "2026-06-20 10:00:00"),
-                (203, "Ignored Greaves", "ignored greaves", "262144", "SHD", 40, 150, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 10, 10, 10, 10, None, None, None, None, 1005, "MAGIC", "lucy", "2026-06-20 10:00:00"),
-                (301, "TLP Greaves", "tlp greaves", "262144", "SHD", 24, 90, 20, 0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8, 8, None, None, None, None, 1006, "MAGIC", "lucy", "2026-06-20 10:00:00"),
-                (401, "Auction Greaves", "auction greaves", "262144", "SHD", 22, 80, 10, 0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8, 8, None, None, None, None, 1007, "MAGIC", "lucy", "2026-06-20 10:00:00"),
-                (402, "Expensive Greaves", "expensive greaves", "262144", "SHD", 60, 250, 40, 0, 0, 0, 0, 0, 0, 0, 0, 20, 20, 20, 20, 20, None, None, None, None, 1008, "MAGIC", "lucy", "2026-06-20 10:00:00"),
-                (501, "Obsidian Sword", "obsidian sword", "8192", "SHD", 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18, 30, 0.6, 0, 1009, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (100, "Rusted Greaves", "rusted greaves", "262144", "16", 5, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, None, None, None, None, 1001, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (101, "Bronze Sword", "bronze sword", "8192", "16", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 30, 0.333, 0, 1002, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (201, "Banked Cobalt Greaves", "banked cobalt greaves", "262144", "21", 18, 55, 5, 0, 1, 2, 3, 4, 0, 0, 0, 5, 5, 5, 5, 5, None, None, None, None, 1003, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (202, "Necromancer Greaves", "necromancer greaves", "262144", "1024", 50, 200, 200, 0, 0, 0, 0, 0, 0, 0, 0, 20, 20, 20, 20, 20, None, None, None, None, 1004, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (203, "Ignored Greaves", "ignored greaves", "262144", "16", 40, 150, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 10, 10, 10, 10, None, None, None, None, 1005, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (301, "TLP Greaves", "tlp greaves", "262144", "16", 24, 90, 20, 0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8, 8, None, None, None, None, 1006, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (401, "Auction Greaves", "auction greaves", "262144", "16", 22, 80, 10, 0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8, 8, None, None, None, None, 1007, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (402, "Expensive Greaves", "expensive greaves", "262144", "16", 60, 250, 40, 0, 0, 0, 0, 0, 0, 0, 0, 20, 20, 20, 20, 20, None, None, None, None, 1008, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (501, "Obsidian Sword", "obsidian sword", "8192", "16", 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18, 30, 0.6, 0, 1009, "MAGIC", "lucy", "2026-06-20 10:00:00"),
             ],
         )
         connection.execute(

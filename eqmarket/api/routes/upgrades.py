@@ -168,6 +168,27 @@ CLASS_ALIASES = {
     "BER": {"BER", "BERSERKER"},
 }
 
+CLASS_BIT_BY_CODE = {
+    "WAR": 1,
+    "CLR": 2,
+    "PAL": 4,
+    "RNG": 8,
+    "SHD": 16,
+    "DRU": 32,
+    "MNK": 64,
+    "BRD": 128,
+    "ROG": 256,
+    "SHM": 512,
+    "NEC": 1024,
+    "WIZ": 2048,
+    "MAG": 4096,
+    "ENC": 8192,
+    "BST": 16384,
+    "BER": 32768,
+}
+
+UNKNOWN_CLASS_TOKENS = {"", "UNKNOWN", "CLASSUNKNOWN", "N/A", "NA", "NONE", "NULL", "?"}
+
 router = APIRouter()
 
 
@@ -915,7 +936,6 @@ def _class_compatible(item_classes: Any, character_class: str | None) -> bool:
     text = "" if item_classes is None else str(item_classes).strip()
     if not text:
         return True
-    normalized_text = _normalize_class_text(text)
     if "ALL" in _class_tokens(text):
         return True
 
@@ -923,6 +943,12 @@ def _class_compatible(item_classes: Any, character_class: str | None) -> bool:
     if class_code is None:
         return True
 
+    class_mask = _coerce_non_negative_int(text)
+    if class_mask is not None:
+        class_bit = CLASS_BIT_BY_CODE.get(class_code)
+        return class_bit is None or bool(class_mask & class_bit)
+
+    normalized_text = _normalize_class_text(text)
     aliases = CLASS_ALIASES.get(class_code, {class_code})
     tokens = _class_tokens(text)
     normalized_tokens = {_normalize_class_text(token) for token in tokens}
@@ -935,6 +961,9 @@ def _character_class_code(character_class: str | None) -> str | None:
     normalized = str(character_class).strip().lower()
     if not normalized:
         return None
+    normalized_key = _normalize_class_text(normalized)
+    if normalized_key in UNKNOWN_CLASS_TOKENS:
+        return None
     return CLASS_CODE_BY_NAME.get(normalized, CLASS_CODE_BY_NAME.get(normalized.replace(" ", ""), normalized.upper()))
 
 
@@ -944,6 +973,24 @@ def _class_tokens(value: str) -> set[str]:
 
 def _normalize_class_text(value: str) -> str:
     return re.sub(r"[^A-Z0-9]+", "", value.upper())
+
+
+def _coerce_non_negative_int(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, float):
+        return int(value) if value.is_integer() and value >= 0 else None
+
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = int(text, 10)
+    except ValueError:
+        return None
+    return parsed if parsed >= 0 else None
 
 
 def _effective_ratio(combat: dict[str, Any]) -> float | None:
