@@ -6,6 +6,10 @@ import {
   equippedItemCount,
   inventoryAreaLabel,
   isStarterOrNoTradeImport,
+  upgradeProfileLabel,
+  upgradeSlotLabel,
+  upgradeSourceFilterLabel,
+  upgradeSourceLabel,
 } from "./characters"
 
 import type { CharacterEquipmentResponse } from "./api"
@@ -28,6 +32,13 @@ describe("characters helpers", () => {
         area_quantities: { carried: 2, bank: 5, shared_bank: 1 },
       })
     ).toBe("Carried 2 · Bank 5 · Shared Bank 1")
+  })
+
+  it("labels upgrade filters and candidate sources", () => {
+    expect(upgradeSlotLabel("POWER_SOURCE")).toBe("Power Source")
+    expect(upgradeSourceFilterLabel("all")).toBe("Owned + Market")
+    expect(upgradeSourceLabel("local_listing")).toBe("Local listing")
+    expect(upgradeProfileLabel("sk")).toBe("SK")
   })
 
   it("flags starter or no-trade import markers", () => {

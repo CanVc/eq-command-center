@@ -7,6 +7,7 @@ import {
   clearGlobalInventoryItemDecision,
   fetchCharacterEquipment,
   fetchCharacterInventory,
+  fetchCharacterUpgrades,
   fetchCharacterInventorySellCandidates,
   fetchCharacters,
   fetchDeals,
@@ -683,6 +684,41 @@ describe("page API helpers", () => {
         Accept: "application/json",
       },
     })
+  })
+
+  it("fetches character upgrade candidates with filters", async () => {
+    const upgradesPayload = {
+      character_name: "Dread Bank",
+      server: "mischief",
+      character_class: "SHD",
+      profile: "auto",
+      resolved_profile: "sk",
+      source: "all",
+      slot: "LEGS",
+      max_price_pp: 20000,
+      local_listing_max_age_days: 30,
+      limit: 25,
+      candidate_count: 0,
+      candidates: [],
+    }
+    const fetcher = vi.fn().mockResolvedValueOnce(jsonResponse(upgradesPayload))
+
+    await expect(
+      fetchCharacterUpgrades(
+        "Dread Bank",
+        { slot: "LEGS", source: "all", profile: "auto", maxPricePp: 20000, limit: 25 },
+        fetcher
+      )
+    ).resolves.toEqual(upgradesPayload)
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/characters/Dread%20Bank/upgrades?slot=LEGS&max_price_pp=20000&source=all&profile=auto&limit=25",
+      {
+        headers: {
+          Accept: "application/json",
+        },
+      }
+    )
   })
 
   it("fetches sell candidates and updates inventory decisions", async () => {

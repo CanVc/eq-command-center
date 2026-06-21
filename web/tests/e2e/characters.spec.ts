@@ -8,12 +8,16 @@ test.beforeEach(async ({ page }) => {
 
 test("renders the Characters paperdoll and grouped inventory", async ({ page }) => {
   const inventoryRequests: URL[] = []
+  const upgradeRequests: URL[] = []
 
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url())
 
     if (url.pathname.endsWith("/inventory")) {
       inventoryRequests.push(url)
+    }
+    if (url.pathname.endsWith("/upgrades")) {
+      upgradeRequests.push(url)
     }
 
     await fulfillCharactersApi(route)
@@ -50,6 +54,23 @@ test("renders the Characters paperdoll and grouped inventory", async ({ page }) 
   await page.getByRole("tab", { name: "Shared Bank" }).click()
   await expect.poll(() => inventoryRequests.at(-1)?.searchParams.get("area")).toBe("shared_bank")
   await expect(page.locator("tbody")).toContainText("Shared Platinum Satchel")
+
+  await page.getByRole("tab", { name: "Upgrades" }).click()
+  await expect(page.getByRole("heading", { name: "Gear Upgrades" })).toBeVisible()
+  await expect(page.getByRole("link", { name: "Banked Cobalt Greaves" })).toBeVisible()
+  await expect(page.getByText("Local listing", { exact: true })).toBeVisible()
+  await expect(page.getByText("AC +12")).toBeVisible()
+
+  await page.getByLabel("Upgrade slot filter").selectOption("PRIMARY")
+  await expect.poll(() => upgradeRequests.at(-1)?.searchParams.get("slot")).toBe("PRIMARY")
+  await expect(page.getByRole("link", { name: "Obsidian Sword" })).toBeVisible()
+  await expect(page.getByRole("link", { name: "Banked Cobalt Greaves" })).not.toBeVisible()
+
+  await page.getByLabel("Upgrade source filter").selectOption("owned")
+  await expect.poll(() => upgradeRequests.at(-1)?.searchParams.get("source")).toBe("owned")
+
+  await page.getByLabel("Upgrade max cost filter").fill("100")
+  await expect.poll(() => upgradeRequests.at(-1)?.searchParams.get("max_price_pp")).toBe("100")
 })
 
 test("supports selecting a character without an inventory import", async ({ page }) => {
@@ -137,6 +158,16 @@ async function fulfillCharactersApi(route: Route) {
     return
   }
 
+  const upgradeCharacter = characterNameFromPath(url.pathname, "upgrades")
+
+  if (upgradeCharacter) {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(buildUpgrades(decodeURIComponent(upgradeCharacter), server, url)),
+    })
+    return
+  }
+
   await route.fulfill({
     status: 404,
     contentType: "text/plain",
@@ -144,7 +175,7 @@ async function fulfillCharactersApi(route: Route) {
   })
 }
 
-function characterNameFromPath(pathname: string, endpoint: "equipment" | "inventory"): string | null {
+function characterNameFromPath(pathname: string, endpoint: "equipment" | "inventory" | "upgrades"): string | null {
   const match = pathname.match(new RegExp(`^/api/characters/([^/]+)/${endpoint}$`))
   return match ? match[1] : null
 }
@@ -270,6 +301,176 @@ function buildInventory(characterName: string, server: string, area: string) {
   }
 }
 
+function buildUpgrades(characterName: string, server: string, url: URL) {
+  const slot = url.searchParams.get("slot")
+  const source = url.searchParams.get("source") ?? "all"
+  const profile = url.searchParams.get("profile") ?? "auto"
+  const maxPrice = url.searchParams.get("max_price_pp")
+  const candidates = characterName === "Dreadbank" ? buildUpgradeCandidates(slot, source, maxPrice) : []
+
+  return {
+    character_name: characterName,
+    server,
+    character_class: "Shadow Knight",
+    profile,
+    resolved_profile: profile === "auto" ? "sk" : profile,
+    source,
+    slot,
+    max_price_pp: maxPrice ? Number(maxPrice) : null,
+    local_listing_max_age_days: 30,
+    limit: 50,
+    candidate_count: candidates.length,
+    candidates,
+  }
+}
+
+function buildUpgradeCandidates(slot: string | null, source: string, maxPrice: string | null) {
+  const maxPricePp = maxPrice ? Number(maxPrice) : null
+  const allCandidates = [
+    buildUpgradeCandidate({
+      itemId: 301,
+      name: "Banked Cobalt Greaves",
+      slotKey: "LEGS",
+      slot: "LEGS",
+      source: "owned",
+      costPp: 0,
+      marketPrice: 12000,
+      acDelta: 12,
+      hpDelta: 45,
+    }),
+    buildUpgradeCandidate({
+      itemId: 302,
+      name: "Auction Greaves",
+      slotKey: "LEGS",
+      slot: "LEGS",
+      source: "local_listing",
+      costPp: 8000,
+      marketPrice: 14000,
+      acDelta: 10,
+      hpDelta: 35,
+      listing: {
+        listing_id: 900,
+        timestamp: "2026-06-21T10:00:00",
+        seller: "Sellerone",
+        price_raw: "8k",
+        price_pp: 8000,
+      },
+    }),
+    buildUpgradeCandidate({
+      itemId: 303,
+      name: "Obsidian Sword",
+      slotKey: "PRIMARY",
+      slot: "PRIMARY",
+      source: "owned",
+      costPp: 0,
+      marketPrice: 9000,
+      acDelta: 0,
+      hpDelta: 25,
+      ratioDelta: 0.267,
+    }),
+  ]
+
+  return allCandidates.filter((candidate) => {
+    if (slot && candidate.slot !== slot) {
+      return false
+    }
+    if (source === "owned" && candidate.source !== "owned") {
+      return false
+    }
+    if (source === "market" && candidate.source === "owned") {
+      return false
+    }
+    if (maxPricePp !== null && candidate.cost_pp !== null && candidate.cost_pp > maxPricePp) {
+      return false
+    }
+    return true
+  })
+}
+
+function buildUpgradeCandidate({
+  itemId,
+  name,
+  slotKey,
+  slot,
+  source,
+  costPp,
+  marketPrice,
+  acDelta,
+  hpDelta,
+  ratioDelta = null,
+  listing = null,
+}: {
+  itemId: number
+  name: string
+  slotKey: string
+  slot: string
+  source: "owned" | "local_listing" | "market_price"
+  costPp: number
+  marketPrice: number
+  acDelta: number
+  hpDelta: number
+  ratioDelta?: number | null
+  listing?: unknown
+}) {
+  return {
+    slot_key: slotKey,
+    slot,
+    slot_label: upgradeSlotLabelForFixture(slotKey),
+    current_item: {
+      item_id: slot === "PRIMARY" ? 1 : 107,
+      name: slot === "PRIMARY" ? "Stave of Shielding" : "Cobalt Breastplate",
+      stats: buildStats({ ac: 5, hp: 25, mana: 0 }),
+      combat: slot === "PRIMARY" ? { damage: 12, delay: 30, ratio: 0.4, haste: null } : emptyCombat(),
+      price: buildPrice(45000),
+    },
+    candidate: buildItem({
+      itemId,
+      name,
+      slot,
+      marketPrice,
+      stats: buildStats({ ac: 5 + acDelta, hp: 25 + hpDelta, mana: 10 }),
+      combat: slot === "PRIMARY" ? { damage: 18, delay: 30, ratio: 0.6, haste: null } : emptyCombat(),
+    }),
+    source,
+    source_detail: source === "local_listing" ? "eq_log" : "fixture",
+    quantity: source === "owned" ? 1 : null,
+    areas: source === "owned" ? ["bank"] : [],
+    area_quantities: source === "owned" ? { bank: 1 } : {},
+    listing,
+    decision_status: null,
+    cost_pp: costPp,
+    market_price_pp: marketPrice,
+    price_source: source === "local_listing" ? "local_listing" : "median_pp",
+    confidence: "medium",
+    deltas: {
+      ...buildStats({ ac: acDelta, hp: hpDelta, mana: 10 }),
+      endurance: 0,
+      hp_regen: 0,
+      mana_regen: 0,
+      endurance_regen: 0,
+      heroic_str: 0,
+      heroic_sta: 0,
+      heroic_agi: 0,
+      heroic_dex: 0,
+      heroic_wis: 0,
+      heroic_int: 0,
+      heroic_cha: 0,
+      sv_magic: 0,
+      sv_fire: 0,
+      sv_cold: 0,
+      sv_poison: 0,
+      sv_disease: 0,
+      resists_total: 0,
+      base_stats_total: 0,
+      damage: slot === "PRIMARY" ? 6 : 0,
+      delay: 0,
+      ratio: ratioDelta,
+      haste: 0,
+    },
+    score: acDelta * 3 + hpDelta * 0.2 + (ratioDelta ?? 0) * 300,
+  }
+}
+
 function buildInventoryItems() {
   return [
     buildInventoryGroup({
@@ -360,6 +561,8 @@ function buildItem({
   enriched = true,
   marketPrice = 1000,
   hasPrice = true,
+  stats = buildStats({ ac: 5, hp: 25, mana: 10 }),
+  combat = emptyCombat(),
 }: {
   itemId: number
   name: string
@@ -370,6 +573,8 @@ function buildItem({
   enriched?: boolean
   marketPrice?: number | null
   hasPrice?: boolean
+  stats?: ReturnType<typeof buildStats>
+  combat?: { damage: number | null; delay: number | null; ratio: number | null; haste: number | null }
 }) {
   return {
     item_id: itemId,
@@ -389,8 +594,8 @@ function buildItem({
     flags: noTradeImport ? "NO_TRADE_IMPORT" : "MAGIC",
     quantity: 1,
     raw_location: null,
-    stats: { ac: 5, hp: 25, mana: 10 },
-    combat: { damage: null, delay: null, ratio: null, haste: null },
+    stats,
+    combat,
     levels: { required_level: null, recommended_level: null },
     source_primary: enriched ? "fixture" : "inventory_dump",
     last_imported_at: enriched ? "2026-06-16T10:00:00" : null,
@@ -402,21 +607,73 @@ function buildItem({
     is_augment: false,
     augment_parent_location: null,
     has_price: hasPrice,
-    price: {
-      market_price_pp: marketPrice,
-      market_price_source: marketPrice ? "median_pp" : null,
-      median_pp: marketPrice,
-      p25_pp: marketPrice,
-      p75_pp: marketPrice,
-      avg_pp: marketPrice,
-      min_pp: marketPrice,
-      max_pp: marketPrice,
-      sample_size: marketPrice ? 3 : null,
-      confidence: marketPrice ? "medium" : null,
-      last_refresh_at: marketPrice ? "2026-06-16T10:00:00" : null,
-      source: marketPrice ? "fixture" : null,
-    },
+    price: buildPrice(marketPrice),
   }
+}
+
+function buildStats({
+  ac,
+  hp,
+  mana,
+}: {
+  ac: number
+  hp: number
+  mana: number
+}) {
+  return {
+    ac,
+    hp,
+    mana,
+    endurance: 0,
+    hp_regen: 0,
+    mana_regen: 0,
+    endurance_regen: 0,
+    str: 0,
+    sta: 0,
+    agi: 0,
+    dex: 0,
+    wis: 0,
+    int: 0,
+    cha: 0,
+    heroic_str: 0,
+    heroic_sta: 0,
+    heroic_agi: 0,
+    heroic_dex: 0,
+    heroic_wis: 0,
+    heroic_int: 0,
+    heroic_cha: 0,
+    sv_magic: 0,
+    sv_fire: 0,
+    sv_cold: 0,
+    sv_poison: 0,
+    sv_disease: 0,
+  }
+}
+
+function emptyCombat() {
+  return { damage: null, delay: null, ratio: null, haste: null }
+}
+
+function buildPrice(marketPrice: number | null) {
+  return {
+    market_price_pp: marketPrice,
+    market_price_source: marketPrice ? "median_pp" : null,
+    median_pp: marketPrice,
+    p25_pp: marketPrice,
+    p75_pp: marketPrice,
+    avg_pp: marketPrice,
+    min_pp: marketPrice,
+    max_pp: marketPrice,
+    sample_size: marketPrice ? 3 : null,
+    confidence: marketPrice ? "medium" : null,
+    last_refresh_at: marketPrice ? "2026-06-16T10:00:00" : null,
+    source: marketPrice ? "fixture" : null,
+  }
+}
+
+function upgradeSlotLabelForFixture(slotKey: string) {
+  const match = SLOT_DEFINITIONS.find(([key]) => key === slotKey)
+  return match?.[3] ?? slotKey
 }
 
 const SLOT_DEFINITIONS = [

@@ -664,6 +664,127 @@ export type CharacterInventoryResponse = {
   items: CharacterInventoryGroup[]
 }
 
+export type CharacterUpgradeSourceFilter = "owned" | "market" | "all"
+export type CharacterUpgradeProfile = "auto" | "tank" | "monk" | "sk"
+export type CharacterUpgradeSource = "owned" | "local_listing" | "market_price"
+
+export type CharacterUpgradeFilters = {
+  slot?: string | null
+  maxPricePp?: number | null
+  source?: CharacterUpgradeSourceFilter
+  profile?: CharacterUpgradeProfile
+  limit?: number
+}
+
+export type CharacterUpgradeItem = {
+  item_id: number
+  name: string
+  normalized_name: string | null
+  icon_url: string | null
+  icon_id: number | null
+  item_type: string | null
+  slot: string | null
+  slot_mask: number | null
+  slot_labels: string[]
+  slot_display: string | null
+  classes: string | null
+  races: string | null
+  flags: string | null
+  stats: ItemStats
+  combat: ItemCombat
+  levels: ItemLevels
+  source_primary: string | null
+  last_imported_at: string | null
+  price: CharacterItemPrice
+}
+
+export type CharacterUpgradeCurrentItem = {
+  item_id: number
+  name: string
+  stats: ItemStats
+  combat: ItemCombat
+  price: CharacterItemPrice
+}
+
+export type CharacterUpgradeDeltas = {
+  ac: number
+  hp: number
+  mana: number
+  endurance: number
+  hp_regen: number
+  mana_regen: number
+  endurance_regen: number
+  str: number
+  sta: number
+  agi: number
+  dex: number
+  wis: number
+  int: number
+  cha: number
+  heroic_str: number
+  heroic_sta: number
+  heroic_agi: number
+  heroic_dex: number
+  heroic_wis: number
+  heroic_int: number
+  heroic_cha: number
+  sv_magic: number
+  sv_fire: number
+  sv_cold: number
+  sv_poison: number
+  sv_disease: number
+  resists_total: number
+  base_stats_total: number
+  damage: number
+  delay: number
+  ratio: number | null
+  haste: number
+}
+
+export type CharacterUpgradeListing = {
+  listing_id: number
+  timestamp: string
+  seller: string | null
+  price_raw: string | null
+  price_pp: number | null
+}
+
+export type CharacterUpgradeCandidate = {
+  slot_key: string
+  slot: string
+  slot_label: string
+  current_item: CharacterUpgradeCurrentItem | null
+  candidate: CharacterUpgradeItem
+  source: CharacterUpgradeSource
+  source_detail: string | null
+  quantity: number | null
+  areas: Exclude<CharacterInventoryArea, "all">[]
+  area_quantities: Partial<Record<Exclude<CharacterInventoryArea, "all">, number>>
+  listing: CharacterUpgradeListing | null
+  decision_status: InventorySellDecisionStatus | null
+  cost_pp: number | null
+  market_price_pp: number | null
+  price_source: string | null
+  confidence: string | null
+  deltas: CharacterUpgradeDeltas
+  score: number
+}
+
+export type CharacterUpgradesResponse = {
+  character_name: string
+  server: string | null
+  character_class: string | null
+  profile: CharacterUpgradeProfile
+  resolved_profile: Exclude<CharacterUpgradeProfile, "auto">
+  source: CharacterUpgradeSourceFilter
+  slot: string | null
+  max_price_pp: number | null
+  local_listing_max_age_days: number
+  limit: number
+  candidate_count: number
+  candidates: CharacterUpgradeCandidate[]
+}
+
 export type InventorySellDecisionStatus = "keep" | "sell" | "ignore"
 export type InventorySellDecisionScope = "character" | "global"
 export type InventorySellCandidateCategory = "sellable" | "keep" | "ignored" | "no_drop" | "unpriced" | "excluded"
@@ -1145,6 +1266,23 @@ export async function fetchCharacterInventory(
   return fetchJson<CharacterInventoryResponse>(
     buildApiPath(`/api/characters/${encodeURIComponent(characterName)}/inventory`, {
       area,
+    }),
+    fetcher
+  )
+}
+
+export async function fetchCharacterUpgrades(
+  characterName: string,
+  filters: CharacterUpgradeFilters = {},
+  fetcher: Fetcher = fetch
+): Promise<CharacterUpgradesResponse> {
+  return fetchJson<CharacterUpgradesResponse>(
+    buildApiPath(`/api/characters/${encodeURIComponent(characterName)}/upgrades`, {
+      slot: filters.slot?.trim() || undefined,
+      max_price_pp: filters.maxPricePp,
+      source: filters.source,
+      profile: filters.profile,
+      limit: filters.limit,
     }),
     fetcher
   )

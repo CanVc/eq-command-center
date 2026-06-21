@@ -20,6 +20,7 @@ from eqmarket.api.routes.preferences import router as preferences_router
 from eqmarket.api.routes.prices import router as prices_router
 from eqmarket.api.routes.runtime import router as runtime_router
 from eqmarket.api.routes.settings import router as settings_router
+from eqmarket.api.routes.upgrades import router as upgrades_router
 from eqmarket.db import init_db
 from eqmarket.log_watcher import LogWatcher
 
@@ -78,6 +79,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     app.include_router(prices_router)
     app.include_router(runtime_router)
     app.include_router(settings_router)
+    app.include_router(upgrades_router)
 
     return app
 
