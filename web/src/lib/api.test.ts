@@ -691,8 +691,8 @@ describe("page API helpers", () => {
       character_name: "Dread Bank",
       server: "mischief",
       character_class: "SHD",
-      profile: "auto",
-      resolved_profile: "sk",
+      stats: ["sv_fire", "hp"],
+      better_only: false,
       source: "all",
       slot: "LEGS",
       max_price_pp: 20000,
@@ -706,13 +706,13 @@ describe("page API helpers", () => {
     await expect(
       fetchCharacterUpgrades(
         "Dread Bank",
-        { slot: "LEGS", source: "all", profile: "auto", maxPricePp: 20000, limit: 25 },
+        { slot: "LEGS", source: "all", stats: ["sv_fire", "hp"], betterOnly: false, maxPricePp: 20000, limit: 25 },
         fetcher
       )
     ).resolves.toEqual(upgradesPayload)
 
     expect(fetcher).toHaveBeenCalledWith(
-      "/api/characters/Dread%20Bank/upgrades?slot=LEGS&max_price_pp=20000&source=all&profile=auto&limit=25",
+      "/api/characters/Dread%20Bank/upgrades?slot=LEGS&max_price_pp=20000&source=all&stats=sv_fire%2Chp&better_only=false&limit=25",
       {
         headers: {
           Accept: "application/json",

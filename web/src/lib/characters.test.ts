@@ -6,7 +6,7 @@ import {
   equippedItemCount,
   inventoryAreaLabel,
   isStarterOrNoTradeImport,
-  upgradeProfileLabel,
+  upgradeStatLabel,
   upgradeSlotLabel,
   upgradeSourceFilterLabel,
   upgradeSourceLabel,
@@ -38,7 +38,8 @@ describe("characters helpers", () => {
     expect(upgradeSlotLabel("POWER_SOURCE")).toBe("Power Source")
     expect(upgradeSourceFilterLabel("all")).toBe("Owned + Market")
     expect(upgradeSourceLabel("local_listing")).toBe("Local listing")
-    expect(upgradeProfileLabel("sk")).toBe("SK")
+    expect(upgradeStatLabel("sv_fire")).toBe("Fire Resist")
+    expect(upgradeStatLabel("ratio")).toBe("Ratio")
   })
 
   it("flags starter or no-trade import markers", () => {

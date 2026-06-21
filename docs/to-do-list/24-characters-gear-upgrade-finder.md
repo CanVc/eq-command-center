@@ -31,10 +31,10 @@ L'upgrade est directement lié à un personnage. La v1 doit donc être un onglet
 
 - [x] Ajouter un endpoint `GET /api/characters/{character_name}/upgrades`.
 - [x] Utiliser le slot mask Lucy comme source de compatibilité item/slot, pas un libellé unique.
-- [x] Définir les premiers profils : `auto`, `tank`, `monk`, `sk`.
-- [x] Définir les filtres : slot, budget, source `owned|market|all`, profil.
+- [x] Définir une recherche par caractéristiques d'objet ordonnées plutôt que par profils fixes.
+- [x] Définir les filtres : slot, budget, source `owned|market|all`, caractéristiques, `Show only better stats`.
 - [x] Inclure les candidats provenant des sacs/banques possédés, des listings locaux et des prix TLP Auctions.
-- [x] Afficher les deltas par slot : AC, HP, mana, resists, ratio arme, coût, source.
+- [x] Afficher les deltas par slot : caractéristiques sélectionnées, AC, HP, mana, resists, ratio arme, coût, source.
 - [x] Ajouter un onglet `Upgrades` dans `Characters`.
 - [x] Ajouter les tests API, frontend helper et Playwright nécessaires.
 
@@ -43,5 +43,5 @@ L'upgrade est directement lié à un personnage. La v1 doit donc être un onglet
 - [x] Un personnage importé peut voir des candidats d'upgrade par slot.
 - [x] Les candidats incompatibles avec le slot ou la classe ne sont pas proposés.
 - [x] Les items possédés, les listings locaux et les références marché peuvent apparaître avec une source explicite.
-- [x] Les filtres slot, budget, source et profil changent la réponse affichée.
-- [x] Le scoring compare équipement actuel, items possédés et marché sans ambiguïté de slot.
+- [x] Les filtres slot, budget, source, caractéristiques et `Show only better stats` changent la réponse affichée.
+- [x] Le tri compare les deltas dans l'ordre des caractéristiques choisies sans ambiguïté de slot.

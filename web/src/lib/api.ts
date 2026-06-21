@@ -665,14 +665,47 @@ export type CharacterInventoryResponse = {
 }
 
 export type CharacterUpgradeSourceFilter = "owned" | "market" | "all"
-export type CharacterUpgradeProfile = "auto" | "tank" | "monk" | "sk"
 export type CharacterUpgradeSource = "owned" | "local_listing" | "market_price"
+export type CharacterUpgradeStat =
+  | "ac"
+  | "hp"
+  | "mana"
+  | "endurance"
+  | "hp_regen"
+  | "mana_regen"
+  | "endurance_regen"
+  | "str"
+  | "sta"
+  | "agi"
+  | "dex"
+  | "wis"
+  | "int"
+  | "cha"
+  | "heroic_str"
+  | "heroic_sta"
+  | "heroic_agi"
+  | "heroic_dex"
+  | "heroic_wis"
+  | "heroic_int"
+  | "heroic_cha"
+  | "sv_magic"
+  | "sv_fire"
+  | "sv_cold"
+  | "sv_poison"
+  | "sv_disease"
+  | "resists_total"
+  | "base_stats_total"
+  | "damage"
+  | "delay"
+  | "ratio"
+  | "haste"
 
 export type CharacterUpgradeFilters = {
   slot?: string | null
   maxPricePp?: number | null
   source?: CharacterUpgradeSourceFilter
-  profile?: CharacterUpgradeProfile
+  stats?: CharacterUpgradeStat[]
+  betterOnly?: boolean
   limit?: number
 }
 
@@ -774,8 +807,8 @@ export type CharacterUpgradesResponse = {
   character_name: string
   server: string | null
   character_class: string | null
-  profile: CharacterUpgradeProfile
-  resolved_profile: Exclude<CharacterUpgradeProfile, "auto">
+  stats: CharacterUpgradeStat[]
+  better_only: boolean
   source: CharacterUpgradeSourceFilter
   slot: string | null
   max_price_pp: number | null
@@ -1281,7 +1314,8 @@ export async function fetchCharacterUpgrades(
       slot: filters.slot?.trim() || undefined,
       max_price_pp: filters.maxPricePp,
       source: filters.source,
-      profile: filters.profile,
+      stats: filters.stats && filters.stats.length > 0 ? filters.stats.join(",") : undefined,
+      better_only: filters.betterOnly,
       limit: filters.limit,
     }),
     fetcher

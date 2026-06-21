@@ -13,7 +13,6 @@ from eqmarket.slot_masks import KNOWN_LUCY_SLOT_LABEL_SET, decode_lucy_slot_mask
 
 
 UpgradeSourceFilter = Literal["owned", "market", "all"]
-UpgradeProfile = Literal["auto", "tank", "monk", "sk"]
 
 DEFAULT_LIMIT = 50
 DEFAULT_LOCAL_LISTING_MAX_AGE_DAYS = 30
@@ -21,6 +20,7 @@ MARKET_CANDIDATE_SCAN_LIMIT = 2000
 NON_EQUIPMENT_INVENTORY_AREAS = ("carried", "bank", "shared_bank")
 AREA_ORDER = {"carried": 0, "bank": 1, "shared_bank": 2}
 DUPLICATE_EQUIPMENT_SLOTS = {"EAR", "WRIST", "FINGER"}
+DEFAULT_UPGRADE_STATS = ("ac", "hp")
 
 PAPERDOLL_SLOT_DEFINITIONS: tuple[tuple[str, str, int, str], ...] = (
     ("CHARM", "CHARM", 1, "Charm"),
@@ -81,34 +81,67 @@ BASE_STAT_FIELDS = ("astr", "asta", "aagi", "adex", "awis", "aint", "acha")
 COMBAT_FIELDS = ("damage", "delay", "ratio", "haste")
 LEVEL_FIELDS = ("required_level", "recommended_level")
 
-PROFILE_WEIGHTS: dict[str, dict[str, float]] = {
-    "tank": {
-        "ac": 4.0,
-        "hp": 0.20,
-        "mana": 0.03,
-        "endurance": 0.05,
-        "resists_total": 0.10,
-        "base_stats_total": 0.05,
-        "ratio": 250.0,
-    },
-    "sk": {
-        "ac": 3.5,
-        "hp": 0.18,
-        "mana": 0.08,
-        "endurance": 0.05,
-        "resists_total": 0.10,
-        "base_stats_total": 0.06,
-        "ratio": 300.0,
-    },
-    "monk": {
-        "ac": 2.5,
-        "hp": 0.14,
-        "mana": 0.0,
-        "endurance": 0.08,
-        "resists_total": 0.08,
-        "base_stats_total": 0.06,
-        "ratio": 700.0,
-    },
+UPGRADE_STAT_FIELDS = (
+    "ac",
+    "hp",
+    "mana",
+    "endurance",
+    "hp_regen",
+    "mana_regen",
+    "endurance_regen",
+    "str",
+    "sta",
+    "agi",
+    "dex",
+    "wis",
+    "int",
+    "cha",
+    "heroic_str",
+    "heroic_sta",
+    "heroic_agi",
+    "heroic_dex",
+    "heroic_wis",
+    "heroic_int",
+    "heroic_cha",
+    "sv_magic",
+    "sv_fire",
+    "sv_cold",
+    "sv_poison",
+    "sv_disease",
+    "resists_total",
+    "base_stats_total",
+    "damage",
+    "delay",
+    "ratio",
+    "haste",
+)
+
+UPGRADE_STAT_ALIASES = {
+    "MR": "sv_magic",
+    "MAGIC": "sv_magic",
+    "MAGICRESIST": "sv_magic",
+    "SV_MAGIC": "sv_magic",
+    "FR": "sv_fire",
+    "FIRE": "sv_fire",
+    "FIRERESIST": "sv_fire",
+    "SV_FIRE": "sv_fire",
+    "CR": "sv_cold",
+    "COLD": "sv_cold",
+    "COLDRESIST": "sv_cold",
+    "SV_COLD": "sv_cold",
+    "PR": "sv_poison",
+    "POISON": "sv_poison",
+    "POISONRESIST": "sv_poison",
+    "SV_POISON": "sv_poison",
+    "DR": "sv_disease",
+    "DISEASE": "sv_disease",
+    "DISEASERESIST": "sv_disease",
+    "SV_DISEASE": "sv_disease",
+    "RESISTS": "resists_total",
+    "RESISTSTOTAL": "resists_total",
+    "BASESTATS": "base_stats_total",
+    "BASESTATSTOTAL": "base_stats_total",
+    "ATTACKRATIO": "ratio",
 }
 
 CLASS_CODE_BY_NAME = {
@@ -199,10 +232,12 @@ def character_upgrades(
     slot: str | None = Query(None, min_length=1),
     max_price_pp: int | None = Query(None, ge=0),
     source: UpgradeSourceFilter = Query("all"),
-    profile: UpgradeProfile = Query("auto"),
+    stats: str = Query(",".join(DEFAULT_UPGRADE_STATS), min_length=1),
+    better_only: bool = Query(True),
     limit: int = Query(DEFAULT_LIMIT, gt=0, le=200),
     local_listing_max_age_days: int = Query(DEFAULT_LOCAL_LISTING_MAX_AGE_DAYS, ge=1, le=3650),
 ) -> dict[str, Any]:
+    selected_stats = _parse_upgrade_stats(stats)
     with closing(_connect_or_503(request.app.state.db_path)) as connection:
         character = _fetch_character_or_404(connection, character_name)
         db_server = _normalize_optional_server(character["server"])
@@ -217,24 +252,24 @@ def character_upgrades(
         )
 
     character_class = character["character_class"]
-    resolved_profile = _resolve_profile(profile, character_class)
     candidates = _upgrade_candidates(
         raw_candidates,
         equipment=equipment,
         slot_targets=slot_targets,
         character_class=character_class,
-        resolved_profile=resolved_profile,
+        selected_stats=selected_stats,
+        better_only=better_only,
         max_price_pp=max_price_pp,
     )
-    candidates.sort(key=_candidate_sort_key)
+    candidates.sort(key=lambda candidate: _candidate_sort_key(candidate, selected_stats))
     candidates = candidates[:limit]
 
     return {
         "character_name": character["character_name"],
         "server": character["server"],
         "character_class": character_class,
-        "profile": profile,
-        "resolved_profile": resolved_profile,
+        "stats": selected_stats,
+        "better_only": better_only,
         "source": source,
         "slot": _normalize_optional_slot_filter(slot),
         "max_price_pp": max_price_pp,
@@ -545,7 +580,8 @@ def _upgrade_candidates(
     equipment: dict[str, dict[str, Any]],
     slot_targets: list[dict[str, Any]],
     character_class: str | None,
-    resolved_profile: str,
+    selected_stats: list[str],
+    better_only: bool,
     max_price_pp: int | None,
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
@@ -577,9 +613,9 @@ def _upgrade_candidates(
             current_slot = equipment.get(slot_target["slot_key"], slot_target)
             current_item = current_slot.get("item")
             deltas = _deltas(raw_candidate["item"], current_item)
-            score = _score(deltas, resolved_profile)
-            if score <= 0:
+            if not _matches_selected_stats(deltas, selected_stats, better_only):
                 continue
+            score = _selection_score(deltas, selected_stats)
 
             key = (slot_target["slot_key"], int(raw_candidate["item"]["item_id"]), raw_candidate["source"])
             if key in seen_keys:
@@ -766,32 +802,85 @@ def _deltas(candidate: dict[str, Any], current: dict[str, Any] | None) -> dict[s
     }
 
 
-def _score(deltas: dict[str, Any], profile: str) -> float:
-    weights = PROFILE_WEIGHTS[profile]
+def _matches_selected_stats(deltas: dict[str, Any], selected_stats: list[str], better_only: bool) -> bool:
+    if not better_only:
+        return True
+
+    values = [_delta_number(deltas, stat) for stat in selected_stats]
+    if any(value is None for value in values):
+        return False
+    return all(value >= 0 for value in values if value is not None) and any(value > 0 for value in values if value is not None)
+
+
+def _selection_score(deltas: dict[str, Any], selected_stats: list[str]) -> float:
     score = 0.0
-    for key, weight in weights.items():
-        if key == "ratio":
-            ratio = deltas.get("ratio")
-            if ratio is not None and ratio > 0:
-                score += ratio * weight
-            continue
-        value = deltas.get(key)
-        if value is not None and value > 0:
-            score += value * weight
-    return round(score, 2)
+    stat_count = len(selected_stats)
+    for index, stat in enumerate(selected_stats):
+        value = _delta_number(deltas, stat)
+        if value is not None:
+            score += value * (stat_count - index)
+    return round(score, 4)
 
 
-def _candidate_sort_key(candidate: dict[str, Any]) -> tuple[Any, ...]:
+def _candidate_sort_key(candidate: dict[str, Any], selected_stats: list[str]) -> tuple[Any, ...]:
     source_rank = {"owned": 0, "local_listing": 1, "market_price": 2}.get(candidate["source"], 9)
     cost = candidate["cost_pp"]
+    stat_order: list[Any] = []
+    for stat in selected_stats:
+        value = _delta_number(candidate["deltas"], stat)
+        stat_order.extend((1, 0.0) if value is None else (0, -value))
+
     return (
-        -float(candidate["score"]),
+        *stat_order,
         source_rank,
         cost if cost is not None else 10**12,
         str(candidate["candidate"]["name"]).lower(),
         int(candidate["candidate"]["item_id"]),
         str(candidate["slot_key"]),
     )
+
+
+def _parse_upgrade_stats(raw_stats: str) -> list[str]:
+    selected_stats: list[str] = []
+    invalid_stats: list[str] = []
+
+    for raw_stat in re.split(r"[,|]+", raw_stats):
+        if not raw_stat.strip():
+            continue
+        stat = _normalize_upgrade_stat(raw_stat)
+        if stat is None:
+            invalid_stats.append(raw_stat.strip())
+            continue
+        if stat not in selected_stats:
+            selected_stats.append(stat)
+
+    if invalid_stats:
+        valid = ", ".join(UPGRADE_STAT_FIELDS)
+        invalid = ", ".join(invalid_stats)
+        raise HTTPException(status_code=400, detail=f"Unknown upgrade stat(s): {invalid}. Valid stats: {valid}")
+    if not selected_stats:
+        raise HTTPException(status_code=400, detail="At least one upgrade stat is required")
+    return selected_stats
+
+
+def _normalize_upgrade_stat(value: str) -> str | None:
+    normalized = _normalize_class_text(value)
+    alias = UPGRADE_STAT_ALIASES.get(normalized)
+    if alias is not None:
+        return alias
+
+    key = value.strip().lower().replace(" ", "_").replace("-", "_")
+    return key if key in UPGRADE_STAT_FIELDS else None
+
+
+def _delta_number(deltas: dict[str, Any], stat: str) -> float | None:
+    value = deltas.get(stat)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _slot_targets(slot: str | None) -> list[dict[str, Any]]:
@@ -918,18 +1007,6 @@ def _equipment_stat_select(table_alias: str) -> str:
         "heroic_cha",
     ]
     return ",\n            ".join(f"{table_alias}.{field} AS equipment_{field}" for field in fields)
-
-
-def _resolve_profile(profile: str, character_class: str | None) -> str:
-    if profile != "auto":
-        return profile
-
-    class_code = _character_class_code(character_class)
-    if class_code == "MNK":
-        return "monk"
-    if class_code == "SHD":
-        return "sk"
-    return "tank"
 
 
 def _class_compatible(item_classes: Any, character_class: str | None) -> bool:

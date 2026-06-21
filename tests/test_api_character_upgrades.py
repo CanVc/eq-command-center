@@ -23,13 +23,14 @@ class ApiCharacterUpgradesTests(unittest.TestCase):
             with TestClient(app) as client:
                 response = client.get(
                     "/api/characters/Dreadnought/upgrades",
-                    params={"slot": "LEGS", "source": "all", "max_price_pp": 20000, "profile": "sk"},
+                    params={"slot": "LEGS", "source": "all", "max_price_pp": 20000, "stats": "ac,hp"},
                 )
 
             self.assertEqual(response.status_code, 200, response.text)
             payload = response.json()
             self.assertEqual(payload["character_name"], "Dreadnought")
-            self.assertEqual(payload["resolved_profile"], "sk")
+            self.assertEqual(payload["stats"], ["ac", "hp"])
+            self.assertTrue(payload["better_only"])
             self.assertEqual(payload["slot"], "LEGS")
 
             candidates = payload["candidates"]
@@ -118,7 +119,7 @@ class ApiCharacterUpgradesTests(unittest.TestCase):
             with TestClient(app) as client:
                 response = client.get(
                     "/api/characters/Dreadnought/upgrades",
-                    params={"slot": "LEGS", "source": "market", "profile": "tank"},
+                    params={"slot": "LEGS", "source": "market", "stats": "ac,hp"},
                 )
 
             self.assertEqual(response.status_code, 200, response.text)
@@ -129,6 +130,37 @@ class ApiCharacterUpgradesTests(unittest.TestCase):
                 "Auction Greaves",
                 {candidate["candidate"]["name"] for candidate in payload["candidates"]},
             )
+
+    def test_character_upgrades_can_rank_tradeoffs_when_better_only_is_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            _seed_upgrade_fixture(db_path)
+            app = create_app(db_path)
+
+            with TestClient(app) as client:
+                strict_response = client.get(
+                    "/api/characters/Dreadnought/upgrades",
+                    params={"slot": "LEGS", "source": "market", "stats": "sv_fire,ac", "better_only": "true"},
+                )
+                tradeoff_response = client.get(
+                    "/api/characters/Dreadnought/upgrades",
+                    params={"slot": "LEGS", "source": "market", "stats": "sv_fire,ac", "better_only": "false"},
+                )
+
+            self.assertEqual(strict_response.status_code, 200, strict_response.text)
+            self.assertEqual(tradeoff_response.status_code, 200, tradeoff_response.text)
+
+            strict_names = {candidate["candidate"]["name"] for candidate in strict_response.json()["candidates"]}
+            self.assertNotIn("Charred Resist Greaves", strict_names)
+
+            tradeoff_payload = tradeoff_response.json()
+            self.assertEqual(tradeoff_payload["stats"], ["sv_fire", "ac"])
+            self.assertFalse(tradeoff_payload["better_only"])
+            tradeoff_candidates = tradeoff_payload["candidates"]
+            self.assertEqual(tradeoff_candidates[0]["candidate"]["name"], "Charred Resist Greaves")
+            self.assertGreater(tradeoff_candidates[0]["deltas"]["sv_fire"], 0)
+            self.assertLess(tradeoff_candidates[0]["deltas"]["ac"], 0)
 
     def test_missing_character_upgrade_lookup_returns_clean_404(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -164,6 +196,7 @@ def _seed_upgrade_fixture(db_path: Path) -> None:
                 (301, "TLP Greaves", "tlp greaves", "262144", "16", 24, 90, 20, 0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8, 8, None, None, None, None, 1006, "MAGIC", "lucy", "2026-06-20 10:00:00"),
                 (401, "Auction Greaves", "auction greaves", "262144", "16", 22, 80, 10, 0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8, 8, None, None, None, None, 1007, "MAGIC", "lucy", "2026-06-20 10:00:00"),
                 (402, "Expensive Greaves", "expensive greaves", "262144", "16", 60, 250, 40, 0, 0, 0, 0, 0, 0, 0, 0, 20, 20, 20, 20, 20, None, None, None, None, 1008, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (403, "Charred Resist Greaves", "charred resist greaves", "262144", "16", 1, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 30, 1, 1, 1, None, None, None, None, 1010, "MAGIC", "lucy", "2026-06-20 10:00:00"),
                 (501, "Obsidian Sword", "obsidian sword", "8192", "16", 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18, 30, 0.6, 0, 1009, "MAGIC", "lucy", "2026-06-20 10:00:00"),
             ],
         )
@@ -219,6 +252,7 @@ def _seed_upgrade_fixture(db_path: Path) -> None:
                 (301, 12000, 10000, 15000, 12500, 8, "high", "tlp_auctions_history"),
                 (401, 14000, 12000, 18000, 15000, 6, "medium", "tlp_auctions_history"),
                 (402, 50000, 45000, 60000, 52000, 4, "medium", "tlp_auctions_history"),
+                (403, 4000, 3500, 4500, 3900, 4, "medium", "tlp_auctions_history"),
                 (501, 9000, 7500, 11000, 9200, 5, "medium", "tlp_auctions_history"),
             ],
         )

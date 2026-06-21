@@ -1,6 +1,6 @@
 import type {
   CharacterEquipmentResponse,
-  CharacterUpgradeProfile,
+  CharacterUpgradeStat,
   CharacterUpgradeSource,
   CharacterUpgradeSourceFilter,
   CharacterInventoryArea,
@@ -40,6 +40,41 @@ export const CHARACTER_UPGRADE_SLOTS = [
   "AMMO",
 ] as const
 
+export const CHARACTER_UPGRADE_STATS: CharacterUpgradeStat[] = [
+  "ac",
+  "hp",
+  "mana",
+  "endurance",
+  "sv_fire",
+  "sv_cold",
+  "sv_magic",
+  "sv_poison",
+  "sv_disease",
+  "resists_total",
+  "str",
+  "sta",
+  "agi",
+  "dex",
+  "wis",
+  "int",
+  "cha",
+  "base_stats_total",
+  "heroic_str",
+  "heroic_sta",
+  "heroic_agi",
+  "heroic_dex",
+  "heroic_wis",
+  "heroic_int",
+  "heroic_cha",
+  "hp_regen",
+  "mana_regen",
+  "endurance_regen",
+  "damage",
+  "delay",
+  "ratio",
+  "haste",
+]
+
 const AREA_LABELS: Record<CharacterInventoryArea, string> = {
   all: "All",
   carried: "Carried",
@@ -69,6 +104,41 @@ const UPGRADE_SLOT_LABELS: Record<(typeof CHARACTER_UPGRADE_SLOTS)[number], stri
   WAIST: "Waist",
   POWER_SOURCE: "Power Source",
   AMMO: "Ammo",
+}
+
+const UPGRADE_STAT_LABELS: Record<CharacterUpgradeStat, string> = {
+  ac: "AC",
+  hp: "HP",
+  mana: "Mana",
+  endurance: "Endurance",
+  hp_regen: "HP Regen",
+  mana_regen: "Mana Regen",
+  endurance_regen: "End Regen",
+  str: "STR",
+  sta: "STA",
+  agi: "AGI",
+  dex: "DEX",
+  wis: "WIS",
+  int: "INT",
+  cha: "CHA",
+  heroic_str: "Heroic STR",
+  heroic_sta: "Heroic STA",
+  heroic_agi: "Heroic AGI",
+  heroic_dex: "Heroic DEX",
+  heroic_wis: "Heroic WIS",
+  heroic_int: "Heroic INT",
+  heroic_cha: "Heroic CHA",
+  sv_magic: "Magic Resist",
+  sv_fire: "Fire Resist",
+  sv_cold: "Cold Resist",
+  sv_poison: "Poison Resist",
+  sv_disease: "Disease Resist",
+  resists_total: "Total Resists",
+  base_stats_total: "Base Stats",
+  damage: "Damage",
+  delay: "Delay",
+  ratio: "Ratio",
+  haste: "Haste",
 }
 
 export function characterClassLevelLabel(character: Pick<CharacterSummary, "character_class" | "level">): string {
@@ -107,17 +177,8 @@ export function upgradeSourceLabel(source: CharacterUpgradeSource): string {
   }
 }
 
-export function upgradeProfileLabel(profile: CharacterUpgradeProfile): string {
-  switch (profile) {
-    case "auto":
-      return "Auto"
-    case "tank":
-      return "Tank"
-    case "monk":
-      return "Monk"
-    case "sk":
-      return "SK"
-  }
+export function upgradeStatLabel(stat: CharacterUpgradeStat | string): string {
+  return UPGRADE_STAT_LABELS[stat as CharacterUpgradeStat] ?? stat.replaceAll("_", " ")
 }
 
 export function isStarterOrNoTradeImport(

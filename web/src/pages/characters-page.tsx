@@ -1,4 +1,4 @@
-import { AlertTriangle, Backpack, RotateCcw, Shield, Swords, UserRound } from "lucide-react"
+import { AlertTriangle, ArrowDown, ArrowUp, Backpack, Plus, RotateCcw, Shield, Swords, Trash2, UserRound } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 
 import { EquipmentPaperdoll } from "@/components/equipment-paperdoll"
@@ -31,18 +31,19 @@ import {
   type CharacterInventoryResponse,
   type CharacterSummary,
   type CharacterUpgradeCandidate,
-  type CharacterUpgradeProfile,
+  type CharacterUpgradeStat,
   type CharacterUpgradeSourceFilter,
   type CharacterUpgradesResponse,
 } from "@/lib/api"
 import {
   CHARACTER_INVENTORY_AREAS,
+  CHARACTER_UPGRADE_STATS,
   CHARACTER_UPGRADE_SLOTS,
   areaQuantityLabel,
   characterClassLevelLabel,
   inventoryAreaLabel,
   isStarterOrNoTradeImport,
-  upgradeProfileLabel,
+  upgradeStatLabel,
   upgradeSlotLabel,
   upgradeSourceFilterLabel,
   upgradeSourceLabel,
@@ -67,14 +68,16 @@ type CharacterPageView = "inventory" | "upgrades" | "sell"
 type UpgradeFilters = {
   slot: string
   source: CharacterUpgradeSourceFilter
-  profile: CharacterUpgradeProfile
+  stats: CharacterUpgradeStat[]
+  betterOnly: boolean
   maxPriceInput: string
 }
 
 const DEFAULT_UPGRADE_FILTERS: UpgradeFilters = {
   slot: "all",
   source: "all",
-  profile: "auto",
+  stats: ["ac", "hp"],
+  betterOnly: true,
   maxPriceInput: "",
 }
 
@@ -174,12 +177,12 @@ export function CharactersPage({ characters, server }: CharactersPageProps) {
     }
 
     let isActive = true
-    setUpgradesState({ status: "loading" })
 
     fetchCharacterUpgrades(activeCharacterName, {
       slot: upgradeFilters.slot === "all" ? null : upgradeFilters.slot,
       source: upgradeFilters.source,
-      profile: upgradeFilters.profile,
+      stats: upgradeFilters.stats,
+      betterOnly: upgradeFilters.betterOnly,
       maxPricePp: upgradeMaxPrice(upgradeFilters.maxPriceInput),
       limit: 50,
     })
@@ -201,6 +204,13 @@ export function CharactersPage({ characters, server }: CharactersPageProps) {
       isActive = false
     }
   }, [activeCharacterName, activeView, detailRefreshKey, upgradeFilters])
+
+  const changeActiveView = (view: CharacterPageView) => {
+    if (view === "upgrades" && activeCharacterName) {
+      setUpgradesState({ status: "loading" })
+    }
+    setActiveView(view)
+  }
 
   const selectCharacter = (characterName: string) => {
     if (characterName === activeCharacterName) {
@@ -260,7 +270,7 @@ export function CharactersPage({ characters, server }: CharactersPageProps) {
         </Badge>
       </div>
 
-      <Tabs value={activeView} onValueChange={(value) => setActiveView(value as CharacterPageView)}>
+      <Tabs value={activeView} onValueChange={(value) => changeActiveView(value as CharacterPageView)}>
         <TabsList className="flex h-auto w-fit flex-wrap justify-start" aria-label="Character views">
           <TabsTrigger value="inventory">Inventory</TabsTrigger>
           <TabsTrigger value="upgrades">Upgrades</TabsTrigger>
@@ -518,77 +528,170 @@ function UpgradeFiltersForm({
   onFilterChange: <K extends keyof UpgradeFilters>(key: K, value: UpgradeFilters[K]) => void
   onReset: () => void
 }) {
+  const updateStat = (index: number, stat: CharacterUpgradeStat) => {
+    const nextStats = filters.stats.map((currentStat, currentIndex) => currentIndex === index ? stat : currentStat)
+    onFilterChange("stats", nextStats)
+  }
+
+  const addStat = () => {
+    const nextStat = CHARACTER_UPGRADE_STATS.find((stat) => !filters.stats.includes(stat)) ?? "ac"
+    onFilterChange("stats", [...filters.stats, nextStat])
+  }
+
+  const moveStat = (index: number, direction: -1 | 1) => {
+    const targetIndex = index + direction
+    if (targetIndex < 0 || targetIndex >= filters.stats.length) {
+      return
+    }
+
+    const nextStats = [...filters.stats]
+    const currentStat = nextStats[index]
+    nextStats[index] = nextStats[targetIndex]
+    nextStats[targetIndex] = currentStat
+    onFilterChange("stats", nextStats)
+  }
+
+  const removeStat = (index: number) => {
+    if (filters.stats.length <= 1) {
+      return
+    }
+
+    onFilterChange("stats", filters.stats.filter((_, currentIndex) => currentIndex !== index))
+  }
+
   return (
     <form
       aria-label="Upgrade filters"
-      className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]"
+      className="mb-4 grid gap-3"
       onSubmit={(event) => event.preventDefault()}
     >
-      <label className="grid gap-1.5 text-sm">
-        <span className="text-xs font-medium text-muted-foreground">Slot</span>
-        <select
-          aria-label="Upgrade slot filter"
-          className={inputClassName}
-          value={filters.slot}
-          onChange={(event) => onFilterChange("slot", event.target.value)}
-        >
-          {CHARACTER_UPGRADE_SLOTS.map((slot) => (
-            <option key={slot} value={slot}>
-              {upgradeSlotLabel(slot)}
-            </option>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,1fr))_auto]">
+        <label className="grid gap-1.5 text-sm">
+          <span className="text-xs font-medium text-muted-foreground">Slot</span>
+          <select
+            aria-label="Upgrade slot filter"
+            className={inputClassName}
+            value={filters.slot}
+            onChange={(event) => onFilterChange("slot", event.target.value)}
+          >
+            {CHARACTER_UPGRADE_SLOTS.map((slot) => (
+              <option key={slot} value={slot}>
+                {upgradeSlotLabel(slot)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="grid gap-1.5 text-sm">
+          <span className="text-xs font-medium text-muted-foreground">Source</span>
+          <select
+            aria-label="Upgrade source filter"
+            className={inputClassName}
+            value={filters.source}
+            onChange={(event) => onFilterChange("source", event.target.value as CharacterUpgradeSourceFilter)}
+          >
+            {(["all", "owned", "market"] as CharacterUpgradeSourceFilter[]).map((source) => (
+              <option key={source} value={source}>
+                {upgradeSourceFilterLabel(source)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="grid gap-1.5 text-sm">
+          <span className="text-xs font-medium text-muted-foreground">Max cost</span>
+          <input
+            aria-label="Upgrade max cost filter"
+            className={inputClassName}
+            inputMode="numeric"
+            value={filters.maxPriceInput}
+            placeholder="Any"
+            onChange={(event) => onFilterChange("maxPriceInput", event.target.value)}
+          />
+        </label>
+
+        <div className="flex items-end">
+          <Button type="button" variant="outline" className="w-full xl:w-auto" onClick={onReset}>
+            <RotateCcw aria-hidden="true" />
+            Reset
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <label className="flex min-h-8 items-center gap-2 text-sm">
+            <input
+              aria-label="Show only better stats"
+              type="checkbox"
+              className="size-4 rounded border-input accent-primary"
+              checked={filters.betterOnly}
+              onChange={(event) => onFilterChange("betterOnly", event.target.checked)}
+            />
+            <span>Show only better stats</span>
+          </label>
+          <Button type="button" variant="outline" size="sm" onClick={addStat}>
+            <Plus aria-hidden="true" />
+            Add stat
+          </Button>
+        </div>
+
+        <div className="grid gap-2">
+          {filters.stats.map((stat, index) => (
+            <div key={`${stat}-${index}`} className="grid gap-2 sm:grid-cols-[2rem_minmax(0,1fr)_auto] sm:items-center">
+              <Badge variant="outline" className="flex h-9 items-center justify-center rounded-md">
+                {index + 1}
+              </Badge>
+              <select
+                aria-label={`Upgrade stat ${index + 1}`}
+                className={inputClassName}
+                value={stat}
+                onChange={(event) => updateStat(index, event.target.value as CharacterUpgradeStat)}
+              >
+                {CHARACTER_UPGRADE_STATS.map((option) => (
+                  <option key={option} value={option} disabled={filters.stats.includes(option) && option !== stat}>
+                    {upgradeStatLabel(option)}
+                  </option>
+                ))}
+              </select>
+              <div className="flex gap-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  title="Move stat up"
+                  aria-label={`Move ${upgradeStatLabel(stat)} up`}
+                  disabled={index === 0}
+                  onClick={() => moveStat(index, -1)}
+                >
+                  <ArrowUp aria-hidden="true" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  title="Move stat down"
+                  aria-label={`Move ${upgradeStatLabel(stat)} down`}
+                  disabled={index === filters.stats.length - 1}
+                  onClick={() => moveStat(index, 1)}
+                >
+                  <ArrowDown aria-hidden="true" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  title="Remove stat"
+                  aria-label={`Remove ${upgradeStatLabel(stat)}`}
+                  disabled={filters.stats.length <= 1}
+                  onClick={() => removeStat(index)}
+                >
+                  <Trash2 aria-hidden="true" />
+                </Button>
+              </div>
+            </div>
           ))}
-        </select>
-      </label>
-
-      <label className="grid gap-1.5 text-sm">
-        <span className="text-xs font-medium text-muted-foreground">Source</span>
-        <select
-          aria-label="Upgrade source filter"
-          className={inputClassName}
-          value={filters.source}
-          onChange={(event) => onFilterChange("source", event.target.value as CharacterUpgradeSourceFilter)}
-        >
-          {(["all", "owned", "market"] as CharacterUpgradeSourceFilter[]).map((source) => (
-            <option key={source} value={source}>
-              {upgradeSourceFilterLabel(source)}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="grid gap-1.5 text-sm">
-        <span className="text-xs font-medium text-muted-foreground">Profile</span>
-        <select
-          aria-label="Upgrade profile filter"
-          className={inputClassName}
-          value={filters.profile}
-          onChange={(event) => onFilterChange("profile", event.target.value as CharacterUpgradeProfile)}
-        >
-          {(["auto", "tank", "monk", "sk"] as CharacterUpgradeProfile[]).map((profile) => (
-            <option key={profile} value={profile}>
-              {upgradeProfileLabel(profile)}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="grid gap-1.5 text-sm">
-        <span className="text-xs font-medium text-muted-foreground">Max cost</span>
-        <input
-          aria-label="Upgrade max cost filter"
-          className={inputClassName}
-          inputMode="numeric"
-          value={filters.maxPriceInput}
-          placeholder="Any"
-          onChange={(event) => onFilterChange("maxPriceInput", event.target.value)}
-        />
-      </label>
-
-      <div className="flex items-end">
-        <Button type="button" variant="outline" className="w-full xl:w-auto" onClick={onReset}>
-          <RotateCcw aria-hidden="true" />
-          Reset
-        </Button>
+        </div>
       </div>
     </form>
   )
@@ -605,7 +708,8 @@ function UpgradeCandidatesTable({ upgrades, server }: { upgrades: CharacterUpgra
         <Badge variant="outline" className="rounded-md">
           {formatNumber(upgrades.candidate_count)} candidates
         </Badge>
-        <span>Profile {upgradeProfileLabel(upgrades.resolved_profile)}</span>
+        <span>Stats {upgrades.stats.map(upgradeStatLabel).join(" > ")}</span>
+        <span>{upgrades.better_only ? "Only better stats" : "Tradeoffs allowed"}</span>
         <span>Source {upgradeSourceFilterLabel(upgrades.source)}</span>
         <span>Budget {formatPrice(upgrades.max_price_pp)}</span>
       </div>
@@ -620,12 +724,16 @@ function UpgradeCandidatesTable({ upgrades, server }: { upgrades: CharacterUpgra
               <TableHead>Deltas</TableHead>
               <TableHead>Cost</TableHead>
               <TableHead>Source</TableHead>
-              <TableHead>Score</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {upgrades.candidates.map((candidate) => (
-              <UpgradeCandidateRow key={upgradeCandidateKey(candidate)} candidate={candidate} server={server} />
+              <UpgradeCandidateRow
+                key={upgradeCandidateKey(candidate)}
+                candidate={candidate}
+                selectedStats={upgrades.stats}
+                server={server}
+              />
             ))}
           </TableBody>
         </Table>
@@ -634,11 +742,18 @@ function UpgradeCandidatesTable({ upgrades, server }: { upgrades: CharacterUpgra
   )
 }
 
-function UpgradeCandidateRow({ candidate, server }: { candidate: CharacterUpgradeCandidate; server: string }) {
+function UpgradeCandidateRow({
+  candidate,
+  selectedStats,
+  server,
+}: {
+  candidate: CharacterUpgradeCandidate
+  selectedStats: CharacterUpgradeStat[]
+  server: string
+}) {
   const details = [
     { label: "Slot", value: candidate.slot_label },
     { label: "Cost", value: formatPrice(candidate.cost_pp) },
-    { label: "Score", value: formatUpgradeScore(candidate.score) },
   ]
 
   return (
@@ -667,7 +782,7 @@ function UpgradeCandidateRow({ candidate, server }: { candidate: CharacterUpgrad
         )}
       </TableCell>
       <TableCell className="min-w-[18rem]">
-        <UpgradeDeltaList candidate={candidate} />
+        <UpgradeDeltaList candidate={candidate} selectedStats={selectedStats} />
       </TableCell>
       <TableCell className="whitespace-nowrap">
         <div className="grid gap-1">
@@ -695,25 +810,24 @@ function UpgradeCandidateRow({ candidate, server }: { candidate: CharacterUpgrad
           ) : null}
         </div>
       </TableCell>
-      <TableCell className="whitespace-nowrap font-medium">{formatUpgradeScore(candidate.score)}</TableCell>
     </TableRow>
   )
 }
 
-function UpgradeDeltaList({ candidate }: { candidate: CharacterUpgradeCandidate }) {
-  const deltas = [
-    ["AC", candidate.deltas.ac],
-    ["HP", candidate.deltas.hp],
-    ["Mana", candidate.deltas.mana],
-    ["Resists", candidate.deltas.resists_total],
-    ["Ratio", candidate.deltas.ratio],
-  ] as const
+function UpgradeDeltaList({
+  candidate,
+  selectedStats,
+}: {
+  candidate: CharacterUpgradeCandidate
+  selectedStats: CharacterUpgradeStat[]
+}) {
+  const deltaStats = orderedDeltaStats(selectedStats)
 
   return (
     <div className="flex flex-wrap gap-1">
-      {deltas.map(([label, value]) => (
-        <Badge key={label} variant="outline" className={cn("rounded-md", deltaBadgeClassName(value))}>
-          {label} {formatSignedDelta(value)}
+      {deltaStats.map((stat) => (
+        <Badge key={stat} variant="outline" className={cn("rounded-md", deltaBadgeClassName(candidate.deltas[stat]))}>
+          {upgradeStatLabel(stat)} {formatSignedDelta(candidate.deltas[stat])}
         </Badge>
       ))}
     </div>
@@ -959,8 +1073,17 @@ function upgradeCandidateKey(candidate: CharacterUpgradeCandidate): string {
   return `${candidate.slot_key}:${candidate.source}:${candidate.candidate.item_id}:${candidate.listing?.listing_id ?? "market"}`
 }
 
-function formatUpgradeScore(value: number): string {
-  return value.toFixed(value % 1 === 0 ? 0 : 1)
+function orderedDeltaStats(selectedStats: CharacterUpgradeStat[]): CharacterUpgradeStat[] {
+  const contextStats: CharacterUpgradeStat[] = ["ac", "hp", "mana", "resists_total", "ratio"]
+  const stats: CharacterUpgradeStat[] = []
+
+  for (const stat of [...selectedStats, ...contextStats]) {
+    if (!stats.includes(stat)) {
+      stats.push(stat)
+    }
+  }
+
+  return stats
 }
 
 function formatSignedDelta(value: number | null): string {

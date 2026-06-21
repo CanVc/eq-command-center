@@ -60,6 +60,18 @@ test("renders the Characters paperdoll and grouped inventory", async ({ page }) 
   await expect(page.getByRole("link", { name: "Banked Cobalt Greaves" })).toBeVisible()
   await expect(page.getByText("Local listing", { exact: true })).toBeVisible()
   await expect(page.getByText("AC +12")).toBeVisible()
+  await expect.poll(() => upgradeRequests.at(-1)?.searchParams.get("stats")).toBe("ac,hp")
+  await expect.poll(() => upgradeRequests.at(-1)?.searchParams.get("better_only")).toBe("true")
+
+  await page.getByLabel("Upgrade stat 1").selectOption("sv_fire")
+  await expect.poll(() => upgradeRequests.at(-1)?.searchParams.get("stats")).toBe("sv_fire,hp")
+  await expect(page.getByRole("link", { name: "Fire Resist Tradeoff Greaves" })).not.toBeVisible()
+
+  await page.getByLabel("Show only better stats").uncheck()
+  await expect.poll(() => upgradeRequests.at(-1)?.searchParams.get("better_only")).toBe("false")
+  await expect(page.getByRole("link", { name: "Fire Resist Tradeoff Greaves" })).toBeVisible()
+  await expect(page.getByText("Fire Resist +25")).toBeVisible()
+  await expect(page.getByText("HP -10")).toBeVisible()
 
   await page.getByLabel("Upgrade slot filter").selectOption("PRIMARY")
   await expect.poll(() => upgradeRequests.at(-1)?.searchParams.get("slot")).toBe("PRIMARY")
@@ -304,16 +316,17 @@ function buildInventory(characterName: string, server: string, area: string) {
 function buildUpgrades(characterName: string, server: string, url: URL) {
   const slot = url.searchParams.get("slot")
   const source = url.searchParams.get("source") ?? "all"
-  const profile = url.searchParams.get("profile") ?? "auto"
+  const stats = (url.searchParams.get("stats") ?? "ac,hp").split(",").filter(Boolean)
+  const betterOnly = url.searchParams.get("better_only") !== "false"
   const maxPrice = url.searchParams.get("max_price_pp")
-  const candidates = characterName === "Dreadbank" ? buildUpgradeCandidates(slot, source, maxPrice) : []
+  const candidates = characterName === "Dreadbank" ? buildUpgradeCandidates(slot, source, maxPrice, stats, betterOnly) : []
 
   return {
     character_name: characterName,
     server,
     character_class: "Shadow Knight",
-    profile,
-    resolved_profile: profile === "auto" ? "sk" : profile,
+    stats,
+    better_only: betterOnly,
     source,
     slot,
     max_price_pp: maxPrice ? Number(maxPrice) : null,
@@ -324,7 +337,13 @@ function buildUpgrades(characterName: string, server: string, url: URL) {
   }
 }
 
-function buildUpgradeCandidates(slot: string | null, source: string, maxPrice: string | null) {
+function buildUpgradeCandidates(
+  slot: string | null,
+  source: string,
+  maxPrice: string | null,
+  stats: string[],
+  betterOnly: boolean
+) {
   const maxPricePp = maxPrice ? Number(maxPrice) : null
   const allCandidates = [
     buildUpgradeCandidate({
@@ -357,6 +376,18 @@ function buildUpgradeCandidates(slot: string | null, source: string, maxPrice: s
       },
     }),
     buildUpgradeCandidate({
+      itemId: 304,
+      name: "Fire Resist Tradeoff Greaves",
+      slotKey: "LEGS",
+      slot: "LEGS",
+      source: "market_price",
+      costPp: 5000,
+      marketPrice: 5000,
+      acDelta: -2,
+      hpDelta: -10,
+      svFireDelta: 25,
+    }),
+    buildUpgradeCandidate({
       itemId: 303,
       name: "Obsidian Sword",
       slotKey: "PRIMARY",
@@ -383,8 +414,8 @@ function buildUpgradeCandidates(slot: string | null, source: string, maxPrice: s
     if (maxPricePp !== null && candidate.cost_pp !== null && candidate.cost_pp > maxPricePp) {
       return false
     }
-    return true
-  })
+    return matchesUpgradeStats(candidate, stats, betterOnly)
+  }).sort((left, right) => compareUpgradeCandidates(left, right, stats))
 }
 
 function buildUpgradeCandidate({
@@ -397,6 +428,7 @@ function buildUpgradeCandidate({
   marketPrice,
   acDelta,
   hpDelta,
+  svFireDelta = 0,
   ratioDelta = null,
   listing = null,
 }: {
@@ -409,6 +441,7 @@ function buildUpgradeCandidate({
   marketPrice: number
   acDelta: number
   hpDelta: number
+  svFireDelta?: number
   ratioDelta?: number | null
   listing?: unknown
 }) {
@@ -428,7 +461,7 @@ function buildUpgradeCandidate({
       name,
       slot,
       marketPrice,
-      stats: buildStats({ ac: 5 + acDelta, hp: 25 + hpDelta, mana: 10 }),
+      stats: buildStats({ ac: 5 + acDelta, hp: 25 + hpDelta, mana: 10, sv_fire: svFireDelta }),
       combat: slot === "PRIMARY" ? { damage: 18, delay: 30, ratio: 0.6, haste: null } : emptyCombat(),
     }),
     source,
@@ -443,7 +476,7 @@ function buildUpgradeCandidate({
     price_source: source === "local_listing" ? "local_listing" : "median_pp",
     confidence: "medium",
     deltas: {
-      ...buildStats({ ac: acDelta, hp: hpDelta, mana: 10 }),
+      ...buildStats({ ac: acDelta, hp: hpDelta, mana: 10, sv_fire: svFireDelta }),
       endurance: 0,
       hp_regen: 0,
       mana_regen: 0,
@@ -456,11 +489,10 @@ function buildUpgradeCandidate({
       heroic_int: 0,
       heroic_cha: 0,
       sv_magic: 0,
-      sv_fire: 0,
       sv_cold: 0,
       sv_poison: 0,
       sv_disease: 0,
-      resists_total: 0,
+      resists_total: svFireDelta,
       base_stats_total: 0,
       damage: slot === "PRIMARY" ? 6 : 0,
       delay: 0,
@@ -469,6 +501,42 @@ function buildUpgradeCandidate({
     },
     score: acDelta * 3 + hpDelta * 0.2 + (ratioDelta ?? 0) * 300,
   }
+}
+
+function matchesUpgradeStats(
+  candidate: ReturnType<typeof buildUpgradeCandidate>,
+  stats: string[],
+  betterOnly: boolean
+) {
+  if (!betterOnly) {
+    return true
+  }
+
+  const values = stats.map((stat) => candidate.deltas[stat as keyof typeof candidate.deltas])
+  return values.every((value) => typeof value === "number" && value >= 0)
+    && values.some((value) => typeof value === "number" && value > 0)
+}
+
+function compareUpgradeCandidates(
+  left: ReturnType<typeof buildUpgradeCandidate>,
+  right: ReturnType<typeof buildUpgradeCandidate>,
+  stats: string[]
+) {
+  for (const stat of stats) {
+    const leftValue = upgradeDeltaValue(left, stat)
+    const rightValue = upgradeDeltaValue(right, stat)
+
+    if (leftValue !== rightValue) {
+      return rightValue - leftValue
+    }
+  }
+
+  return left.candidate.name.localeCompare(right.candidate.name)
+}
+
+function upgradeDeltaValue(candidate: ReturnType<typeof buildUpgradeCandidate>, stat: string) {
+  const value = candidate.deltas[stat as keyof typeof candidate.deltas]
+  return typeof value === "number" ? value : Number.NEGATIVE_INFINITY
 }
 
 function buildInventoryItems() {
@@ -612,14 +680,16 @@ function buildItem({
 }
 
 function buildStats({
-  ac,
-  hp,
-  mana,
+  ac = 0,
+  hp = 0,
+  mana = 0,
+  sv_fire = 0,
 }: {
-  ac: number
-  hp: number
-  mana: number
-}) {
+  ac?: number
+  hp?: number
+  mana?: number
+  sv_fire?: number
+} = {}) {
   return {
     ac,
     hp,
@@ -643,7 +713,7 @@ function buildStats({
     heroic_int: 0,
     heroic_cha: 0,
     sv_magic: 0,
-    sv_fire: 0,
+    sv_fire,
     sv_cold: 0,
     sv_poison: 0,
     sv_disease: 0,
