@@ -102,6 +102,7 @@ class ApiContractTests(unittest.TestCase):
                     "item",
                     "item_id",
                     "item_name",
+                    "sources",
                     "price_raw",
                     "raw_line",
                     "listing_price_pp",
@@ -116,7 +117,7 @@ class ApiContractTests(unittest.TestCase):
                     "resolved",
                 }.issubset(deal)
             )
-            self.assertEqual(set(deal["item"]), {"item_id", "name"})
+            self.assertEqual(set(deal["item"]), {"item_id", "name", "sources"})
 
             listing = listings.json()[0]
             self.assertTrue(
@@ -162,6 +163,7 @@ class ApiContractTests(unittest.TestCase):
                     "combat",
                     "levels",
                     "effects",
+                    "sources",
                 }.issubset(item.json())
             )
             self.assertTrue({"item_id", "server", "market_price_pp", "median_pp", "avg_pp", "sample_size"}.issubset(prices.json()))
@@ -178,6 +180,7 @@ class ApiContractTests(unittest.TestCase):
                     "market_price_pp",
                     "last_seen_pp",
                     "effects",
+                    "sources",
                 }.issubset(tooltip.json())
             )
 

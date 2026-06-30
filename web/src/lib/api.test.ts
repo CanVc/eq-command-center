@@ -583,6 +583,8 @@ describe("page API helpers", () => {
       last_seen_seller: "Nebblastin",
       last_seen_price_raw: "4k",
       effects: [],
+      sources: [],
+      item_preference: null,
     }
     const fetcher = vi.fn(async () => {
       return new Response(JSON.stringify(tooltipPayload), {
@@ -878,8 +880,10 @@ describe("page API helpers", () => {
         recommended_level: 50,
       },
       effects: [],
+      sources: [],
       source_primary: "fixture",
       last_imported_at: "2026-06-16T09:00:00",
+      item_preference: null,
     }
     const pricePayload = {
       item_id: 1,

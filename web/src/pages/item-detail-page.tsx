@@ -3,6 +3,7 @@ import {
   Coins,
   ExternalLink,
   LineChart,
+  MapPin,
   ScrollText,
   Shield,
   Sparkles,
@@ -56,7 +57,9 @@ import {
   buildPriceHistory,
   buildTlpPriceHistory,
   formatKronoEquivalent,
+  itemSourceLabel,
   latestPricedListing,
+  primaryItemSourceLabel,
   type PriceHistoryPoint,
 } from "@/lib/item-detail"
 import { cn } from "@/lib/utils"
@@ -198,6 +201,7 @@ function ItemSummary({
             { label: "Classes", value: item.classes ?? "All" },
             { label: "Races", value: item.races ?? "All" },
             { label: "Flags", value: item.flags ?? "None" },
+            { label: "Drop", value: primaryItemSourceLabel(item.sources) ?? "Unknown" },
             { label: "Source", value: item.source_primary ?? "n/a" },
             { label: "Imported", value: formatDateTime(item.last_imported_at) },
           ]}
@@ -439,6 +443,7 @@ function CombatStats({
 
 function SourcesCard({ item, server }: { item: ItemDetail; server: string }) {
   const links = buildExternalItemLinks(item, server)
+  const sources = item.sources ?? []
 
   return (
     <Card className="min-w-0">
@@ -447,9 +452,33 @@ function SourcesCard({ item, server }: { item: ItemDetail; server: string }) {
           <ExternalLink aria-hidden="true" className="size-4" />
           <h3>Sources</h3>
         </CardTitle>
-        <CardDescription>External references constructed from the local item record.</CardDescription>
+        <CardDescription>Known drop sources and external references.</CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-2">
+      <CardContent className="grid gap-3">
+        <div className="grid gap-2">
+          {sources.length > 0 ? (
+            sources.map((source) => (
+              <div
+                key={`${source.data_source}:${source.source_url ?? ""}:${source.zone ?? ""}:${source.npc_name ?? ""}`}
+                className="grid gap-1 rounded-md border bg-background px-3 py-2"
+              >
+                <div className="flex min-w-0 items-start justify-between gap-2">
+                  <p className="break-words text-sm font-medium">{itemSourceLabel(source)}</p>
+                  <Badge variant="outline" className="shrink-0 rounded-md">
+                    {source.data_source}
+                  </Badge>
+                </div>
+                <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                  <MapPin aria-hidden="true" className="size-3" />
+                  <span>{source.zone ?? "Unknown zone"}</span>
+                  <span>{source.npc_name ?? "Unknown mob"}</span>
+                </p>
+              </div>
+            ))
+          ) : (
+            <EmptyState label="No drop source recorded for this item." />
+          )}
+        </div>
         {links.map((link) => (
           <Button key={link.label} variant="outline" asChild className="justify-between">
             <a href={link.href} target="_blank" rel="noreferrer">

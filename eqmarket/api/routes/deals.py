@@ -9,6 +9,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from eqmarket.api.db import connect_readonly
+from eqmarket.api.item_sources import fetch_item_sources_by_id
 
 
 DEFAULT_MIN_DISCOUNT = 30.0
@@ -235,7 +236,23 @@ def _fetch_deals(
         params,
     ).fetchall()
 
-    return [_deal_payload(row) for row in rows]
+    deals = [_deal_payload(row) for row in rows]
+    _attach_item_sources(connection, deals)
+    return deals
+
+
+def _attach_item_sources(connection: sqlite3.Connection, deals: list[dict[str, Any]]) -> None:
+    item_ids = {
+        int(item_id)
+        for deal in deals
+        if (item_id := deal["item"]["item_id"]) is not None
+    }
+    sources_by_item_id = fetch_item_sources_by_id(connection, item_ids)
+    for deal in deals:
+        item_id = deal["item"]["item_id"]
+        sources = sources_by_item_id.get(int(item_id), []) if item_id is not None else []
+        deal["sources"] = sources
+        deal["item"]["sources"] = sources
 
 
 def _deal_payload(row: sqlite3.Row) -> dict[str, Any]:
@@ -250,9 +267,11 @@ def _deal_payload(row: sqlite3.Row) -> dict[str, Any]:
         "item": {
             "item_id": _optional_int(row["item_id"]),
             "name": row["item_name"],
+            "sources": [],
         },
         "item_id": _optional_int(row["item_id"]),
         "item_name": row["item_name"],
+        "sources": [],
         "price_raw": row["price_raw"],
         "raw_line": row["raw_line"],
         "listing_price_pp": int(row["listing_price_pp"]),

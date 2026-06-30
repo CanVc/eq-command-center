@@ -35,7 +35,8 @@ def runtime_status(
         "max_age_minutes": round(effective_max_age_hours * 60, 2),
         "stale_item_count": _count_stale_items_or_503(db_path, db_server, effective_max_age_hours),
         "latest_log_sale_at": _fetch_latest_log_sale_at(db_path, db_server),
-        "log_watcher": _log_watcher_status(request),
+        "log_watcher": _watcher_status(request, "log_watcher"),
+        "inventory_watcher": _watcher_status(request, "inventory_watcher"),
     }
 
 
@@ -78,8 +79,8 @@ def _fetch_latest_log_sale_at(db_path: Path, db_server: str) -> str | None:
     return str(row[0]) if row and row[0] else None
 
 
-def _log_watcher_status(request: Request) -> dict[str, Any] | None:
-    watcher = getattr(request.app.state, "log_watcher", None)
+def _watcher_status(request: Request, state_name: str) -> dict[str, Any] | None:
+    watcher = getattr(request.app.state, state_name, None)
     if watcher is None:
         return None
     return watcher.status()

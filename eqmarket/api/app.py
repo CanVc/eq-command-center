@@ -22,6 +22,7 @@ from eqmarket.api.routes.runtime import router as runtime_router
 from eqmarket.api.routes.settings import router as settings_router
 from eqmarket.api.routes.upgrades import router as upgrades_router
 from eqmarket.db import init_db
+from eqmarket.inventory_watcher import InventoryWatcher
 from eqmarket.log_watcher import LogWatcher
 
 
@@ -42,9 +43,11 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         LOGGER.info("Using SQLite database: %s", app.state.db_path)
         app.state.log_watcher.start()
+        app.state.inventory_watcher.start()
         try:
             yield
         finally:
+            app.state.inventory_watcher.stop()
             app.state.log_watcher.stop()
 
     app = FastAPI(
@@ -54,6 +57,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     )
     app.state.db_path = resolved_db_path
     app.state.log_watcher = LogWatcher(resolved_db_path)
+    app.state.inventory_watcher = InventoryWatcher(resolved_db_path)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(LOCAL_WEB_ORIGINS),

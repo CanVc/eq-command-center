@@ -35,6 +35,7 @@ type AppLayoutProps = {
   staleItemCount: number | null
   latestLogSaleAt: string | null
   logWatcherError: string | null
+  inventoryWatcherError: string | null
   children: ReactNode
   onNavigate: (pageId: AppPageId) => void
   onServerChange: (server: string) => void
@@ -72,6 +73,7 @@ export function AppLayout({
   staleItemCount,
   latestLogSaleAt,
   logWatcherError,
+  inventoryWatcherError,
   children,
   onNavigate,
   onServerChange,
@@ -146,6 +148,7 @@ export function AppLayout({
                   staleItemCount={staleItemCount}
                   latestLogSaleAt={latestLogSaleAt}
                   logWatcherError={logWatcherError}
+                  inventoryWatcherError={inventoryWatcherError}
                 />
 
                 <Button
@@ -210,10 +213,12 @@ function RuntimeSummary({
   staleItemCount,
   latestLogSaleAt,
   logWatcherError,
+  inventoryWatcherError,
 }: {
   staleItemCount: number | null
   latestLogSaleAt: string | null
   logWatcherError: string | null
+  inventoryWatcherError: string | null
 }) {
   const staleLabel = staleItemCount === null ? "…" : formatNumber(staleItemCount)
   const saleLabel = latestLogSaleAt ? formatTime(latestLogSaleAt) : "n/a"
@@ -221,13 +226,14 @@ function RuntimeSummary({
     `Items needing TLP price refresh: ${staleItemCount === null ? "unknown" : formatNumber(staleItemCount)}`,
     `Latest /auction sale read from EQ log: ${formatDateTime(latestLogSaleAt)}`,
     logWatcherError ? `Log watcher: ${logWatcherError}` : "Log watcher: running",
+    inventoryWatcherError ? `Inventory watcher: ${inventoryWatcherError}` : "Inventory watcher: running",
   ].join("\n")
 
   return (
     <div
       className={cn(
         "flex h-9 items-center gap-2 rounded-md border border-input bg-background px-2.5 text-xs text-muted-foreground",
-        logWatcherError && "border-destructive/50 text-destructive"
+        (logWatcherError || inventoryWatcherError) && "border-destructive/50 text-destructive"
       )}
       title={title}
       aria-label="Runtime import status"

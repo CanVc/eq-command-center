@@ -27,6 +27,7 @@ import {
 } from "@/lib/deals"
 import { copyText } from "@/lib/clipboard"
 import { formatDateTime, formatNumber, formatPercent, formatPrice } from "@/lib/format"
+import { primaryItemSourceLabel } from "@/lib/item-detail"
 import { cn } from "@/lib/utils"
 
 type DealsPageProps = {
@@ -378,6 +379,7 @@ function DealsTable({
         <TableBody>
           {deals.map((deal) => {
             const isRawOpen = rawListingId === deal.listing_id
+            const dropSourceLabel = primaryItemSourceLabel(deal.item.sources)
 
             return (
               <Fragment key={deal.listing_id}>
@@ -394,8 +396,12 @@ function DealsTable({
                           { label: "Discount", value: formatPercent(deal.discount_pct) },
                           { label: "Seller", value: deal.seller },
                           { label: "Date", value: formatDateTime(deal.timestamp) },
+                          { label: "Drop", value: dropSourceLabel },
                         ]}
                       />
+                      {dropSourceLabel ? (
+                        <p className="text-xs text-muted-foreground">Drop {dropSourceLabel}</p>
+                      ) : null}
                       {deal.review_status === "suspect" ? (
                         <Badge variant="outline" className="w-fit rounded-md border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">
                           Suspect · {formatReviewReason(deal.review_reason_code)}

@@ -9,6 +9,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from eqmarket.api.db import connect_readonly
+from eqmarket.api.item_sources import fetch_item_sources_by_id
 from eqmarket.slot_masks import KNOWN_LUCY_SLOT_LABEL_SET, decode_lucy_slot_mask
 
 
@@ -312,6 +313,7 @@ def _fetch_raw_candidates(
                 continue
             candidates.append(_candidate_from_market_row(row))
 
+    _attach_item_sources(connection, candidates)
     return candidates
 
 
@@ -493,6 +495,14 @@ def _fetch_market_rows(connection: sqlite3.Connection, server: str) -> list[sqli
         """,
         (server,),
     ).fetchall()
+
+
+def _attach_item_sources(connection: sqlite3.Connection, candidates: list[dict[str, Any]]) -> None:
+    item_ids = sorted({int(candidate["item"]["item_id"]) for candidate in candidates})
+    sources_by_item_id = fetch_item_sources_by_id(connection, item_ids)
+    for candidate in candidates:
+        item_id = int(candidate["item"]["item_id"])
+        candidate["item"]["sources"] = sources_by_item_id.get(item_id, [])
 
 
 def _current_equipment_by_slot(
@@ -730,6 +740,7 @@ def _candidate_item_from_row(row: sqlite3.Row) -> dict[str, Any]:
         "stats": _stats_payload(row),
         "combat": _combat_payload(row),
         "levels": _levels_payload(row),
+        "sources": [],
         "source_primary": row["source_primary"],
         "last_imported_at": row["last_imported_at"],
         "price": _market_price(row),

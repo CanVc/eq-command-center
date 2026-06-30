@@ -1,4 +1,4 @@
-import type { ItemDetail, ItemListing, TlpHistoryPoint } from "@/lib/api"
+import type { ItemDetail, ItemListing, ItemSource, TlpHistoryPoint } from "@/lib/api"
 
 export type PriceHistoryPoint = {
   sourceId: string
@@ -12,6 +12,27 @@ export type PriceHistoryPoint = {
 export type ExternalItemLink = {
   label: string
   href: string
+}
+
+export function itemSourceLabel(source: ItemSource): string {
+  const zone = cleanSourcePart(source.zone)
+  const npc = cleanSourcePart(source.npc_name)
+
+  if (zone && npc) {
+    return `${zone} - ${npc}`
+  }
+  if (zone) {
+    return zone
+  }
+  if (npc) {
+    return npc
+  }
+
+  return cleanSourcePart(source.source_area) ?? cleanSourcePart(source.content_type) ?? source.data_source
+}
+
+export function primaryItemSourceLabel(sources: readonly ItemSource[] | null | undefined): string | null {
+  return sources && sources.length > 0 ? itemSourceLabel(sources[0]) : null
 }
 
 export function buildPriceHistory(listings: ItemListing[]): PriceHistoryPoint[] {
@@ -93,6 +114,11 @@ export function buildExternalItemLinks(item: ItemDetail, server: string): Extern
 function timestampValue(value: string): number {
   const parsed = Date.parse(value)
   return Number.isNaN(parsed) ? 0 : parsed
+}
+
+function cleanSourcePart(value: string | null | undefined): string | null {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : null
 }
 
 function formatTlpRawPrice(point: TlpHistoryPoint): string {

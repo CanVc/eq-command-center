@@ -6,7 +6,9 @@ import {
   buildPriceHistory,
   buildTlpPriceHistory,
   formatKronoEquivalent,
+  itemSourceLabel,
   latestPricedListing,
+  primaryItemSourceLabel,
 } from "./item-detail"
 
 describe("item detail helpers", () => {
@@ -114,6 +116,26 @@ describe("item detail helpers", () => {
       },
     ])
   })
+
+  it("formats drop sources from zone and mob fields", () => {
+    const source = {
+      item_id: 10895,
+      data_source: "fixture",
+      source_url: null,
+      external_item_id: null,
+      content_type: "raid",
+      zone: "Temple of Veeshan",
+      source_area: null,
+      npc_name: "Aaryonar",
+      last_checked_at: null,
+      confidence: "high",
+    }
+
+    expect(itemSourceLabel(source)).toBe("Temple of Veeshan - Aaryonar")
+    expect(primaryItemSourceLabel([source])).toBe("Temple of Veeshan - Aaryonar")
+    expect(primaryItemSourceLabel([])).toBeNull()
+    expect(primaryItemSourceLabel(undefined)).toBeNull()
+  })
 })
 
 function buildListing(overrides: Partial<ItemListing>): ItemListing {
@@ -126,6 +148,7 @@ function buildListing(overrides: Partial<ItemListing>): ItemListing {
     item: {
       item_id: 10895,
       name: "Stave of Shielding",
+      sources: [],
     },
     item_id: 10895,
     item_name: "Stave of Shielding",
@@ -197,6 +220,7 @@ function buildItem(overrides: Partial<ItemDetail>): ItemDetail {
       recommended_level: null,
     },
     effects: [],
+    sources: [],
     source_primary: null,
     last_imported_at: null,
     item_preference: null,

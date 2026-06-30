@@ -102,6 +102,23 @@ class ApiItemsTests(unittest.TestCase):
             self.assertEqual(payload["combat"]["ratio"], 0.4)
             self.assertEqual(payload["effects"][0]["spell"], {"spell_id": 1806, "name": "Fungal Regrowth", "spell_type": "Beneficial", "target_type": "Self", "skill": "Alteration"})
             self.assertEqual(payload["effects"][0]["description"], "Fungal Regrowth")
+            self.assertEqual(
+                payload["sources"],
+                [
+                    {
+                        "item_id": 101,
+                        "data_source": "fixture",
+                        "source_url": "https://example.test/stave",
+                        "external_item_id": "10895",
+                        "content_type": "group",
+                        "zone": "Old Sebilis",
+                        "source_area": "Crypt",
+                        "npc_name": "myconid spore king",
+                        "last_checked_at": "2026-06-16 09:00:00",
+                        "confidence": "high",
+                    }
+                ],
+            )
 
     def test_item_payloads_decode_multi_and_duplicate_slot_masks(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -282,6 +299,8 @@ class ApiItemsTests(unittest.TestCase):
             self.assertEqual(payload["last_seen_pp"], 42000)
             self.assertEqual(payload["last_seen_at"], "2026-06-16 12:00:00")
             self.assertEqual(payload["effects"][0]["spell"]["name"], "Fungal Regrowth")
+            self.assertEqual(payload["sources"][0]["zone"], "Old Sebilis")
+            self.assertEqual(payload["sources"][0]["npc_name"], "myconid spore king")
 
     def test_tooltip_fallback_by_name_uses_normalized_item_name(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -474,6 +493,17 @@ def _seed_items_fixture(db_path: Path) -> dict[str, int]:
                 item_id, effect_slot, spell_id, trigger_type, effect_type_raw,
                 cast_time_ms, effective_level
             ) VALUES (101, 0, 1806, 'worn', 1, 0, 0)
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO item_sources (
+                item_id, data_source, source_url, external_item_id, content_type,
+                zone, source_area, npc_name, last_checked_at, confidence
+            ) VALUES (
+                101, 'fixture', 'https://example.test/stave', '10895', 'group',
+                'Old Sebilis', 'Crypt', 'myconid spore king', '2026-06-16 09:00:00', 'high'
+            )
             """
         )
 

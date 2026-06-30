@@ -50,6 +50,7 @@ import {
   upgradeSourceLabel,
 } from "@/lib/characters"
 import { formatDateTime, formatNumber, formatPrice } from "@/lib/format"
+import { primaryItemSourceLabel } from "@/lib/item-detail"
 import { cn } from "@/lib/utils"
 import { SellInventoryPage } from "@/pages/sell-inventory-page"
 
@@ -752,9 +753,11 @@ function UpgradeCandidateRow({
   selectedStats: CharacterUpgradeStat[]
   server: string
 }) {
+  const dropSourceLabel = primaryItemSourceLabel(candidate.candidate.sources)
   const details = [
     { label: "Slot", value: candidate.slot_label },
     { label: "Cost", value: formatPrice(candidate.cost_pp) },
+    { label: "Drop", value: dropSourceLabel },
   ]
 
   return (
@@ -777,6 +780,9 @@ function UpgradeCandidateRow({
             <p className="mt-1 text-xs text-muted-foreground">
               {candidate.candidate.slot_display ?? candidate.candidate.item_type ?? "No slot data"}
             </p>
+            {dropSourceLabel ? (
+              <p className="mt-1 text-xs text-muted-foreground">Drop {dropSourceLabel}</p>
+            ) : null}
           </div>
         </div>
       </TableCell>

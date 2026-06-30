@@ -35,7 +35,7 @@ class ApiListingsTests(unittest.TestCase):
 
             self.assertEqual(payload[0]["timestamp"], "2026-06-16 12:00:00")
             self.assertEqual(payload[0]["seller"], "MysterySeller")
-            self.assertEqual(payload[0]["item"], {"item_id": None, "name": "Mystery Blade"})
+            self.assertEqual(payload[0]["item"], {"item_id": None, "name": "Mystery Blade", "sources": []})
             self.assertIsNone(payload[0]["item_id"])
             self.assertEqual(payload[0]["item_name"], "Mystery Blade")
             self.assertIsNone(payload[0]["price_raw"])
@@ -48,7 +48,10 @@ class ApiListingsTests(unittest.TestCase):
             self.assertEqual(payload[0]["confidence"], "no_price")
             self.assertFalse(payload[0]["resolved"])
 
-            self.assertEqual(payload[1]["item"], {"item_id": 102, "name": "Runed Crown"})
+            self.assertEqual(payload[1]["item"]["item_id"], 102)
+            self.assertEqual(payload[1]["item"]["name"], "Runed Crown")
+            self.assertEqual(payload[1]["item"]["sources"][0]["zone"], "Karnor's Castle")
+            self.assertEqual(payload[1]["item"]["sources"][0]["npc_name"], "Venril Sathir")
             self.assertEqual(payload[1]["item_name"], "Runed Crown")
             self.assertEqual(payload[1]["price_raw"], "8k")
             self.assertEqual(
@@ -421,6 +424,18 @@ def _seed_listings_fixture(db_path: Path) -> dict[str, int]:
                 (101, "Stave of Shielding", "stave of shielding"),
                 (102, "Runed Crown", "runed crown"),
                 (103, "Other Server Item", "other server item"),
+            ],
+        )
+        connection.executemany(
+            """
+            INSERT INTO item_sources (
+                item_id, data_source, source_url, external_item_id, content_type,
+                zone, source_area, npc_name, last_checked_at, confidence
+            ) VALUES (?, 'fixture', ?, ?, 'raid', ?, NULL, ?, '2026-06-16 09:00:00', 'high')
+            """,
+            [
+                (101, "https://example.test/stave", "101", "Old Sebilis", "myconid spore king"),
+                (102, "https://example.test/crown", "102", "Karnor's Castle", "Venril Sathir"),
             ],
         )
 

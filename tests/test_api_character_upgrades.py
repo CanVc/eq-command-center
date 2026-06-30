@@ -48,6 +48,8 @@ class ApiCharacterUpgradesTests(unittest.TestCase):
             self.assertEqual(banked["areas"], ["bank"])
             self.assertEqual(banked["area_quantities"], {"bank": 1})
             self.assertEqual(banked["current_item"]["name"], "Rusted Greaves")
+            self.assertEqual(banked["candidate"]["sources"][0]["zone"], "Kael Drakkel")
+            self.assertEqual(banked["candidate"]["sources"][0]["npc_name"], "Derakor the Vindicator")
             self.assertGreater(banked["deltas"]["ac"], 0)
             self.assertGreater(banked["deltas"]["hp"], 0)
             self.assertGreater(banked["score"], 0)
@@ -56,11 +58,15 @@ class ApiCharacterUpgradesTests(unittest.TestCase):
             self.assertEqual(listing["source"], "local_listing")
             self.assertEqual(listing["cost_pp"], 8000)
             self.assertEqual(listing["listing"]["seller"], "Sellerone")
+            self.assertEqual(listing["candidate"]["sources"][0]["zone"], "Temple of Veeshan")
+            self.assertEqual(listing["candidate"]["sources"][0]["npc_name"], "Aaryonar")
 
             market = next(candidate for candidate in candidates if candidate["candidate"]["name"] == "TLP Greaves")
             self.assertEqual(market["source"], "market_price")
             self.assertEqual(market["cost_pp"], 12000)
             self.assertEqual(market["price_source"], "median_pp")
+            self.assertEqual(market["candidate"]["sources"][0]["zone"], "Sleeper's Tomb")
+            self.assertEqual(market["candidate"]["sources"][0]["npc_name"], "The Progenitor")
 
     def test_character_upgrades_source_budget_and_slot_filters(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -205,6 +211,19 @@ def _seed_upgrade_fixture(db_path: Path) -> None:
             INSERT INTO characters (character_name, character_class, level, server)
             VALUES ('Dreadnought', 'SHD', 60, 'frostreaver')
             """
+        )
+        connection.executemany(
+            """
+            INSERT INTO item_sources (
+                item_id, data_source, source_url, external_item_id, content_type,
+                zone, source_area, npc_name, last_checked_at, confidence
+            ) VALUES (?, 'fixture', ?, ?, 'raid', ?, NULL, ?, '2026-06-20 10:30:00', 'high')
+            """,
+            [
+                (201, "https://example.test/cobalt-greaves", "201", "Kael Drakkel", "Derakor the Vindicator"),
+                (301, "https://example.test/tlp-greaves", "301", "Sleeper's Tomb", "The Progenitor"),
+                (401, "https://example.test/auction-greaves", "401", "Temple of Veeshan", "Aaryonar"),
+            ],
         )
         connection.execute(
             """

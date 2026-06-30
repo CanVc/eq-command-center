@@ -58,6 +58,7 @@ test("renders the Characters paperdoll and grouped inventory", async ({ page }) 
   await page.getByRole("tab", { name: "Upgrades" }).click()
   await expect(page.getByRole("heading", { name: "Gear Upgrades" })).toBeVisible()
   await expect(page.getByRole("link", { name: "Banked Cobalt Greaves" })).toBeVisible()
+  await expect(page.getByText("Drop Kael Drakkel - Derakor the Vindicator")).toBeVisible()
   await expect(page.getByText("Local listing", { exact: true })).toBeVisible()
   await expect(page.getByText("AC +12")).toBeVisible()
   await expect.poll(() => upgradeRequests.at(-1)?.searchParams.get("stats")).toBe("ac,hp")
@@ -665,6 +666,7 @@ function buildItem({
     stats,
     combat,
     levels: { required_level: null, recommended_level: null },
+    sources: buildItemSources(itemId),
     source_primary: enriched ? "fixture" : "inventory_dump",
     last_imported_at: enriched ? "2026-06-16T10:00:00" : null,
     enriched,
@@ -677,6 +679,44 @@ function buildItem({
     has_price: hasPrice,
     price: buildPrice(marketPrice),
   }
+}
+
+function buildItemSources(itemId: number) {
+  if (itemId === 301) {
+    return [
+      {
+        item_id: itemId,
+        data_source: "fixture",
+        source_url: "https://example.test/cobalt-greaves",
+        external_item_id: String(itemId),
+        content_type: "raid",
+        zone: "Kael Drakkel",
+        source_area: null,
+        npc_name: "Derakor the Vindicator",
+        last_checked_at: "2026-06-16T10:00:00",
+        confidence: "high",
+      },
+    ]
+  }
+
+  if (itemId === 302) {
+    return [
+      {
+        item_id: itemId,
+        data_source: "fixture",
+        source_url: "https://example.test/auction-greaves",
+        external_item_id: String(itemId),
+        content_type: "raid",
+        zone: "Temple of Veeshan",
+        source_area: null,
+        npc_name: "Aaryonar",
+        last_checked_at: "2026-06-16T10:00:00",
+        confidence: "high",
+      },
+    ]
+  }
+
+  return []
 }
 
 function buildStats({

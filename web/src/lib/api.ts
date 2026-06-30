@@ -109,6 +109,22 @@ export type LogWatcherStatus = {
   error: string | null
 }
 
+export type InventoryWatcherStatus = {
+  running: boolean
+  inventory_directory: string | null
+  inventory_directory_exists: boolean | null
+  last_checked_at: string | null
+  last_imported_at: string | null
+  files_seen: number
+  files_imported: number
+  files_skipped: number
+  latest_import_id: number | null
+  latest_import_character: string | null
+  latest_import_server: string | null
+  latest_import_file: string | null
+  error: string | null
+}
+
 export type RuntimeStatus = {
   server: string
   max_age_hours: number
@@ -116,6 +132,7 @@ export type RuntimeStatus = {
   stale_item_count: number
   latest_log_sale_at: string | null
   log_watcher: LogWatcherStatus | null
+  inventory_watcher: InventoryWatcherStatus | null
 }
 
 export type DashboardSummary = {
@@ -130,6 +147,7 @@ export type DashboardSummary = {
     item_name: string
     seen_count: number
     last_seen_at: string
+    sources: ItemSource[]
   }>
   top_discounts: DashboardDealPreview[]
 }
@@ -140,6 +158,7 @@ export type DashboardDealPreview = {
   seller: string | null
   item_id: number | null
   item_name: string
+  sources: ItemSource[]
   price_raw: string | null
   raw_line: string | null
   listing_price_pp: number
@@ -220,6 +239,7 @@ export type DealPreview = DashboardDealPreview & {
   item: {
     item_id: number | null
     name: string
+    sources: ItemSource[]
   }
   potential_profit_pp: number
   score: number
@@ -266,6 +286,11 @@ export type ListingPreview = {
   listing_id: number
   timestamp: string
   seller: string | null
+  item: {
+    item_id: number | null
+    name: string
+    sources: ItemSource[]
+  }
   item_id: number | null
   item_name: string
   price_raw: string | null
@@ -437,6 +462,19 @@ export type ItemLevels = {
   recommended_level: number | null
 }
 
+export type ItemSource = {
+  item_id: number
+  data_source: string
+  source_url: string | null
+  external_item_id: string | null
+  content_type: string | null
+  zone: string | null
+  source_area: string | null
+  npc_name: string | null
+  last_checked_at: string | null
+  confidence: string | null
+}
+
 export type ItemDetail = {
   item_id: number
   name: string
@@ -454,6 +492,7 @@ export type ItemDetail = {
   combat: ItemCombat
   levels: ItemLevels
   effects: ItemTooltipEffect[]
+  sources: ItemSource[]
   source_primary: string | null
   last_imported_at: string | null
   item_preference: ItemPreferenceStatus | null
@@ -477,10 +516,6 @@ export type ItemMarketPrice = {
 }
 
 export type ItemListing = ListingPreview & {
-  item: {
-    item_id: number | null
-    name: string
-  }
   listed_item_name: string
 }
 
@@ -726,6 +761,7 @@ export type CharacterUpgradeItem = {
   stats: ItemStats
   combat: ItemCombat
   levels: ItemLevels
+  sources: ItemSource[]
   source_primary: string | null
   last_imported_at: string | null
   price: CharacterItemPrice
@@ -969,6 +1005,7 @@ export type ItemTooltip = {
   last_seen_seller: string | null
   last_seen_price_raw: string | null
   effects: ItemTooltipEffect[]
+  sources: ItemSource[]
   item_preference: ItemPreferenceStatus | null
 }
 

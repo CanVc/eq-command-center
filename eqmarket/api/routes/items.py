@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from eqmarket.api.db import connect_readonly
+from eqmarket.api.item_sources import fetch_item_sources
 from eqmarket.log_parser import normalize_item_name
 from eqmarket.slot_masks import decode_lucy_slot_mask
 from eqmarket.sources.tlp_auctions import PricePoint, TlpAuctionsClient, TlpAuctionsError
@@ -165,9 +166,10 @@ def item_detail(
     with closing(_connect_or_503(request.app.state.db_path)) as connection:
         item = _fetch_item_or_404(connection, item_id)
         effects = _fetch_item_effects(connection, item_id)
+        sources = fetch_item_sources(connection, item_id)
         item_preference = _fetch_item_preference_status(connection, item, db_server)
 
-    return _item_detail_payload(item, effects, item_preference)
+    return _item_detail_payload(item, effects, sources, item_preference)
 
 
 @router.get("/api/items/{item_id}/prices")
@@ -524,6 +526,7 @@ def _fetch_item_listings(
 def _item_detail_payload(
     item: sqlite3.Row,
     effects: list[dict[str, Any]],
+    sources: list[dict[str, Any]],
     item_preference: str | None,
 ) -> dict[str, Any]:
     return {
@@ -540,6 +543,7 @@ def _item_detail_payload(
         "combat": _combat_payload(item),
         "levels": _levels_payload(item),
         "effects": effects,
+        "sources": sources,
         "source_primary": item["source_primary"],
         "last_imported_at": item["last_imported_at"],
         "item_preference": item_preference,
@@ -550,6 +554,7 @@ def _tooltip_payload(connection: sqlite3.Connection, item: sqlite3.Row, db_serve
     price = _fetch_price_payload(connection, int(item["item_id"]), db_server)
     last_seen = _fetch_last_seen_payload(connection, int(item["item_id"]), db_server)
     effects = _fetch_item_effects(connection, int(item["item_id"]))
+    sources = fetch_item_sources(connection, int(item["item_id"]))
     item_preference = _fetch_item_preference_status(connection, item, db_server)
     stats = _stats_payload(item)
     combat = _combat_payload(item)
@@ -579,6 +584,7 @@ def _tooltip_payload(connection: sqlite3.Connection, item: sqlite3.Row, db_serve
         "last_refresh_at": price["last_refresh_at"],
         **last_seen,
         "effects": effects,
+        "sources": sources,
         "item_preference": item_preference,
     }
 

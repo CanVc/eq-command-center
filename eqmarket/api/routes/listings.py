@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from eqmarket.api.db import connect_readonly
+from eqmarket.api.item_sources import fetch_item_sources_by_id
 from eqmarket.db import init_db
 from eqmarket.review_rules import (
     DiscardRule,
@@ -294,7 +295,21 @@ def _fetch_recent_listings(
         params,
     ).fetchall()
 
-    return [_listing_payload(row) for row in rows]
+    listings = [_listing_payload(row) for row in rows]
+    _attach_item_sources(connection, listings)
+    return listings
+
+
+def _attach_item_sources(connection: sqlite3.Connection, listings: list[dict[str, Any]]) -> None:
+    item_ids = {
+        int(item_id)
+        for listing in listings
+        if (item_id := listing["item"]["item_id"]) is not None
+    }
+    sources_by_item_id = fetch_item_sources_by_id(connection, item_ids)
+    for listing in listings:
+        item_id = listing["item"]["item_id"]
+        listing["item"]["sources"] = sources_by_item_id.get(int(item_id), []) if item_id is not None else []
 
 
 def _listing_payload(row: sqlite3.Row) -> dict[str, Any]:
@@ -307,6 +322,7 @@ def _listing_payload(row: sqlite3.Row) -> dict[str, Any]:
         "item": {
             "item_id": item_id,
             "name": row["item_name"],
+            "sources": [],
         },
         "item_id": item_id,
         "item_name": row["item_name"],

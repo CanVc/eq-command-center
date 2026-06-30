@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from eqmarket.api.db import connect_readonly
+from eqmarket.api.item_sources import fetch_item_sources_by_id
 
 
 DEFAULT_RECENT_HOURS = 24
@@ -192,15 +193,18 @@ def _fetch_top_seen_items(
         (db_server, window_modifier, limit),
     ).fetchall()
 
-    return [
+    items = [
         {
             "item_id": _optional_int(row["item_id"]),
             "item_name": row["item_name"],
             "seen_count": int(row["seen_count"]),
             "last_seen_at": row["last_seen_at"],
+            "sources": [],
         }
         for row in rows
     ]
+    _attach_item_sources(connection, items)
+    return items
 
 
 def _fetch_top_discounts(
@@ -268,13 +272,14 @@ def _fetch_top_discounts(
         (db_server, window_modifier, min_discount, limit),
     ).fetchall()
 
-    return [
+    discounts = [
         {
             "listing_id": int(row["listing_id"]),
             "timestamp": row["timestamp"],
             "seller": row["seller"],
             "item_id": _optional_int(row["item_id"]),
             "item_name": row["item_name"],
+            "sources": [],
             "price_raw": row["price_raw"],
             "raw_line": row["raw_line"],
             "listing_price_pp": int(row["listing_price_pp"]),
@@ -286,6 +291,20 @@ def _fetch_top_discounts(
         }
         for row in rows
     ]
+    _attach_item_sources(connection, discounts)
+    return discounts
+
+
+def _attach_item_sources(connection: sqlite3.Connection, items: list[dict[str, Any]]) -> None:
+    item_ids = {
+        int(item_id)
+        for item in items
+        if (item_id := item["item_id"]) is not None
+    }
+    sources_by_item_id = fetch_item_sources_by_id(connection, item_ids)
+    for item in items:
+        item_id = item["item_id"]
+        item["sources"] = sources_by_item_id.get(int(item_id), []) if item_id is not None else []
 
 
 def _fetch_latest_krono(connection: sqlite3.Connection, db_server: str) -> dict[str, Any]:

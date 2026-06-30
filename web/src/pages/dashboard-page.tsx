@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/table"
 import type { DashboardDealPreview, DashboardSummary } from "@/lib/api"
 import { formatDateTime, formatNumber, formatPercent, formatPrice } from "@/lib/format"
+import { primaryItemSourceLabel } from "@/lib/item-detail"
 import { cn } from "@/lib/utils"
 
 export function DashboardPage({ summary }: { summary: DashboardSummary }) {
@@ -177,6 +178,7 @@ function TopDiscountsTable({ deals, server }: { deals: DashboardDealPreview[]; s
       <TableBody>
         {deals.map((deal) => {
           const isRawOpen = rawListingId === deal.listing_id
+          const dropSourceLabel = primaryItemSourceLabel(deal.sources)
 
           return (
             <Fragment key={deal.listing_id}>
@@ -192,8 +194,12 @@ function TopDiscountsTable({ deals, server }: { deals: DashboardDealPreview[]; s
                       { label: "Discount", value: formatPercent(deal.discount_pct) },
                       { label: "Seller", value: deal.seller },
                       { label: "Seen", value: formatDateTime(deal.timestamp) },
+                      { label: "Drop", value: dropSourceLabel },
                     ]}
                   />
+                  {dropSourceLabel ? (
+                    <p className="mt-1 text-xs text-muted-foreground">Drop {dropSourceLabel}</p>
+                  ) : null}
                 </TableCell>
                 <TableCell>{deal.price_raw ?? formatPrice(deal.listing_price_pp)}</TableCell>
                 <TableCell>
@@ -246,32 +252,40 @@ function TopSeenItems({
 }) {
   return (
     <ol className="grid gap-2">
-      {items.map((item, index) => (
-        <li key={`${item.item_id ?? item.item_name}-${item.last_seen_at}`}>
-          <div className="grid gap-2 rounded-md border bg-background px-3 py-2">
-            <div className="flex min-w-0 items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-xs text-muted-foreground">#{index + 1}</p>
-                <ItemLink
-                  itemId={item.item_id}
-                  name={item.item_name}
-                  server={server}
-                  details={[
-                    { label: "Seen", value: `${formatNumber(item.seen_count)} listings` },
-                    { label: "Last seen", value: formatDateTime(item.last_seen_at) },
-                  ]}
-                />
+      {items.map((item, index) => {
+        const dropSourceLabel = primaryItemSourceLabel(item.sources)
+
+        return (
+          <li key={`${item.item_id ?? item.item_name}-${item.last_seen_at}`}>
+            <div className="grid gap-2 rounded-md border bg-background px-3 py-2">
+              <div className="flex min-w-0 items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">#{index + 1}</p>
+                  <ItemLink
+                    itemId={item.item_id}
+                    name={item.item_name}
+                    server={server}
+                    details={[
+                      { label: "Seen", value: `${formatNumber(item.seen_count)} listings` },
+                      { label: "Last seen", value: formatDateTime(item.last_seen_at) },
+                      { label: "Drop", value: dropSourceLabel },
+                    ]}
+                  />
+                  {dropSourceLabel ? (
+                    <p className="mt-1 text-xs text-muted-foreground">Drop {dropSourceLabel}</p>
+                  ) : null}
+                </div>
+                <Badge variant="outline" className="rounded-md">
+                  {formatNumber(item.seen_count)}
+                </Badge>
               </div>
-              <Badge variant="outline" className="rounded-md">
-                {formatNumber(item.seen_count)}
-              </Badge>
+              <p className="text-xs text-muted-foreground">
+                Last seen {formatDateTime(item.last_seen_at)}
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Last seen {formatDateTime(item.last_seen_at)}
-            </p>
-          </div>
-        </li>
-      ))}
+          </li>
+        )
+      })}
     </ol>
   )
 }

@@ -434,6 +434,7 @@ test("opens item detail from item links and renders prices, history, chart, and 
   await expect(page.getByText("55", { exact: true })).toBeVisible()
   await expect(page.getByText("Ratio")).toBeVisible()
   await expect(page.getByText("0.40", { exact: true })).toBeVisible()
+  await expect(page.getByText("Old Sebilis - myconid spore king").first()).toBeVisible()
 
   await expect(page.getByRole("heading", { name: "TLP Price History" })).toBeVisible()
   await expect(page.getByLabel("Full TLP price history chart")).toBeVisible()
@@ -941,6 +942,8 @@ function buildItemTooltip({
         description: "Fungal Regrowth",
       },
     ],
+    sources: buildItemSources(itemId),
+    item_preference: null,
   }
 }
 
@@ -1016,9 +1019,32 @@ function buildItemDetail(itemId: number) {
             },
           ]
         : [],
+    sources: buildItemSources(itemId),
     source_primary: "fixture",
     last_imported_at: "2026-06-16T09:00:00",
+    item_preference: null,
   }
+}
+
+function buildItemSources(itemId: number) {
+  if (itemId === 1) {
+    return [
+      {
+        item_id: itemId,
+        data_source: "fixture",
+        source_url: "https://example.test/stave",
+        external_item_id: String(itemId),
+        content_type: "group",
+        zone: "Old Sebilis",
+        source_area: "Crypt",
+        npc_name: "myconid spore king",
+        last_checked_at: "2026-06-16T09:00:00",
+        confidence: "high",
+      },
+    ]
+  }
+
+  return []
 }
 
 function buildItemPrice(itemId: number, server: string) {
@@ -1417,9 +1443,10 @@ function buildDeals(url: URL) {
       listing_id: 12,
       timestamp: "2026-06-16T10:10:00",
       seller: "Bazzarbot",
-      item: { item_id: 3, name: "Manastone" },
+      item: { item_id: 3, name: "Manastone", sources: buildItemSources(3) },
       item_id: 3,
       item_name: "Manastone",
+      sources: buildItemSources(3),
       price_raw: "3k",
       listing_price_pp: 3000,
       market_price_pp: 20000,
@@ -1436,9 +1463,10 @@ function buildDeals(url: URL) {
       listing_id: 13,
       timestamp: "2026-06-16T10:15:00",
       seller: "Mystery",
-      item: { item_id: null, name: "Unidentified Idol" },
+      item: { item_id: null, name: "Unidentified Idol", sources: [] },
       item_id: null,
       item_name: "Unidentified Idol",
+      sources: [],
       price_raw: "2500pp",
       listing_price_pp: 2500,
       market_price_pp: 14000,
@@ -1455,9 +1483,10 @@ function buildDeals(url: URL) {
       listing_id: 10,
       timestamp: "2026-06-16T10:00:00",
       seller: "Nebblastin",
-      item: { item_id: 1, name: "Stave of Shielding" },
+      item: { item_id: 1, name: "Stave of Shielding", sources: buildItemSources(1) },
       item_id: 1,
       item_name: "Stave of Shielding",
+      sources: buildItemSources(1),
       price_raw: "4k",
       listing_price_pp: 4000,
       market_price_pp: 16000,
@@ -1474,9 +1503,10 @@ function buildDeals(url: URL) {
       listing_id: 11,
       timestamp: "2026-06-16T10:07:00",
       seller: "Aderyn",
-      item: { item_id: 2, name: "Silver Chitin Hand Wraps" },
+      item: { item_id: 2, name: "Silver Chitin Hand Wraps", sources: buildItemSources(2) },
       item_id: 2,
       item_name: "Silver Chitin Hand Wraps",
+      sources: buildItemSources(2),
       price_raw: "6k",
       listing_price_pp: 6000,
       market_price_pp: 10000,
@@ -1504,6 +1534,7 @@ function buildListings(url: URL) {
       listing_id: 30,
       timestamp: "2026-06-16T10:15:00",
       seller: "Mystery",
+      item: { item_id: null, name: "Unidentified Idol", sources: [] },
       item_id: null,
       item_name: "Unidentified Idol",
       price_raw: null,
@@ -1516,6 +1547,7 @@ function buildListings(url: URL) {
       listing_id: 20,
       timestamp: "2026-06-16T10:05:00",
       seller: "Aderyn",
+      item: { item_id: 2, name: "Silver Chitin Hand Wraps", sources: buildItemSources(2) },
       item_id: 2,
       item_name: "Silver Chitin Hand Wraps",
       price_raw: "8k",
@@ -1528,6 +1560,7 @@ function buildListings(url: URL) {
       listing_id: 10,
       timestamp: "2026-06-16T10:00:00",
       seller: "Nebblastin",
+      item: { item_id: 1, name: "Stave of Shielding", sources: buildItemSources(1) },
       item_id: 1,
       item_name: "Stave of Shielding",
       price_raw: "4k",
@@ -1543,6 +1576,7 @@ function buildListings(url: URL) {
         listing_id: 100 + itemNumber,
         timestamp: `2026-06-16T09:${String(59 - index).padStart(2, "0")}:00`,
         seller: `Trader ${itemNumber}`,
+        item: { item_id: 1000 + itemNumber, name: `Fine Steel Sword ${itemNumber}`, sources: [] },
         item_id: 1000 + itemNumber,
         item_name: `Fine Steel Sword ${itemNumber}`,
         price_raw: `${itemNumber}k`,

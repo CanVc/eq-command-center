@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/table"
 import type { ItemInterestFilter, ItemPreferenceStatusUpdate, ListingPreview, ListingReviewStatusFilter, MarketListingFilters } from "@/lib/api"
 import { formatDateTime, formatPrice } from "@/lib/format"
+import { primaryItemSourceLabel } from "@/lib/item-detail"
 import {
   canLoadMoreListings,
   expandMarketListingLimit,
@@ -249,6 +250,7 @@ function ListingsTable({
         <TableBody>
           {listings.map((listing) => {
             const isRawOpen = rawListingId === listing.listing_id
+            const dropSourceLabel = primaryItemSourceLabel(listing.item.sources)
 
             return (
               <Fragment key={listing.listing_id}>
@@ -269,8 +271,12 @@ function ListingsTable({
                         { label: "Source", value: listing.source },
                         { label: "Confidence", value: listing.confidence },
                         { label: "Seen", value: formatDateTime(listing.timestamp) },
+                        { label: "Drop", value: dropSourceLabel },
                       ]}
                     />
+                    {dropSourceLabel ? (
+                      <p className="mt-1 text-xs text-muted-foreground">Drop {dropSourceLabel}</p>
+                    ) : null}
                     <div className="mt-1">
                       <ItemPreferenceBadge status={listing.item_preference} />
                     </div>

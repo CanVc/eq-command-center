@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
 
 import { AppLayout } from "@/components/app-layout"
@@ -114,6 +114,7 @@ function App() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [tlpRefreshJob, setTlpRefreshJob] = useState<TlpPriceRefreshJobStatus | null>(null)
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null)
+  const lastObservedInventoryImportAt = useRef<string | null>(null)
   const [progressNow, setProgressNow] = useState(() => Date.now())
   const [mageloStatus, setMageloStatus] = useState<MageloStatus>(() => getMageloStatus())
   const [pageState, setPageState] = useState<PageState>({ status: "loading" })
@@ -183,6 +184,11 @@ function App() {
         const status = await fetchRuntimeStatus(server, tlpMaxAgeMinutes)
         if (isActive) {
           setRuntimeStatus(status)
+          const inventoryImportedAt = status.inventory_watcher?.last_imported_at ?? null
+          if (inventoryImportedAt && inventoryImportedAt !== lastObservedInventoryImportAt.current) {
+            lastObservedInventoryImportAt.current = inventoryImportedAt
+            setRefreshKey((current) => current + 1)
+          }
         }
       } catch {
         if (isActive) {
@@ -461,6 +467,7 @@ function App() {
       staleItemCount={runtimeStatus?.stale_item_count ?? null}
       latestLogSaleAt={runtimeStatus?.latest_log_sale_at ?? null}
       logWatcherError={runtimeStatus?.log_watcher?.error ?? null}
+      inventoryWatcherError={runtimeStatus?.inventory_watcher?.error ?? null}
       onNavigate={navigateTo}
       onServerChange={changeServer}
       onRefresh={refresh}

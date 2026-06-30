@@ -31,7 +31,11 @@ class ApiDealsTests(unittest.TestCase):
                 [deal["listing_id"] for deal in payload],
                 [listing_ids["larger_gain"], listing_ids["median"], listing_ids["p25_fallback"], listing_ids["avg_fallback"]],
             )
-            self.assertEqual(payload[0]["item"], {"item_id": 106, "name": "Runed Crown"})
+            self.assertEqual(payload[0]["item"]["item_id"], 106)
+            self.assertEqual(payload[0]["item"]["name"], "Runed Crown")
+            self.assertEqual(payload[0]["item"]["sources"][0]["zone"], "Karnor's Castle")
+            self.assertEqual(payload[0]["item"]["sources"][0]["npc_name"], "Venril Sathir")
+            self.assertEqual(payload[0]["sources"], payload[0]["item"]["sources"])
             self.assertEqual(payload[0]["seller"], "BigSeller")
             self.assertEqual(payload[0]["price_raw"], "8k")
             self.assertEqual(
@@ -335,6 +339,18 @@ def _seed_deals_fixture(db_path: Path) -> dict[str, int]:
                 (106, "Runed Crown", "runed crown"),
                 (107, "P25 Fallback Item", "p25 fallback item"),
                 (108, "Other Server Item", "other server item"),
+            ],
+        )
+        connection.executemany(
+            """
+            INSERT INTO item_sources (
+                item_id, data_source, source_url, external_item_id, content_type,
+                zone, source_area, npc_name, last_checked_at, confidence
+            ) VALUES (?, 'fixture', ?, ?, 'raid', ?, NULL, ?, CURRENT_TIMESTAMP, 'high')
+            """,
+            [
+                (101, "https://example.test/stave", "101", "Old Sebilis", "myconid spore king"),
+                (106, "https://example.test/crown", "106", "Karnor's Castle", "Venril Sathir"),
             ],
         )
         connection.executemany(

@@ -34,8 +34,11 @@ class ApiDashboardTests(unittest.TestCase):
             self.assertEqual(payload["top_seen_items"][0]["item_id"], 101)
             self.assertEqual(payload["top_seen_items"][0]["item_name"], "Stave of Shielding")
             self.assertEqual(payload["top_seen_items"][0]["seen_count"], 2)
+            self.assertEqual(payload["top_seen_items"][0]["sources"][0]["zone"], "Old Sebilis")
+            self.assertEqual(payload["top_seen_items"][0]["sources"][0]["npc_name"], "myconid spore king")
 
             self.assertEqual([deal["item_id"] for deal in payload["top_discounts"]], [101, 102])
+            self.assertEqual(payload["top_discounts"][0]["sources"][0]["zone"], "Old Sebilis")
             self.assertEqual(
                 payload["top_discounts"][0]["raw_line"],
                 "[Tue Jun 16 10:00:00 2026] Nebblastin auctions, 'WTS Stave of Shielding 4k'",
@@ -109,6 +112,18 @@ def _seed_dashboard_fixture(db_path: Path) -> None:
                 (101, "Stave of Shielding", "stave of shielding"),
                 (102, "Cloak of Flames", "cloak of flames"),
                 (103, "Other Server Item", "other server item"),
+            ],
+        )
+        connection.executemany(
+            """
+            INSERT INTO item_sources (
+                item_id, data_source, source_url, external_item_id, content_type,
+                zone, source_area, npc_name, last_checked_at, confidence
+            ) VALUES (?, 'fixture', ?, ?, 'raid', ?, NULL, ?, CURRENT_TIMESTAMP, 'high')
+            """,
+            [
+                (101, "https://example.test/stave", "101", "Old Sebilis", "myconid spore king"),
+                (102, "https://example.test/cloak", "102", "Nagafen's Lair", "Lord Nagafen"),
             ],
         )
         connection.executemany(
