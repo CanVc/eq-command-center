@@ -132,9 +132,55 @@ class ApiCharacterUpgradesTests(unittest.TestCase):
             payload = response.json()
             self.assertEqual(payload["character_class"], "UNKNOWN")
             self.assertGreater(payload["candidate_count"], 0)
-            self.assertIn(
-                "Auction Greaves",
-                {candidate["candidate"]["name"] for candidate in payload["candidates"]},
+            candidate_names = {candidate["candidate"]["name"] for candidate in payload["candidates"]}
+            self.assertIn("Auction Greaves", candidate_names)
+            self.assertNotIn("Necromancer Greaves", candidate_names)
+            self.assertEqual(payload["effective_classes"], ["SHD"])
+
+    def test_character_upgrades_item_type_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "eqmarket.sqlite"
+            init_db(db_path)
+            _seed_upgrade_fixture(db_path)
+            app = create_app(db_path)
+
+            with TestClient(app) as client:
+                armor_response = client.get(
+                    "/api/characters/Dreadnought/upgrades",
+                    params={"slot": "LEGS", "source": "all", "item_type": "Armor", "stats": "ac,hp"},
+                )
+                weapon_legs_response = client.get(
+                    "/api/characters/Dreadnought/upgrades",
+                    params={"slot": "LEGS", "source": "all", "item_type": "Weapon", "stats": "ac,hp"},
+                )
+                weapon_primary_response = client.get(
+                    "/api/characters/Dreadnought/upgrades",
+                    params={"slot": "PRIMARY", "source": "all", "item_type": "Weapon", "stats": "ac,hp"},
+                )
+                warrior_response = client.get(
+                    "/api/characters/Dreadnought/upgrades",
+                    params={"slot": "LEGS", "source": "all", "class_filter": "WAR", "stats": "ac,hp"},
+                )
+
+            self.assertEqual(armor_response.status_code, 200, armor_response.text)
+            self.assertEqual(weapon_legs_response.status_code, 200, weapon_legs_response.text)
+            self.assertEqual(weapon_primary_response.status_code, 200, weapon_primary_response.text)
+            self.assertEqual(warrior_response.status_code, 200, warrior_response.text)
+            self.assertEqual(armor_response.json()["item_type"], "Armor")
+            self.assertEqual(weapon_legs_response.json()["candidates"], [])
+            self.assertEqual(
+                {candidate["candidate"]["name"] for candidate in armor_response.json()["candidates"]},
+                {"Banked Cobalt Greaves", "Auction Greaves", "TLP Greaves", "Expensive Greaves"},
+            )
+            self.assertEqual(
+                {candidate["candidate"]["name"] for candidate in weapon_primary_response.json()["candidates"]},
+                {"Obsidian Sword"},
+            )
+            self.assertEqual(warrior_response.json()["class_filter"], "WAR")
+            self.assertEqual(warrior_response.json()["effective_classes"], ["WAR"])
+            self.assertEqual(
+                {candidate["candidate"]["name"] for candidate in warrior_response.json()["candidates"]},
+                {"Banked Cobalt Greaves"},
             )
 
     def test_character_upgrades_can_rank_tradeoffs_when_better_only_is_disabled(self) -> None:
@@ -191,19 +237,19 @@ def _seed_upgrade_fixture(db_path: Path) -> None:
                 ac, hp, mana, endurance, astr, asta, aagi, adex, awis, aint, acha,
                 sv_magic, sv_fire, sv_cold, sv_poison, sv_disease,
                 damage, delay, ratio, haste, icon_id, flags, source_primary, last_imported_at
-            ) VALUES (?, ?, ?, 'armor', ?, ?, 'ALL', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, 'ALL', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                (100, "Rusted Greaves", "rusted greaves", "262144", "16", 5, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, None, None, None, None, 1001, "MAGIC", "lucy", "2026-06-20 10:00:00"),
-                (101, "Bronze Sword", "bronze sword", "8192", "16", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 30, 0.333, 0, 1002, "MAGIC", "lucy", "2026-06-20 10:00:00"),
-                (201, "Banked Cobalt Greaves", "banked cobalt greaves", "262144", "21", 18, 55, 5, 0, 1, 2, 3, 4, 0, 0, 0, 5, 5, 5, 5, 5, None, None, None, None, 1003, "MAGIC", "lucy", "2026-06-20 10:00:00"),
-                (202, "Necromancer Greaves", "necromancer greaves", "262144", "1024", 50, 200, 200, 0, 0, 0, 0, 0, 0, 0, 0, 20, 20, 20, 20, 20, None, None, None, None, 1004, "MAGIC", "lucy", "2026-06-20 10:00:00"),
-                (203, "Ignored Greaves", "ignored greaves", "262144", "16", 40, 150, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 10, 10, 10, 10, None, None, None, None, 1005, "MAGIC", "lucy", "2026-06-20 10:00:00"),
-                (301, "TLP Greaves", "tlp greaves", "262144", "16", 24, 90, 20, 0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8, 8, None, None, None, None, 1006, "MAGIC", "lucy", "2026-06-20 10:00:00"),
-                (401, "Auction Greaves", "auction greaves", "262144", "16", 22, 80, 10, 0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8, 8, None, None, None, None, 1007, "MAGIC", "lucy", "2026-06-20 10:00:00"),
-                (402, "Expensive Greaves", "expensive greaves", "262144", "16", 60, 250, 40, 0, 0, 0, 0, 0, 0, 0, 0, 20, 20, 20, 20, 20, None, None, None, None, 1008, "MAGIC", "lucy", "2026-06-20 10:00:00"),
-                (403, "Charred Resist Greaves", "charred resist greaves", "262144", "16", 1, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 30, 1, 1, 1, None, None, None, None, 1010, "MAGIC", "lucy", "2026-06-20 10:00:00"),
-                (501, "Obsidian Sword", "obsidian sword", "8192", "16", 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18, 30, 0.6, 0, 1009, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (100, "Rusted Greaves", "rusted greaves", "armor", "262144", "16", 5, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, None, None, None, None, 1001, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (101, "Bronze Sword", "bronze sword", "weapon", "8192", "16", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 30, 0.333, 0, 1002, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (201, "Banked Cobalt Greaves", "banked cobalt greaves", "armor", "262144", "21", 18, 55, 5, 0, 1, 2, 3, 4, 0, 0, 0, 5, 5, 5, 5, 5, None, None, None, None, 1003, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (202, "Necromancer Greaves", "necromancer greaves", "armor", "262144", "1024", 50, 200, 200, 0, 0, 0, 0, 0, 0, 0, 0, 20, 20, 20, 20, 20, None, None, None, None, 1004, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (203, "Ignored Greaves", "ignored greaves", "armor", "262144", "16", 40, 150, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 10, 10, 10, 10, None, None, None, None, 1005, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (301, "TLP Greaves", "tlp greaves", "armor", "262144", "16", 24, 90, 20, 0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8, 8, None, None, None, None, 1006, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (401, "Auction Greaves", "auction greaves", "armor", "262144", "16", 22, 80, 10, 0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8, 8, None, None, None, None, 1007, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (402, "Expensive Greaves", "expensive greaves", "armor", "262144", "16", 60, 250, 40, 0, 0, 0, 0, 0, 0, 0, 0, 20, 20, 20, 20, 20, None, None, None, None, 1008, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (403, "Charred Resist Greaves", "charred resist greaves", "armor", "262144", "16", 1, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 30, 1, 1, 1, None, None, None, None, 1010, "MAGIC", "lucy", "2026-06-20 10:00:00"),
+                (501, "Obsidian Sword", "obsidian sword", "weapon", "8192", "16", 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18, 30, 0.6, 0, 1009, "MAGIC", "lucy", "2026-06-20 10:00:00"),
             ],
         )
         connection.execute(

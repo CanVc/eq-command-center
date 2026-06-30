@@ -37,13 +37,19 @@ import {
   type CharacterUpgradesResponse,
 } from "@/lib/api"
 import {
+  CHARACTER_CLASS_FILTERS,
   CHARACTER_INVENTORY_AREAS,
+  CHARACTER_UPGRADE_ITEM_TYPES,
   CHARACTER_UPGRADE_STATS,
   CHARACTER_UPGRADE_SLOTS,
   areaQuantityLabel,
   characterClassLevelLabel,
   inventoryAreaLabel,
   isStarterOrNoTradeImport,
+  isUnknownCharacterClass,
+  upgradeClassLabel,
+  upgradeEffectiveClassLabel,
+  upgradeItemTypeLabel,
   upgradeStatLabel,
   upgradeSlotLabel,
   upgradeSourceFilterLabel,
@@ -70,6 +76,8 @@ type CharacterPageView = "inventory" | "upgrades" | "sell"
 type UpgradeFilters = {
   slot: string
   source: CharacterUpgradeSourceFilter
+  itemType: string
+  classFilter: string
   stats: CharacterUpgradeStat[]
   betterOnly: boolean
   maxPriceInput: string
@@ -78,6 +86,8 @@ type UpgradeFilters = {
 const DEFAULT_UPGRADE_FILTERS: UpgradeFilters = {
   slot: "all",
   source: "all",
+  itemType: "all",
+  classFilter: "auto",
   stats: ["ac", "hp"],
   betterOnly: true,
   maxPriceInput: "",
@@ -183,6 +193,8 @@ export function CharactersPage({ characters, server }: CharactersPageProps) {
     fetchCharacterUpgrades(activeCharacterName, {
       slot: upgradeFilters.slot === "all" ? null : upgradeFilters.slot,
       source: upgradeFilters.source,
+      itemType: upgradeFilters.itemType === "all" ? null : upgradeFilters.itemType,
+      classFilter: upgradeFilters.classFilter === "auto" ? null : upgradeFilters.classFilter,
       stats: upgradeFilters.stats,
       betterOnly: upgradeFilters.betterOnly,
       maxPricePp: upgradeMaxPrice(upgradeFilters.maxPriceInput),
@@ -226,6 +238,7 @@ export function CharactersPage({ characters, server }: CharactersPageProps) {
     }
     setSelectedCharacterName(characterName)
     setInventoryArea("all")
+    setUpgradeFilters((current) => ({ ...current, classFilter: "auto" }))
   }
 
   const retryDetails = () => {
@@ -304,7 +317,7 @@ export function CharactersPage({ characters, server }: CharactersPageProps) {
           </div>
         </div>
       ) : activeView === "upgrades" ? (
-        <div className="grid gap-4 xl:grid-cols-[18rem_minmax(0,1fr)]">
+        <div className="grid gap-4 xl:grid-cols-[15rem_minmax(0,1fr)] 2xl:grid-cols-[18rem_minmax(0,1fr)]">
           <div className="grid gap-4 content-start">
             <CharacterRoster
               characters={characters}
@@ -319,6 +332,7 @@ export function CharactersPage({ characters, server }: CharactersPageProps) {
             <UpgradesSection
               state={upgradesState}
               filters={upgradeFilters}
+              character={selectedCharacter}
               server={server}
               onFilterChange={changeUpgradeFilter}
               onResetFilters={resetUpgradeFilters}
@@ -483,6 +497,7 @@ function EquipmentSection({
 function UpgradesSection({
   state,
   filters,
+  character,
   server,
   onFilterChange,
   onResetFilters,
@@ -490,6 +505,7 @@ function UpgradesSection({
 }: {
   state: RemoteState<CharacterUpgradesResponse>
   filters: UpgradeFilters
+  character: CharacterSummary | null
   server: string
   onFilterChange: <K extends keyof UpgradeFilters>(key: K, value: UpgradeFilters[K]) => void
   onResetFilters: () => void
@@ -505,7 +521,7 @@ function UpgradesSection({
         <CardDescription>Character-specific upgrades from owned inventory, local listings, and market prices.</CardDescription>
       </CardHeader>
       <CardContent>
-        <UpgradeFiltersForm filters={filters} onFilterChange={onFilterChange} onReset={onResetFilters} />
+        <UpgradeFiltersForm filters={filters} character={character} onFilterChange={onFilterChange} onReset={onResetFilters} />
 
         {state.status === "idle" ? (
           <EmptyList label="Select a character to load upgrade candidates." />
@@ -523,10 +539,12 @@ function UpgradesSection({
 
 function UpgradeFiltersForm({
   filters,
+  character,
   onFilterChange,
   onReset,
 }: {
   filters: UpgradeFilters
+  character: CharacterSummary | null
   onFilterChange: <K extends keyof UpgradeFilters>(key: K, value: UpgradeFilters[K]) => void
   onReset: () => void
 }) {
@@ -561,13 +579,17 @@ function UpgradeFiltersForm({
     onFilterChange("stats", filters.stats.filter((_, currentIndex) => currentIndex !== index))
   }
 
+  const autoClassLabel = character && !isUnknownCharacterClass(character.character_class)
+    ? `Auto (${upgradeClassLabel(character.character_class)})`
+    : "Auto (infer from gear)"
+
   return (
     <form
       aria-label="Upgrade filters"
       className="mb-4 grid gap-3"
       onSubmit={(event) => event.preventDefault()}
     >
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,1fr))_auto]">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[repeat(5,minmax(0,1fr))_auto]">
         <label className="grid gap-1.5 text-sm">
           <span className="text-xs font-medium text-muted-foreground">Slot</span>
           <select
@@ -595,6 +617,39 @@ function UpgradeFiltersForm({
             {(["all", "owned", "market"] as CharacterUpgradeSourceFilter[]).map((source) => (
               <option key={source} value={source}>
                 {upgradeSourceFilterLabel(source)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="grid gap-1.5 text-sm">
+          <span className="text-xs font-medium text-muted-foreground">Type</span>
+          <select
+            aria-label="Upgrade item type filter"
+            className={inputClassName}
+            value={filters.itemType}
+            onChange={(event) => onFilterChange("itemType", event.target.value)}
+          >
+            {CHARACTER_UPGRADE_ITEM_TYPES.map((itemType) => (
+              <option key={itemType} value={itemType}>
+                {upgradeItemTypeLabel(itemType)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="grid gap-1.5 text-sm">
+          <span className="text-xs font-medium text-muted-foreground">Class</span>
+          <select
+            aria-label="Upgrade class filter"
+            className={inputClassName}
+            value={filters.classFilter}
+            onChange={(event) => onFilterChange("classFilter", event.target.value)}
+          >
+            <option value="auto">{autoClassLabel}</option>
+            {CHARACTER_CLASS_FILTERS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>
@@ -713,6 +768,8 @@ function UpgradeCandidatesTable({ upgrades, server }: { upgrades: CharacterUpgra
         <span>Stats {upgrades.stats.map(upgradeStatLabel).join(" > ")}</span>
         <span>{upgrades.better_only ? "Only better stats" : "Tradeoffs allowed"}</span>
         <span>Source {upgradeSourceFilterLabel(upgrades.source)}</span>
+        <span>Type {upgradeItemTypeLabel(upgrades.item_type)}</span>
+        <span>Class {upgrades.class_filter ? upgradeClassLabel(upgrades.class_filter) : upgradeEffectiveClassLabel(upgrades.effective_classes)}</span>
         <span>Budget {formatPrice(upgrades.max_price_pp)}</span>
       </div>
 
@@ -722,9 +779,10 @@ function UpgradeCandidatesTable({ upgrades, server }: { upgrades: CharacterUpgra
             <TableRow>
               <TableHead>Slot</TableHead>
               <TableHead>Candidate</TableHead>
-              <TableHead>Current</TableHead>
               <TableHead>Deltas</TableHead>
               <TableHead>Cost</TableHead>
+              <TableHead>Current</TableHead>
+              <TableHead>Item price</TableHead>
               <TableHead>Source</TableHead>
             </TableRow>
           </TableHeader>
@@ -756,6 +814,7 @@ function UpgradeCandidateRow({
   const dropSourceLabel = primaryItemSourceLabel(candidate.candidate.sources)
   const details = [
     { label: "Slot", value: candidate.slot_label },
+    { label: "Item price", value: formatPrice(candidate.market_price_pp) },
     { label: "Cost", value: formatPrice(candidate.cost_pp) },
     { label: "Drop", value: dropSourceLabel },
   ]
@@ -767,7 +826,7 @@ function UpgradeCandidateRow({
           {candidate.slot_label}
         </Badge>
       </TableCell>
-      <TableCell className="min-w-[18rem] whitespace-normal">
+      <TableCell className="min-w-[16rem] whitespace-normal">
         <div className="flex min-w-0 items-start gap-2">
           <ItemIcon
             iconUrl={candidate.candidate.icon_url}
@@ -786,20 +845,26 @@ function UpgradeCandidateRow({
           </div>
         </div>
       </TableCell>
-      <TableCell className="min-w-[12rem] whitespace-normal text-sm">
+      <TableCell className="min-w-[24rem] whitespace-normal">
+        <UpgradeDeltaList candidate={candidate} selectedStats={selectedStats} />
+      </TableCell>
+      <TableCell className="whitespace-nowrap">
+        <div className="grid gap-1">
+          <span>{formatPrice(candidate.cost_pp)}</span>
+          <span className="text-xs text-muted-foreground">{candidate.source === "owned" ? "Owned" : candidate.price_source ?? "estimate"}</span>
+        </div>
+      </TableCell>
+      <TableCell className="min-w-[10rem] whitespace-normal text-sm">
         {candidate.current_item ? (
           <ItemLink itemId={candidate.current_item.item_id} name={candidate.current_item.name} server={server} />
         ) : (
           <span className="text-muted-foreground">Empty slot</span>
         )}
       </TableCell>
-      <TableCell className="min-w-[18rem]">
-        <UpgradeDeltaList candidate={candidate} selectedStats={selectedStats} />
-      </TableCell>
       <TableCell className="whitespace-nowrap">
         <div className="grid gap-1">
-          <span>{formatPrice(candidate.cost_pp)}</span>
-          <span className="text-xs text-muted-foreground">Market {formatPrice(candidate.market_price_pp)}</span>
+          <span>{formatPrice(candidate.market_price_pp)}</span>
+          <span className="text-xs text-muted-foreground">{candidate.candidate.price.market_price_source ?? candidate.candidate.price.source ?? "no reference"}</span>
         </div>
       </TableCell>
       <TableCell className="min-w-[10rem]">

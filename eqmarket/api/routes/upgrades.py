@@ -23,6 +23,70 @@ AREA_ORDER = {"carried": 0, "bank": 1, "shared_bank": 2}
 DUPLICATE_EQUIPMENT_SLOTS = {"EAR", "WRIST", "FINGER"}
 DEFAULT_UPGRADE_STATS = ("ac", "hp")
 
+CANONICAL_ITEM_TYPE_FILTERS = (
+    "Armor",
+    "Augmentation",
+    "Aug_1Hand",
+    "Aug_2Hand",
+    "Aug_Range",
+    "Aug_Shield",
+    "Shield",
+    "Weapon",
+    "Weapon_1Hand",
+    "Weapon_2Hand",
+    "Weapon_H2H",
+    "Weapon_Range",
+    "Weapon_Throw",
+    "Weapon_Arrow",
+    "Bag",
+    "Food",
+    "Drink",
+    "Trophy",
+    "Familiar",
+)
+ITEM_TYPE_FILTER_BY_KEY = {re.sub(r"[^A-Z0-9]+", "", label.upper()): label for label in CANONICAL_ITEM_TYPE_FILTERS}
+ITEM_TYPE_FILTER_ALIASES = {
+    "AUG": "Augmentation",
+    "AUGMENT": "Augmentation",
+    "AUGMENTATION1HAND": "Aug_1Hand",
+    "AUGMENTATION2HAND": "Aug_2Hand",
+    "AUGMENTATIONRANGE": "Aug_Range",
+    "AUGMENTATIONSHIELD": "Aug_Shield",
+    "ONEHAND": "Weapon_1Hand",
+    "1HAND": "Weapon_1Hand",
+    "TWOHAND": "Weapon_2Hand",
+    "2HAND": "Weapon_2Hand",
+    "H2H": "Weapon_H2H",
+    "HANDTOHAND": "Weapon_H2H",
+    "RANGED": "Weapon_Range",
+    "RANGE": "Weapon_Range",
+    "THROWN": "Weapon_Throw",
+    "THROWING": "Weapon_Throw",
+    "ARROW": "Weapon_Arrow",
+}
+ARMOR_TYPE_CODES = {"10", "29", "72"}
+SHIELD_TYPE_CODES = {"8"}
+AUGMENTATION_TYPE_CODES = {"54"}
+WEAPON_1H_TYPE_CODES = {"0", "2", "3"}
+WEAPON_2H_TYPE_CODES = {"1", "4", "35"}
+WEAPON_H2H_TYPE_CODES = {"38", "45"}
+WEAPON_RANGE_TYPE_CODES = {"5"}
+WEAPON_THROW_TYPE_CODES = {"7"}
+WEAPON_ARROW_TYPE_CODES = {"27"}
+BAG_TYPE_CODES = {"67"}
+FOOD_TYPE_CODES = {"14"}
+DRINK_TYPE_CODES = {"15"}
+TROPHY_TYPE_CODES = {"68"}
+FAMILIAR_TYPE_CODES = {"69"}
+WEAPON_TYPE_CODES = (
+    WEAPON_1H_TYPE_CODES
+    | WEAPON_2H_TYPE_CODES
+    | WEAPON_H2H_TYPE_CODES
+    | WEAPON_RANGE_TYPE_CODES
+    | WEAPON_THROW_TYPE_CODES
+    | WEAPON_ARROW_TYPE_CODES
+)
+
 PAPERDOLL_SLOT_DEFINITIONS: tuple[tuple[str, str, int, str], ...] = (
     ("CHARM", "CHARM", 1, "Charm"),
     ("EAR_1", "EAR", 1, "Ear 1"),
@@ -233,12 +297,16 @@ def character_upgrades(
     slot: str | None = Query(None, min_length=1),
     max_price_pp: int | None = Query(None, ge=0),
     source: UpgradeSourceFilter = Query("all"),
+    item_type: str | None = Query(None, min_length=1),
+    class_filter: str | None = Query(None, min_length=1),
     stats: str = Query(",".join(DEFAULT_UPGRADE_STATS), min_length=1),
     better_only: bool = Query(True),
     limit: int = Query(DEFAULT_LIMIT, gt=0, le=200),
     local_listing_max_age_days: int = Query(DEFAULT_LOCAL_LISTING_MAX_AGE_DAYS, ge=1, le=3650),
 ) -> dict[str, Any]:
     selected_stats = _parse_upgrade_stats(stats)
+    item_type_filter = _normalize_optional_item_type_filter(item_type)
+    selected_class_filter = _normalize_optional_class_filter(class_filter)
     with closing(_connect_or_503(request.app.state.db_path)) as connection:
         character = _fetch_character_or_404(connection, character_name)
         db_server = _normalize_optional_server(character["server"])
@@ -253,14 +321,19 @@ def character_upgrades(
         )
 
     character_class = character["character_class"]
+    filter_character_class = selected_class_filter or character_class
+    exact_class_code = _character_class_code(filter_character_class)
+    inferred_class_codes = None if exact_class_code is not None else _infer_possible_character_classes(equipment)
     candidates = _upgrade_candidates(
         raw_candidates,
         equipment=equipment,
         slot_targets=slot_targets,
-        character_class=character_class,
+        character_class=filter_character_class,
+        possible_class_codes=inferred_class_codes,
         selected_stats=selected_stats,
         better_only=better_only,
         max_price_pp=max_price_pp,
+        item_type_filter=item_type_filter,
     )
     candidates.sort(key=lambda candidate: _candidate_sort_key(candidate, selected_stats))
     candidates = candidates[:limit]
@@ -273,6 +346,9 @@ def character_upgrades(
         "better_only": better_only,
         "source": source,
         "slot": _normalize_optional_slot_filter(slot),
+        "item_type": item_type_filter,
+        "class_filter": selected_class_filter,
+        "effective_classes": _effective_class_codes_payload(exact_class_code, inferred_class_codes),
         "max_price_pp": max_price_pp,
         "local_listing_max_age_days": local_listing_max_age_days,
         "limit": limit,
@@ -590,9 +666,11 @@ def _upgrade_candidates(
     equipment: dict[str, dict[str, Any]],
     slot_targets: list[dict[str, Any]],
     character_class: str | None,
+    possible_class_codes: set[str] | None,
     selected_stats: list[str],
     better_only: bool,
     max_price_pp: int | None,
+    item_type_filter: str | None,
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     seen_keys: set[tuple[str, int, str]] = set()
@@ -605,7 +683,9 @@ def _upgrade_candidates(
             continue
         if raw_candidate["source"] != "owned" and _is_no_drop(raw_candidate["item"]["flags"]):
             continue
-        if not _class_compatible(raw_candidate["item"]["classes"], character_class):
+        if not _item_type_matches(raw_candidate["item"], item_type_filter):
+            continue
+        if not _class_compatible(raw_candidate["item"]["classes"], character_class, possible_class_codes):
             continue
 
         cost_pp = raw_candidate["cost_pp"]
@@ -884,6 +964,129 @@ def _normalize_upgrade_stat(value: str) -> str | None:
     return key if key in UPGRADE_STAT_FIELDS else None
 
 
+def _normalize_optional_class_filter(class_filter: str | None) -> str | None:
+    if class_filter is None:
+        return None
+
+    value = class_filter.strip()
+    if not value:
+        return None
+    if _normalize_class_text(value) in {"ALL", "AUTO", "ANY"}:
+        return None
+
+    class_code = _character_class_code(value)
+    if class_code is None:
+        valid = ", ".join(CLASS_BIT_BY_CODE)
+        raise HTTPException(status_code=400, detail=f"Unknown character class: {class_filter}. Valid classes: {valid}")
+    return class_code
+
+
+def _effective_class_codes_payload(
+    exact_class_code: str | None,
+    inferred_class_codes: set[str] | None,
+) -> list[str] | None:
+    if exact_class_code is not None:
+        return [exact_class_code]
+    if inferred_class_codes:
+        return sorted(inferred_class_codes, key=lambda code: CLASS_BIT_BY_CODE.get(code, 10**9))
+    return None
+
+
+def _normalize_optional_item_type_filter(item_type: str | None) -> str | None:
+    if item_type is None:
+        return None
+
+    value = item_type.strip()
+    if not value:
+        return None
+
+    key = _normalize_item_type_key(value)
+    if key == "ALL":
+        return None
+    if key in ITEM_TYPE_FILTER_BY_KEY:
+        return ITEM_TYPE_FILTER_BY_KEY[key]
+    if key in ITEM_TYPE_FILTER_ALIASES:
+        return ITEM_TYPE_FILTER_ALIASES[key]
+    return value
+
+
+def _item_type_matches(item: dict[str, Any], item_type_filter: str | None) -> bool:
+    if item_type_filter is None:
+        return True
+
+    filter_key = _normalize_item_type_key(item_type_filter)
+    raw_key = _normalize_item_type_key(item.get("item_type"))
+    type_code = _item_type_code(item.get("item_type"))
+
+    if raw_key == filter_key or (type_code is not None and type_code == item_type_filter.strip()):
+        return True
+
+    if item_type_filter == "Armor":
+        return _is_armor_type(item, type_code, raw_key)
+    if item_type_filter == "Augmentation":
+        return _matches_type_group(type_code, raw_key, AUGMENTATION_TYPE_CODES, {"AUGMENTATION", "AUGMENT"})
+    if item_type_filter in {"Aug_1Hand", "Aug_2Hand", "Aug_Range", "Aug_Shield"}:
+        return _matches_type_group(type_code, raw_key, AUGMENTATION_TYPE_CODES, {"AUGMENTATION", "AUGMENT", filter_key})
+    if item_type_filter == "Shield":
+        return _matches_type_group(type_code, raw_key, SHIELD_TYPE_CODES, {"SHIELD"})
+    if item_type_filter == "Weapon":
+        return _is_weapon_type(item, type_code, raw_key)
+    if item_type_filter == "Weapon_1Hand":
+        return _matches_type_group(type_code, raw_key, WEAPON_1H_TYPE_CODES, {"1HSLASHING", "1HBLUNT", "PIERCING", "1HPIERCING", "WEAPON1HAND"})
+    if item_type_filter == "Weapon_2Hand":
+        return _matches_type_group(type_code, raw_key, WEAPON_2H_TYPE_CODES, {"2HSLASHING", "2HBLUNT", "2HPIERCING", "WEAPON2HAND"})
+    if item_type_filter == "Weapon_H2H":
+        return _matches_type_group(type_code, raw_key, WEAPON_H2H_TYPE_CODES, {"HANDTOHAND", "H2H", "WEAPONH2H"})
+    if item_type_filter == "Weapon_Range":
+        return _matches_type_group(type_code, raw_key, WEAPON_RANGE_TYPE_CODES, {"ARCHERY", "BOW", "RANGE", "RANGED", "WEAPONRANGE"})
+    if item_type_filter == "Weapon_Throw":
+        return _matches_type_group(type_code, raw_key, WEAPON_THROW_TYPE_CODES, {"THROW", "THROWN", "THROWING", "WEAPONTHROW"})
+    if item_type_filter == "Weapon_Arrow":
+        return _matches_type_group(type_code, raw_key, WEAPON_ARROW_TYPE_CODES, {"ARROW", "FLETCHEDARROWS", "WEAPONARROW"})
+    if item_type_filter == "Bag":
+        return _matches_type_group(type_code, raw_key, BAG_TYPE_CODES, {"BAG", "CONTAINER"})
+    if item_type_filter == "Food":
+        return _matches_type_group(type_code, raw_key, FOOD_TYPE_CODES, {"FOOD"})
+    if item_type_filter == "Drink":
+        return _matches_type_group(type_code, raw_key, DRINK_TYPE_CODES, {"DRINK"})
+    if item_type_filter == "Trophy":
+        return _matches_type_group(type_code, raw_key, TROPHY_TYPE_CODES, {"TROPHY"})
+    if item_type_filter == "Familiar":
+        return _matches_type_group(type_code, raw_key, FAMILIAR_TYPE_CODES, {"FAMILIAR"})
+
+    return False
+
+
+def _is_armor_type(item: dict[str, Any], type_code: str | None, raw_key: str) -> bool:
+    if _matches_type_group(type_code, raw_key, ARMOR_TYPE_CODES, {"ARMOR", "JEWELRY"}):
+        return True
+    if _is_weapon_type(item, type_code, raw_key):
+        return False
+    if _matches_type_group(type_code, raw_key, SHIELD_TYPE_CODES | AUGMENTATION_TYPE_CODES | BAG_TYPE_CODES | FOOD_TYPE_CODES | DRINK_TYPE_CODES, {"SHIELD", "AUGMENTATION", "AUGMENT", "BAG", "CONTAINER", "FOOD", "DRINK"}):
+        return False
+    return bool(item.get("slot_labels"))
+
+
+def _is_weapon_type(item: dict[str, Any], type_code: str | None, raw_key: str) -> bool:
+    if _matches_type_group(type_code, raw_key, WEAPON_TYPE_CODES, {"WEAPON", "1HSLASHING", "2HSLASHING", "PIERCING", "1HPIERCING", "1HBLUNT", "2HBLUNT", "2HPIERCING", "HANDTOHAND", "H2H", "ARCHERY", "BOW", "THROW", "THROWN", "THROWING", "ARROW"}):
+        return True
+    combat = item.get("combat", {})
+    return (_as_int(combat.get("damage")) or 0) > 0 and (_as_int(combat.get("delay")) or 0) > 0
+
+
+def _matches_type_group(type_code: str | None, raw_key: str, codes: set[str], names: set[str]) -> bool:
+    return (type_code is not None and type_code in codes) or raw_key in names
+
+
+def _item_type_code(value: Any) -> str | None:
+    parsed = _coerce_non_negative_int(value)
+    return str(parsed) if parsed is not None else None
+
+
+def _normalize_item_type_key(value: Any) -> str:
+    return _normalize_class_text("" if value is None else str(value))
+
+
 def _delta_number(deltas: dict[str, Any], stat: str) -> float | None:
     value = deltas.get(stat)
     if value is None:
@@ -1020,7 +1223,31 @@ def _equipment_stat_select(table_alias: str) -> str:
     return ",\n            ".join(f"{table_alias}.{field} AS equipment_{field}" for field in fields)
 
 
-def _class_compatible(item_classes: Any, character_class: str | None) -> bool:
+def _infer_possible_character_classes(equipment: dict[str, dict[str, Any]]) -> set[str] | None:
+    possible_classes: set[str] | None = None
+    all_class_codes = set(CLASS_BIT_BY_CODE)
+
+    for slot in equipment.values():
+        item = slot.get("item")
+        if item is None:
+            continue
+
+        item_class_codes = _class_codes_from_value(item.get("classes"))
+        if not item_class_codes or item_class_codes == all_class_codes:
+            continue
+
+        possible_classes = set(item_class_codes) if possible_classes is None else possible_classes & item_class_codes
+        if not possible_classes:
+            return None
+
+    return possible_classes
+
+
+def _class_compatible(
+    item_classes: Any,
+    character_class: str | None,
+    possible_class_codes: set[str] | None = None,
+) -> bool:
     text = "" if item_classes is None else str(item_classes).strip()
     if not text:
         return True
@@ -1028,19 +1255,38 @@ def _class_compatible(item_classes: Any, character_class: str | None) -> bool:
         return True
 
     class_code = _character_class_code(character_class)
-    if class_code is None:
-        return True
+    if class_code is not None:
+        item_class_codes = _class_codes_from_value(text)
+        return item_class_codes is None or class_code in item_class_codes
+
+    if possible_class_codes:
+        item_class_codes = _class_codes_from_value(text)
+        return item_class_codes is None or bool(item_class_codes & possible_class_codes)
+
+    return True
+
+
+def _class_codes_from_value(item_classes: Any) -> set[str] | None:
+    text = "" if item_classes is None else str(item_classes).strip()
+    if not text:
+        return None
+    if "ALL" in _class_tokens(text):
+        return set(CLASS_BIT_BY_CODE)
 
     class_mask = _coerce_non_negative_int(text)
     if class_mask is not None:
-        class_bit = CLASS_BIT_BY_CODE.get(class_code)
-        return class_bit is None or bool(class_mask & class_bit)
+        return {class_code for class_code, class_bit in CLASS_BIT_BY_CODE.items() if class_mask & class_bit}
 
     normalized_text = _normalize_class_text(text)
-    aliases = CLASS_ALIASES.get(class_code, {class_code})
-    tokens = _class_tokens(text)
-    normalized_tokens = {_normalize_class_text(token) for token in tokens}
-    return any(_normalize_class_text(alias) in normalized_tokens or _normalize_class_text(alias) in normalized_text for alias in aliases)
+    normalized_tokens = {_normalize_class_text(token) for token in _class_tokens(text)}
+    class_codes: set[str] = set()
+    for class_code, aliases in CLASS_ALIASES.items():
+        if any(
+            _normalize_class_text(alias) in normalized_tokens or _normalize_class_text(alias) in normalized_text
+            for alias in aliases
+        ):
+            class_codes.add(class_code)
+    return class_codes or None
 
 
 def _character_class_code(character_class: str | None) -> str | None:
@@ -1052,7 +1298,13 @@ def _character_class_code(character_class: str | None) -> str | None:
     normalized_key = _normalize_class_text(normalized)
     if normalized_key in UNKNOWN_CLASS_TOKENS:
         return None
-    return CLASS_CODE_BY_NAME.get(normalized, CLASS_CODE_BY_NAME.get(normalized.replace(" ", ""), normalized.upper()))
+
+    class_code = CLASS_CODE_BY_NAME.get(normalized, CLASS_CODE_BY_NAME.get(normalized.replace(" ", "")))
+    if class_code is not None:
+        return class_code
+
+    upper_value = normalized.upper()
+    return upper_value if upper_value in CLASS_BIT_BY_CODE else None
 
 
 def _class_tokens(value: str) -> set[str]:

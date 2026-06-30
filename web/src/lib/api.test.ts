@@ -697,6 +697,9 @@ describe("page API helpers", () => {
       better_only: false,
       source: "all",
       slot: "LEGS",
+      item_type: "Armor",
+      class_filter: "WAR",
+      effective_classes: ["WAR"],
       max_price_pp: 20000,
       local_listing_max_age_days: 30,
       limit: 25,
@@ -708,13 +711,13 @@ describe("page API helpers", () => {
     await expect(
       fetchCharacterUpgrades(
         "Dread Bank",
-        { slot: "LEGS", source: "all", stats: ["sv_fire", "hp"], betterOnly: false, maxPricePp: 20000, limit: 25 },
+        { slot: "LEGS", source: "all", itemType: "Armor", classFilter: "WAR", stats: ["sv_fire", "hp"], betterOnly: false, maxPricePp: 20000, limit: 25 },
         fetcher
       )
     ).resolves.toEqual(upgradesPayload)
 
     expect(fetcher).toHaveBeenCalledWith(
-      "/api/characters/Dread%20Bank/upgrades?slot=LEGS&max_price_pp=20000&source=all&stats=sv_fire%2Chp&better_only=false&limit=25",
+      "/api/characters/Dread%20Bank/upgrades?slot=LEGS&max_price_pp=20000&source=all&item_type=Armor&class_filter=WAR&stats=sv_fire%2Chp&better_only=false&limit=25",
       {
         headers: {
           Accept: "application/json",

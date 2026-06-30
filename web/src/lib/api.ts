@@ -739,6 +739,8 @@ export type CharacterUpgradeFilters = {
   slot?: string | null
   maxPricePp?: number | null
   source?: CharacterUpgradeSourceFilter
+  itemType?: string | null
+  classFilter?: string | null
   stats?: CharacterUpgradeStat[]
   betterOnly?: boolean
   limit?: number
@@ -847,6 +849,9 @@ export type CharacterUpgradesResponse = {
   better_only: boolean
   source: CharacterUpgradeSourceFilter
   slot: string | null
+  item_type: string | null
+  class_filter: string | null
+  effective_classes: string[] | null
   max_price_pp: number | null
   local_listing_max_age_days: number
   limit: number
@@ -1351,6 +1356,8 @@ export async function fetchCharacterUpgrades(
       slot: filters.slot?.trim() || undefined,
       max_price_pp: filters.maxPricePp,
       source: filters.source,
+      item_type: filters.itemType?.trim() || undefined,
+      class_filter: filters.classFilter?.trim() || undefined,
       stats: filters.stats && filters.stats.length > 0 ? filters.stats.join(",") : undefined,
       better_only: filters.betterOnly,
       limit: filters.limit,

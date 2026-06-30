@@ -40,6 +40,48 @@ export const CHARACTER_UPGRADE_SLOTS = [
   "AMMO",
 ] as const
 
+export const CHARACTER_CLASS_FILTERS = [
+  { value: "WAR", label: "Warrior" },
+  { value: "CLR", label: "Cleric" },
+  { value: "PAL", label: "Paladin" },
+  { value: "RNG", label: "Ranger" },
+  { value: "SHD", label: "Shadow Knight" },
+  { value: "DRU", label: "Druid" },
+  { value: "MNK", label: "Monk" },
+  { value: "BRD", label: "Bard" },
+  { value: "ROG", label: "Rogue" },
+  { value: "SHM", label: "Shaman" },
+  { value: "NEC", label: "Necromancer" },
+  { value: "WIZ", label: "Wizard" },
+  { value: "MAG", label: "Magician" },
+  { value: "ENC", label: "Enchanter" },
+  { value: "BST", label: "Beastlord" },
+  { value: "BER", label: "Berserker" },
+] as const
+
+export const CHARACTER_UPGRADE_ITEM_TYPES = [
+  "all",
+  "Armor",
+  "Augmentation",
+  "Aug_1Hand",
+  "Aug_2Hand",
+  "Aug_Range",
+  "Aug_Shield",
+  "Shield",
+  "Weapon",
+  "Weapon_1Hand",
+  "Weapon_2Hand",
+  "Weapon_H2H",
+  "Weapon_Range",
+  "Weapon_Throw",
+  "Weapon_Arrow",
+  "Bag",
+  "Food",
+  "Drink",
+  "Trophy",
+  "Familiar",
+] as const
+
 export const CHARACTER_UPGRADE_STATS: CharacterUpgradeStat[] = [
   "ac",
   "hp",
@@ -175,6 +217,39 @@ export function upgradeSourceLabel(source: CharacterUpgradeSource): string {
     case "market_price":
       return "Market price"
   }
+}
+
+export function upgradeItemTypeLabel(itemType: string | null | undefined): string {
+  if (!itemType || itemType === "all") {
+    return "All"
+  }
+
+  return itemType
+}
+
+export function upgradeClassLabel(classCode: string | null | undefined): string {
+  if (!classCode || classCode === "auto") {
+    return "Auto"
+  }
+
+  return CHARACTER_CLASS_FILTERS.find((option) => option.value === classCode)?.label ?? classCode
+}
+
+export function upgradeEffectiveClassLabel(classCodes: string[] | null | undefined): string {
+  if (!classCodes || classCodes.length === 0) {
+    return "Auto"
+  }
+
+  if (classCodes.length <= 3) {
+    return classCodes.map(upgradeClassLabel).join(" / ")
+  }
+
+  return `${classCodes.length} inferred classes`
+}
+
+export function isUnknownCharacterClass(characterClass: string | null | undefined): boolean {
+  const normalized = characterClass?.trim().toUpperCase()
+  return !normalized || normalized === "UNKNOWN" || normalized === "CLASS UNKNOWN"
 }
 
 export function upgradeStatLabel(stat: CharacterUpgradeStat | string): string {
