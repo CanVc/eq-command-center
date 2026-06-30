@@ -2,6 +2,7 @@ import { AlertTriangle, ArrowDown, ArrowUp, Backpack, Plus, RotateCcw, Shield, S
 import { useEffect, useMemo, useState } from "react"
 
 import { EquipmentPaperdoll } from "@/components/equipment-paperdoll"
+import { ItemIcon } from "@/components/item-icon"
 import { ItemLink } from "@/components/item-link"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -765,7 +766,12 @@ function UpgradeCandidateRow({
       </TableCell>
       <TableCell className="min-w-[18rem] whitespace-normal">
         <div className="flex min-w-0 items-start gap-2">
-          <UpgradeItemIcon item={candidate.candidate} />
+          <ItemIcon
+            iconUrl={candidate.candidate.icon_url}
+            iconId={candidate.candidate.icon_id}
+            itemId={candidate.candidate.item_id}
+            name={candidate.candidate.name}
+          />
           <div className="min-w-0">
             <ItemLink itemId={candidate.candidate.item_id} name={candidate.candidate.name} server={server} details={details} />
             <p className="mt-1 text-xs text-muted-foreground">
@@ -831,22 +837,6 @@ function UpgradeDeltaList({
         </Badge>
       ))}
     </div>
-  )
-}
-
-function UpgradeItemIcon({ item }: { item: Pick<CharacterUpgradeCandidate["candidate"], "icon_url" | "icon_id" | "name"> }) {
-  if (item.icon_url) {
-    return <img src={item.icon_url} alt="" className="size-9 shrink-0 rounded-md border bg-muted object-cover" loading="lazy" />
-  }
-
-  return (
-    <span
-      aria-hidden="true"
-      className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-muted text-[0.62rem] font-semibold text-muted-foreground"
-      title={item.icon_id ? `Icon ${item.icon_id}` : `No icon for ${item.name}`}
-    >
-      {item.icon_id ? `#${item.icon_id}` : item.name.slice(0, 2).toUpperCase()}
-    </span>
   )
 }
 
@@ -948,7 +938,7 @@ function InventoryRow({ item, server }: { item: CharacterInventoryGroup; server:
     <TableRow className={cn(specialImport && "bg-muted/40 text-muted-foreground")}>
       <TableCell className="min-w-[16rem] whitespace-normal">
         <div className="flex min-w-0 items-start gap-2">
-          <InventoryIcon item={itemDetail} />
+          <ItemIcon iconUrl={itemDetail.icon_url} iconId={itemDetail.icon_id} itemId={itemDetail.item_id} name={itemDetail.name} />
           <div className="min-w-0">
             <ItemLink
               itemId={itemDetail.item_id}
@@ -994,26 +984,6 @@ function InventoryRow({ item, server }: { item: CharacterInventoryGroup; server:
         </div>
       </TableCell>
     </TableRow>
-  )
-}
-
-function InventoryIcon({
-  item,
-}: {
-  item: Pick<CharacterInventoryGroup["item"], "icon_url" | "icon_id" | "name">
-}) {
-  if (item.icon_url) {
-    return <img src={item.icon_url} alt="" className="size-9 shrink-0 rounded-md border bg-muted object-cover" loading="lazy" />
-  }
-
-  return (
-    <span
-      aria-hidden="true"
-      className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-muted text-[0.62rem] font-semibold text-muted-foreground"
-      title={item.icon_id ? `Icon ${item.icon_id}` : `No icon for ${item.name}`}
-    >
-      {item.icon_id ? `#${item.icon_id}` : item.name.slice(0, 2).toUpperCase()}
-    </span>
   )
 }
 

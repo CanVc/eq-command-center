@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import type { ReactNode } from "react"
 import { ArrowUpDown, Check, DollarSign, EyeOff, RotateCcw, Save } from "lucide-react"
 
+import { ItemIcon } from "@/components/item-icon"
 import { ItemLink } from "@/components/item-link"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -470,7 +471,7 @@ function SellCandidatesTable({
             <TableRow key={sellCandidateKey(item)} className={cn(item.category !== "sellable" && "bg-muted/30")}>
               <TableCell className="min-w-[16rem] whitespace-normal">
                 <div className="flex min-w-0 items-start gap-2">
-                  <SellItemIcon item={item} />
+                  <ItemIcon iconId={item.icon_id} itemId={item.item_id} name={item.item_name} />
                   <div className="min-w-0">
                     <ItemLink
                       itemId={item.item_id}
@@ -549,18 +550,6 @@ function SortableTableHead({
         ) : null}
       </button>
     </TableHead>
-  )
-}
-
-function SellItemIcon({ item }: { item: InventorySellCandidate }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-muted text-[0.62rem] font-semibold text-muted-foreground"
-      title={item.icon_id ? `Icon ${item.icon_id}` : `No icon for ${item.item_name}`}
-    >
-      {item.icon_id ? `#${item.icon_id}` : item.item_name.slice(0, 2).toUpperCase()}
-    </span>
   )
 }
 
